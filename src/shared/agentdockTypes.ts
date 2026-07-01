@@ -34,3 +34,23 @@ export type LaunchRequest = {
   workspaceId: string;
   command: string;
 };
+
+export type TerminalWriteRequest = {
+  sessionId: string;
+  input: string;
+};
+
+export type TerminalResizeRequest = {
+  sessionId: string;
+  cols: number;
+  rows: number;
+};
+
+export type TerminalKillRequest = {
+  sessionId: string;
+};
+
+export type TerminalOutputEvent = {
+  sessionId: string;
+  data: string;
+};

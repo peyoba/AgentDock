@@ -2,7 +2,14 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSessionService } from './sessionService.js';
-import type { ApiProfile, LaunchRequest, Workspace } from '../shared/agentdockTypes.js';
+import type {
+  ApiProfile,
+  LaunchRequest,
+  TerminalKillRequest,
+  TerminalResizeRequest,
+  TerminalWriteRequest,
+  Workspace,
+} from '../shared/agentdockTypes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sessionService = createSessionService();
@@ -41,6 +48,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle('profiles:list', () => sampleProfiles);
   ipcMain.handle('workspaces:list', () => sampleWorkspaces);
   ipcMain.handle('sessions:list', () => sessionService.list());
+  ipcMain.handle('terminal:write', (_event, request: TerminalWriteRequest) =>
+    sessionService.writeTerminal(request),
+  );
+  ipcMain.handle('terminal:resize', (_event, request: TerminalResizeRequest) =>
+    sessionService.resizeTerminal(request),
+  );
+  ipcMain.handle('terminal:kill', (_event, request: TerminalKillRequest) =>
+    sessionService.killTerminal(request),
+  );
   ipcMain.handle('sessions:launch', async (_event, request: LaunchRequest) => {
     const profile = sampleProfiles.find((item) => item.id === request.profileId);
     const workspace = sampleWorkspaces.find((item) => item.id === request.workspaceId);
@@ -72,6 +88,11 @@ function createMainWindow(): void {
       contextIsolation: true,
     },
   });
+
+  const unsubscribeTerminalOutput = sessionService.onTerminalOutput((event) => {
+    window.webContents.send('terminal:output', event);
+  });
+  window.on('closed', unsubscribeTerminalOutput);
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
   if (devServerUrl) {

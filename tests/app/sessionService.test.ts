@@ -24,6 +24,9 @@ function createFakeRuntime() {
         write() {},
         resize() {},
         kill() {},
+        onData() {
+          return () => {};
+        },
       };
     },
   };

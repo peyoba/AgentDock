@@ -21,6 +21,9 @@ function createService() {
         write() {},
         resize() {},
         kill() {},
+        onData() {
+          return () => {};
+        },
       };
     },
   };

@@ -5,11 +5,14 @@ export type PtySpawnRequest = {
   env: Record<string, string>;
 };
 
+export type PtyDataHandler = (data: string) => void;
+
 export type PtySession = {
   id: string;
   write(input: string): void;
   resize(cols: number, rows: number): void;
   kill(): void;
+  onData(listener: PtyDataHandler): () => void;
 };
 
 export type PtyAdapter = {
