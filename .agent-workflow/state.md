@@ -32,7 +32,7 @@ dispatch
 无
 
 ## 下一步
-继续按 TDD 执行第二批任务：adapter contracts、metadata stores、preload IPC 安全边界、终端优先 Renderer 组件。
+继续按 TDD 执行第三批任务：终端优先 Renderer 组件、当前会话详情默认收起测试、API 配置按工具类型分组测试、主进程内存 session orchestration。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -59,8 +59,14 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-02 | `npm run test` | PASS：3 files / 5 tests |
 | 2026-07-02 | `npm run build` | PASS |
 | 2026-07-02 | key-like secret scan | 未发现真实 API key；命中项仅为历史文档/mockup 占位符 |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-02 | `npm run test` | PASS：6 files / 11 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | key-like secret scan | 未发现真实 API key；命中项仅为历史文档/mockup 占位符 |
 
 ## 批次进展
 | 批次 | 状态 | 产出 |
 |------|------|------|
 | Phase 1 Batch 1 | PASS | 测试框架、共享类型、密钥脱敏、Claude/Codex 启动环境生成；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-1.md` |
+| Phase 1 Batch 2 | PASS | Keychain/PTY adapter contracts、Profile/Workspace metadata stores、preload IPC 安全边界；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-2.md` |
