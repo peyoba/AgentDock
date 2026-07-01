@@ -40,7 +40,8 @@ p {
 
 .header-actions,
 .command-bar,
-.session-tabs {
+.session-tabs,
+.tool-type-tabs {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -50,7 +51,8 @@ p {
 .primary-button,
 .command-bar button,
 .mode-chip,
-.session-tabs button {
+.session-tabs button,
+.tool-type-tabs button {
   border: 1px solid #e5e7eb;
   border-radius: 14px;
   background: #fff;
@@ -84,6 +86,14 @@ p {
   background: #ecfdf5;
   border-color: #a7f3d0;
   color: #047857;
+}
+
+.workspace-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
 }
 
 .terminal-card {
@@ -142,4 +152,61 @@ p {
   background: #0b1020;
   color: #d1d5db;
   font: 14px/1.7 "SF Mono", Menlo, Consolas, monospace;
+}
+
+.session-details,
+.api-config-panel {
+  border-radius: 22px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+}
+
+.session-details {
+  width: 280px;
+  padding: 18px;
+}
+
+.session-details h2,
+.api-config-panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.session-details dl {
+  margin: 14px 0 0;
+}
+
+.session-details dt {
+  margin-top: 12px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.session-details dd {
+  margin: 4px 0 0;
+  color: #111827;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.api-config-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 16px;
+}
+
+.tool-type-tabs {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.tool-type-tabs button:first-child {
+  background: #111827;
+  border-color: #111827;
+  color: #fff;
 }
