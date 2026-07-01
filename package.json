@@ -11,6 +11,8 @@
     "dev:electron": "wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 tsc -p tsconfig.main.json && electron .",
     "build": "npm run typecheck && vite build && tsc -p tsconfig.main.json",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.main.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "workflow:doctor": "python3 scripts/workflow.py doctor",
     "test:workflow": "python3 -m pytest tests/test_workflow_cli.py -v"
   },
@@ -20,6 +22,8 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^24.0.10",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
@@ -27,8 +31,10 @@
     "concurrently": "^9.2.0",
     "cross-env": "^7.0.3",
     "electron": "^37.2.0",
+    "jsdom": "^29.1.1",
     "typescript": "^5.8.3",
     "vite": "^7.0.0",
+    "vitest": "^4.1.9",
     "wait-on": "^8.0.3"
   },
   "optionalDependencies": {
