@@ -1,7 +1,7 @@
 # Agent Workflow State
 
 ## 当前任务
-AgentDock 开发前准备已完成：项目创建、工作流导入、需求/UI/架构文档导入、开发约束配置、最小 Electron/React 骨架验证、GitHub 仓库创建并推送。
+AgentDock Phase 1 MVP Foundation：已进入正式开发计划阶段，第一阶段 SPEC 与实施计划已起草，等待用户确认后再写代码。
 
 ## 风险等级
 L3
@@ -9,10 +9,10 @@ L3
 触发原因：Electron 桌面应用、内嵌终端 PTY、API Key/Keychain、环境变量注入、外部 CLI（Claude/Codex）、GitHub 仓库初始化。
 
 ## 当前 Hook
-delivery_hook
+plan_review_hook
 
 ## 当前阶段
-ready-for-development
+plan-review
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
@@ -21,6 +21,7 @@ ready-for-development
 | ⑦文档工程师 | PASS | docs/PROJECT_REQUIREMENTS.md、README.md、PROJECT_PROFILE.md、DECISIONS.md |
 | ⑧集成工程师 | PASS | workflow doctor、workflow tests、typecheck、build |
 | ⑨部署工程师 | PASS | GitHub private repo: https://github.com/peyoba/AgentDock |
+| 主 Agent | RUNNING | 第一阶段 SPEC 与实施计划：`.agent-workflow/specs/2026-07-01-agentdock-phase-1-mvp-foundation.md`、`docs/plans/2026-07-01-agentdock-phase-1-mvp-foundation.md` |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -28,10 +29,10 @@ ready-for-development
 无
 
 ## 用户待确认
-下一窗口开始正式功能开发前，确认第一批任务范围。
+确认是否按 Phase 1 MVP Foundation 计划执行；确认是否允许新增 dev-only 测试依赖 `vitest`、`jsdom`、`@testing-library/react`、`@testing-library/jest-dom`。
 
 ## 下一步
-新窗口中从 `AGENTS.md`、`PROJECT_PROFILE.md`、`docs/PROJECT_REQUIREMENTS.md` 和本状态文件开始，进入正式开发计划。
+用户确认后进入 dispatch_hook，按 L3 流程先建立测试框架，再按 TDD 执行第一阶段任务；用户确认前不写业务代码。
 
 ## 决策记录
 | 时间 | 决策 | 理由 |
