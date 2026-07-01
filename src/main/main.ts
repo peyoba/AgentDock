@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createKeytarAdapter } from './adapters/keychainAdapter.js';
+import { createNodePtyAdapter } from './adapters/ptyAdapter.js';
 import { createSessionService } from './sessionService.js';
 import type {
   ApiProfile,
@@ -12,7 +14,11 @@ import type {
 } from '../shared/agentdockTypes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const sessionService = createSessionService();
+const sessionService = createSessionService({
+  keychain: createKeytarAdapter(),
+  pty: createNodePtyAdapter(),
+  appDataPath: app.getPath('userData'),
+});
 
 const sampleProfiles: ApiProfile[] = [
   {
