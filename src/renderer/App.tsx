@@ -23,6 +23,7 @@ const tabs: SessionTab[] = [
 
 export default function App(): React.JSX.Element {
   const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const activeSessionId = tabs.find((tab) => tab.active)?.id;
 
   return (
     <main className="app-shell">
@@ -36,7 +37,7 @@ export default function App(): React.JSX.Element {
             detailsOpen={detailsOpen}
             onToggleDetails={() => setDetailsOpen((open) => !open)}
           />
-          <TerminalPane />
+          <TerminalPane sessionId={activeSessionId} />
         </section>
 
         <SessionDetailsDrawer open={detailsOpen} />
