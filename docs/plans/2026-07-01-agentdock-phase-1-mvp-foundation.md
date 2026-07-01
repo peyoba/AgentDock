@@ -1,84 +1,84 @@
-# AgentDock Phase 1 MVP Foundation Implementation Plan
+# AgentDock 第一阶段 MVP 基础层实施计划
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **给 Claude / Codex：** 执行本计划时必须使用 `superpowers:executing-plans`，并按任务逐项执行、逐项验证。
 
-**Goal:** Build the first safe, testable AgentDock MVP foundation: typed Profile/Workspace/Session contracts, secret-safe launch environment generation, IPC/preload boundaries, and the terminal-first renderer shell.
+**目标：** 先交付一个安全、可测试的 AgentDock MVP 基础层，包括 Profile / Workspace / Session 类型契约、密钥安全预览、启动环境生成、IPC / preload 边界，以及终端优先的渲染层外壳。
 
-**Architecture:** Phase 1 should create the contract and UI foundation before connecting real `node-pty` and macOS Keychain operations. The main process owns metadata, launch environment generation, and future adapters; the renderer only receives redacted metadata and sends typed launch requests through preload IPC. Real PTY/Keychain wiring remains Phase 2 so Phase 1 can be TDD-driven without handling real secrets.
+**架构：** 第一阶段先建立类型、测试、UI 和安全边界，不直接接入真实 `node-pty` 或 macOS Keychain。主进程负责 metadata、启动环境生成和后续 adapter 边界；渲染进程只能拿到脱敏后的配置数据，并通过 preload 暴露的受控 IPC 发起请求。真实 PTY 和 Keychain 集成放到第二阶段，避免在测试边界未建立前处理真实密钥。
 
-**Tech Stack:** Electron + React + TypeScript + Vite + xterm.js CSS, npm. Recommended test addition: Vitest + jsdom + React Testing Library as dev-only dependencies, pending user confirmation.
-
----
-
-## Phase 1 Scope
-
-### Build now
-
-- Profile / Workspace / Session TypeScript domain types.
-- Secret redaction helpers and environment preview helpers.
-- Claude and Codex launch environment builders.
-- Adapter interfaces for Keychain and PTY without real native implementation.
-- Main/preload IPC contracts for listing profiles/workspaces and launching a session.
-- Renderer split into focused components matching the accepted v3b terminal-first UI.
-- Current session details collapsed by default.
-- API config UI skeleton grouped by tool type: Claude / Codex / Gemini / OpenCode / 全部.
-
-### Do not build in Phase 1
-
-- Real `node-pty` session spawning.
-- Real macOS Keychain read/write.
-- Connection testing to external providers.
-- Cost statistics, request logs, API gateway, routing, fallback.
-- Complex dashboard, IDE, diff viewer, or split panes.
-
-### Open decision before coding
-
-Phase 1 TDD needs a JavaScript/React test runner. The current repo only has Python workflow tests and TypeScript build checks.
-
-Recommended: add dev-only dependencies:
-
-```bash
-npm install -D vitest jsdom @testing-library/react @testing-library/jest-dom
-```
-
-Why: app behavior involves TypeScript domain functions and React UI states; `npm run typecheck` alone cannot prove behavior.
-
-If dependency additions are not approved, fall back to `tsc`/build-only verification and manual UI checks, but that is weaker and does not satisfy strong TDD as well.
+**技术栈：** Electron + React + TypeScript + Vite + xterm.js CSS，包管理器固定为 npm。建议新增 dev-only 测试依赖：Vitest + jsdom + React Testing Library；新增依赖前必须先得到用户确认。
 
 ---
 
-## Task 1: Add app test harness
+## 第一阶段范围
 
-**Files:**
-- Modify: `package.json`
-- Modify: `package-lock.json`
-- Create: `vitest.config.ts`
-- Create: `src/test/setup.ts`
-- Create: `tests/app/smoke.test.ts`
+### 本阶段要做
 
-**Step 1: Confirm dependency decision**
+- 定义 Profile / Workspace / Session 的 TypeScript 领域类型。
+- 定义密钥脱敏工具和环境变量预览工具。
+- 实现 Claude / Codex 启动环境生成器。
+- 定义 Keychain / PTY adapter interface，但不接入真实 native 实现。
+- 定义 main / preload IPC 契约：列出 Profile、列出 Workspace、启动会话、列出会话。
+- 将 Renderer 拆成职责清晰的组件，匹配已确认的 v3b 终端优先 UI。
+- 当前会话详情默认收起。
+- API 配置 UI 骨架按工具类型分组：Claude / Codex / Gemini / OpenCode / 全部。
 
-Ask the user to confirm adding dev-only test dependencies:
+### 本阶段不做
+
+- 不启动真实 `node-pty` 会话。
+- 不读写真实 macOS Keychain。
+- 不做外部 provider 连接测试。
+- 不做成本统计、请求日志、API gateway、自动路由、fallback。
+- 不做复杂 Dashboard、完整 IDE、diff viewer 或复杂分屏。
+
+### 写代码前必须确认的事项
+
+第一阶段要按 TDD 开发，需要 JavaScript / React 测试运行器。当前仓库只有 Python workflow 测试和 TypeScript 构建检查，无法覆盖 React UI 状态和 TypeScript 业务函数行为。
+
+推荐新增 dev-only 依赖：
 
 ```bash
 npm install -D vitest jsdom @testing-library/react @testing-library/jest-dom
 ```
 
-Expected: user confirms before changing `package.json` / `package-lock.json`.
+原因：AgentDock 的第一阶段会涉及 TypeScript 领域函数、React 默认收起状态、IPC 类型契约和安全脱敏逻辑；仅靠 `npm run typecheck` 不能证明行为正确。
 
-**Step 2: Install dependencies**
+如果用户不批准新增测试依赖，则只能退回到 `tsc` / build / 手工 UI 检查，但这会弱化 TDD，不推荐。
 
-Run:
+---
+
+## 任务 1：建立应用测试框架
+
+**文件：**
+- 修改：`package.json`
+- 修改：`package-lock.json`
+- 新建：`vitest.config.ts`
+- 新建：`src/test/setup.ts`
+- 新建：`tests/app/smoke.test.ts`
+
+**步骤 1：确认依赖变更**
+
+先请求用户确认允许新增 dev-only 测试依赖：
 
 ```bash
 npm install -D vitest jsdom @testing-library/react @testing-library/jest-dom
 ```
 
-Expected: `package.json` and `package-lock.json` update with dev dependencies only.
+预期：用户确认后，才允许修改 `package.json` 和 `package-lock.json`。
 
-**Step 3: Add test scripts**
+**步骤 2：安装依赖**
 
-Add scripts:
+执行：
+
+```bash
+npm install -D vitest jsdom @testing-library/react @testing-library/jest-dom
+```
+
+预期：只新增 devDependencies，不改包管理器。
+
+**步骤 3：新增测试脚本**
+
+在 `package.json` 增加：
 
 ```json
 {
@@ -87,11 +87,11 @@ Add scripts:
 }
 ```
 
-Expected: `npm run test` exists and can run app tests.
+预期：`npm run test` 可以运行应用测试。
 
-**Step 4: Add minimal failing smoke test**
+**步骤 4：新增最小 smoke test**
 
-Create `tests/app/smoke.test.ts`:
+创建 `tests/app/smoke.test.ts`：
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -103,17 +103,15 @@ describe('AgentDock app test harness', () => {
 });
 ```
 
-**Step 5: Run test**
-
-Run:
+**步骤 5：运行测试**
 
 ```bash
 npm run test
 ```
 
-Expected: PASS.
+预期：PASS。
 
-**Step 6: Commit**
+**步骤 6：提交**
 
 ```bash
 git add package.json package-lock.json vitest.config.ts src/test/setup.ts tests/app/smoke.test.ts
@@ -122,16 +120,16 @@ git commit -m "test: add app test harness"
 
 ---
 
-## Task 2: Add shared domain contracts and secret redaction
+## 任务 2：新增共享领域类型与密钥脱敏工具
 
-**Files:**
-- Create: `src/shared/agentdockTypes.ts`
-- Create: `src/shared/secretPreview.ts`
-- Create: `tests/app/secretPreview.test.ts`
+**文件：**
+- 新建：`src/shared/agentdockTypes.ts`
+- 新建：`src/shared/secretPreview.ts`
+- 新建：`tests/app/secretPreview.test.ts`
 
-**Step 1: Write failing tests**
+**步骤 1：先写失败测试**
 
-Create `tests/app/secretPreview.test.ts`:
+创建 `tests/app/secretPreview.test.ts`：
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -159,17 +157,17 @@ describe('secretPreview', () => {
 });
 ```
 
-Run:
+运行：
 
 ```bash
 npm run test -- secretPreview
 ```
 
-Expected: FAIL because files/functions do not exist.
+预期：FAIL，原因是目标文件和函数还不存在。
 
-**Step 2: Implement domain types**
+**步骤 2：实现领域类型**
 
-Create `src/shared/agentdockTypes.ts`:
+创建 `src/shared/agentdockTypes.ts`：
 
 ```ts
 export type ToolType = 'claude' | 'codex' | 'gemini' | 'opencode';
@@ -210,9 +208,9 @@ export type LaunchRequest = {
 };
 ```
 
-**Step 3: Implement redaction**
+**步骤 3：实现脱敏工具**
 
-Create `src/shared/secretPreview.ts`:
+创建 `src/shared/secretPreview.ts`：
 
 ```ts
 const SENSITIVE_ENV_NAMES = new Set([
@@ -242,16 +240,16 @@ export function redactEnvironmentPreview(
 }
 ```
 
-**Step 4: Run tests**
+**步骤 4：验证**
 
 ```bash
 npm run test -- secretPreview
 npm run typecheck
 ```
 
-Expected: PASS.
+预期：PASS。
 
-**Step 5: Commit**
+**步骤 5：提交**
 
 ```bash
 git add src/shared/agentdockTypes.ts src/shared/secretPreview.ts tests/app/secretPreview.test.ts
@@ -260,15 +258,15 @@ git commit -m "feat: add secret-safe domain contracts"
 
 ---
 
-## Task 3: Add launch environment builder
+## 任务 3：新增启动环境生成器
 
-**Files:**
-- Create: `src/main/launchEnvironment.ts`
-- Create: `tests/app/launchEnvironment.test.ts`
+**文件：**
+- 新建：`src/main/launchEnvironment.ts`
+- 新建：`tests/app/launchEnvironment.test.ts`
 
-**Step 1: Write failing tests**
+**步骤 1：先写失败测试**
 
-Create `tests/app/launchEnvironment.test.ts`:
+创建 `tests/app/launchEnvironment.test.ts`：
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -310,17 +308,17 @@ describe('buildLaunchEnvironment', () => {
 });
 ```
 
-Run:
+运行：
 
 ```bash
 npm run test -- launchEnvironment
 ```
 
-Expected: FAIL because module does not exist.
+预期：FAIL，原因是目标模块还不存在。
 
-**Step 2: Implement minimal environment builder**
+**步骤 2：实现最小环境生成器**
 
-Create `src/main/launchEnvironment.ts`:
+创建 `src/main/launchEnvironment.ts`：
 
 ```ts
 import path from 'node:path';
@@ -357,24 +355,24 @@ export function buildLaunchEnvironment({
 }
 ```
 
-**Step 3: Run tests and typecheck**
+**步骤 3：运行测试和类型检查**
 
 ```bash
 npm run test -- launchEnvironment
 npm run typecheck
 ```
 
-Expected: PASS.
+预期：PASS。
 
-**Step 4: Security review checkpoint**
+**步骤 4：安全检查点**
 
-Confirm:
+确认：
 
-- tests use fake non-key strings only;
-- no key-like fixture is committed;
-- preview redaction is separate from PTY environment generation.
+- 测试只使用明显的假 secret 字符串；
+- 不提交任何看起来像真实 API Key 的 fixture；
+- 环境变量预览脱敏逻辑与 PTY 实际注入逻辑分离。
 
-**Step 5: Commit**
+**步骤 5：提交**
 
 ```bash
 git add src/main/launchEnvironment.ts tests/app/launchEnvironment.test.ts
@@ -383,16 +381,16 @@ git commit -m "feat: build per-profile launch environments"
 
 ---
 
-## Task 4: Add adapter contracts for Keychain and PTY
+## 任务 4：新增 Keychain 与 PTY adapter 契约
 
-**Files:**
-- Create: `src/main/adapters/keychainAdapter.ts`
-- Create: `src/main/adapters/ptyAdapter.ts`
-- Create: `tests/app/adapterContracts.test.ts`
+**文件：**
+- 新建：`src/main/adapters/keychainAdapter.ts`
+- 新建：`src/main/adapters/ptyAdapter.ts`
+- 新建：`tests/app/adapterContracts.test.ts`
 
-**Step 1: Write failing tests**
+**步骤 1：先写失败测试**
 
-Create `tests/app/adapterContracts.test.ts`:
+创建 `tests/app/adapterContracts.test.ts`：
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -423,17 +421,17 @@ describe('adapter contracts', () => {
 });
 ```
 
-Run:
+运行：
 
 ```bash
 npm run test -- adapterContracts
 ```
 
-Expected: FAIL because adapters do not exist.
+预期：FAIL，原因是 adapter 文件还不存在。
 
-**Step 2: Implement Keychain contract**
+**步骤 2：实现 Keychain 契约**
 
-Create `src/main/adapters/keychainAdapter.ts`:
+创建 `src/main/adapters/keychainAdapter.ts`：
 
 ```ts
 export type KeychainAdapter = {
@@ -455,9 +453,9 @@ export function createUnavailableKeychainAdapter(): KeychainAdapter {
 }
 ```
 
-**Step 3: Implement PTY contract**
+**步骤 3：实现 PTY 契约**
 
-Create `src/main/adapters/ptyAdapter.ts`:
+创建 `src/main/adapters/ptyAdapter.ts`：
 
 ```ts
 export type PtySpawnRequest = {
@@ -487,16 +485,16 @@ export function createUnavailablePtyAdapter(): PtyAdapter {
 }
 ```
 
-**Step 4: Run tests**
+**步骤 4：验证**
 
 ```bash
 npm run test -- adapterContracts
 npm run typecheck
 ```
 
-Expected: PASS.
+预期：PASS。
 
-**Step 5: Commit**
+**步骤 5：提交**
 
 ```bash
 git add src/main/adapters/keychainAdapter.ts src/main/adapters/ptyAdapter.ts tests/app/adapterContracts.test.ts
@@ -505,17 +503,17 @@ git commit -m "feat: define keychain and pty adapters"
 
 ---
 
-## Task 5: Add metadata stores for profiles and workspaces
+## 任务 5：新增 Profile 与 Workspace metadata 存储
 
-**Files:**
-- Create: `src/main/stores/jsonStore.ts`
-- Create: `src/main/stores/profileStore.ts`
-- Create: `src/main/stores/workspaceStore.ts`
-- Create: `tests/app/metadataStores.test.ts`
+**文件：**
+- 新建：`src/main/stores/jsonStore.ts`
+- 新建：`src/main/stores/profileStore.ts`
+- 新建：`src/main/stores/workspaceStore.ts`
+- 新建：`tests/app/metadataStores.test.ts`
 
-**Step 1: Write failing tests**
+**步骤 1：先写失败测试**
 
-Create `tests/app/metadataStores.test.ts`:
+创建 `tests/app/metadataStores.test.ts`：
 
 ```ts
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -574,33 +572,33 @@ describe('metadata stores', () => {
 });
 ```
 
-Run:
+运行：
 
 ```bash
 npm run test -- metadataStores
 ```
 
-Expected: FAIL because stores do not exist.
+预期：FAIL，原因是 store 模块还不存在。
 
-**Step 2: Implement JSON store and specific stores**
+**步骤 2：实现 JSON store 与具体 store**
 
-Keep implementation simple:
+实现保持简单：
 
-- create file if missing;
-- write pretty JSON;
-- fail fast on invalid JSON;
-- no API key field in profile metadata.
+- 文件不存在时创建；
+- 使用格式化 JSON 写入；
+- JSON 无效时 fail fast；
+- Profile metadata 不允许出现 API key 明文字段。
 
-**Step 3: Run tests**
+**步骤 3：验证**
 
 ```bash
 npm run test -- metadataStores
 npm run typecheck
 ```
 
-Expected: PASS.
+预期：PASS。
 
-**Step 4: Commit**
+**步骤 4：提交**
 
 ```bash
 git add src/main/stores tests/app/metadataStores.test.ts
@@ -609,17 +607,17 @@ git commit -m "feat: persist profile and workspace metadata"
 
 ---
 
-## Task 6: Add typed preload IPC surface
+## 任务 6：新增类型化 preload IPC 接口
 
-**Files:**
-- Modify: `src/preload/preload.ts`
-- Create: `src/shared/preloadTypes.ts`
-- Modify: `src/renderer/App.tsx` or create `src/renderer/types/global.d.ts`
-- Create: `tests/app/preloadTypes.test.ts`
+**文件：**
+- 修改：`src/preload/preload.ts`
+- 新建：`src/shared/preloadTypes.ts`
+- 修改：`src/renderer/App.tsx` 或新建 `src/renderer/types/global.d.ts`
+- 新建：`tests/app/preloadTypes.test.ts`
 
-**Step 1: Write failing type/behavior tests**
+**步骤 1：先写类型 / 行为测试**
 
-Test the exported contract shape without invoking real Electron IPC:
+只测试导出的契约形状，不调用真实 Electron IPC：
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -644,11 +642,11 @@ describe('preloadTypes', () => {
 });
 ```
 
-Expected: FAIL because `AgentDockApi` does not exist.
+预期：FAIL，原因是 `AgentDockApi` 还不存在。
 
-**Step 2: Define preload API type**
+**步骤 2：定义 preload API 类型**
 
-Create `src/shared/preloadTypes.ts`:
+创建 `src/shared/preloadTypes.ts`：
 
 ```ts
 import type { AgentSession, ApiProfile, LaunchRequest, Workspace } from './agentdockTypes';
@@ -662,9 +660,9 @@ export type AgentDockApi = {
 };
 ```
 
-**Step 3: Expose placeholder API safely**
+**步骤 3：安全暴露占位 API**
 
-Modify `src/preload/preload.ts` so renderer receives methods but no Node access and no secrets:
+修改 `src/preload/preload.ts`，让渲染进程拿到受控方法，不启用 Node access，也不暴露 secret：
 
 ```ts
 import { contextBridge, ipcRenderer } from 'electron';
@@ -681,20 +679,20 @@ const api: AgentDockApi = {
 contextBridge.exposeInMainWorld('agentDock', api);
 ```
 
-**Step 4: Add main IPC handlers in a later task**
+**步骤 4：主进程 IPC handler 放到后续任务**
 
-Do not call real Keychain/PTy yet.
+本任务不调用真实 Keychain / PTY。
 
-**Step 5: Run checks**
+**步骤 5：验证**
 
 ```bash
 npm run test -- preloadTypes
 npm run typecheck
 ```
 
-Expected: PASS after renderer global type is declared.
+预期：Renderer 全局类型声明完成后 PASS。
 
-**Step 6: Commit**
+**步骤 6：提交**
 
 ```bash
 git add src/preload/preload.ts src/shared/preloadTypes.ts src/renderer/types tests/app/preloadTypes.test.ts
@@ -703,22 +701,22 @@ git commit -m "feat: define renderer preload API"
 
 ---
 
-## Task 7: Split renderer into terminal-first components
+## 任务 7：将渲染层拆成终端优先组件
 
-**Files:**
-- Modify: `src/renderer/App.tsx`
-- Create: `src/renderer/components/AppHeader.tsx`
-- Create: `src/renderer/components/CommandBar.tsx`
-- Create: `src/renderer/components/SessionTabs.tsx`
-- Create: `src/renderer/components/TerminalPane.tsx`
-- Create: `src/renderer/components/SessionDetailsDrawer.tsx`
-- Create: `src/renderer/components/ApiConfigPanel.tsx`
-- Modify: `src/renderer/styles.css`
-- Create: `tests/app/App.test.tsx`
+**文件：**
+- 修改：`src/renderer/App.tsx`
+- 新建：`src/renderer/components/AppHeader.tsx`
+- 新建：`src/renderer/components/CommandBar.tsx`
+- 新建：`src/renderer/components/SessionTabs.tsx`
+- 新建：`src/renderer/components/TerminalPane.tsx`
+- 新建：`src/renderer/components/SessionDetailsDrawer.tsx`
+- 新建：`src/renderer/components/ApiConfigPanel.tsx`
+- 修改：`src/renderer/styles.css`
+- 新建：`tests/app/App.test.tsx`
 
-**Step 1: Write failing UI tests**
+**步骤 1：先写失败 UI 测试**
 
-Create `tests/app/App.test.tsx`:
+创建 `tests/app/App.test.tsx`：
 
 ```tsx
 import { render, screen } from '@testing-library/react';
@@ -753,27 +751,27 @@ describe('AgentDock shell', () => {
 });
 ```
 
-Expected: FAIL until components/export/test setup are ready.
+预期：FAIL，直到组件拆分、导出和测试 setup 完成。
 
-**Step 2: Refactor App export**
+**步骤 2：重构 App 导出**
 
-Change `App.tsx` to export `App` separately and keep root rendering at bottom or move bootstrap to `src/renderer/main.tsx` in a follow-up.
+让 `App.tsx` 单独导出 `App`，同时保留底部 root rendering；也可以在后续任务中把 bootstrap 移到 `src/renderer/main.tsx`。
 
-**Step 3: Create focused components**
+**步骤 3：创建职责单一组件**
 
-Keep each file under 200 lines. Use local sample data only. Do not persist secrets or call real APIs yet.
+每个组件文件默认不超过 200 行。第一阶段只使用本地 sample data，不持久化 secret，不调用真实 API。
 
-**Step 4: Implement collapsed details state**
+**步骤 4：实现会话详情默认收起**
 
-Default:
+默认状态：
 
 ```ts
 const [detailsOpen, setDetailsOpen] = React.useState(false);
 ```
 
-Only show endpoint/keychain metadata when expanded, and always show masked key preview.
+只有展开后才展示 endpoint / keychain metadata，并且 key 预览必须始终是脱敏值。
 
-**Step 5: Run UI tests and build**
+**步骤 5：运行 UI 测试和构建**
 
 ```bash
 npm run test -- App
@@ -781,9 +779,9 @@ npm run typecheck
 npm run build
 ```
 
-Expected: PASS.
+预期：PASS。
 
-**Step 6: Commit**
+**步骤 6：提交**
 
 ```bash
 git add src/renderer tests/app/App.test.tsx
@@ -792,16 +790,16 @@ git commit -m "feat: build terminal-first renderer shell"
 
 ---
 
-## Task 8: Add main-process in-memory session orchestration
+## 任务 8：新增主进程内存会话编排
 
-**Files:**
-- Create: `src/main/sessionService.ts`
-- Modify: `src/main/main.ts`
-- Create: `tests/app/sessionService.test.ts`
+**文件：**
+- 新建：`src/main/sessionService.ts`
+- 修改：`src/main/main.ts`
+- 新建：`tests/app/sessionService.test.ts`
 
-**Step 1: Write failing service tests**
+**步骤 1：先写失败服务测试**
 
-Create `tests/app/sessionService.test.ts`:
+创建 `tests/app/sessionService.test.ts`：
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -836,17 +834,17 @@ describe('sessionService', () => {
 });
 ```
 
-Expected: FAIL because service does not exist.
+预期：FAIL，原因是服务还不存在。
 
-**Step 2: Implement session service**
+**步骤 2：实现 session service**
 
-Create an in-memory service only. Do not spawn PTY. Do not read Keychain. Return `starting` or `failed` with safe error messages.
+只实现内存 service。不启动 PTY，不读取 Keychain。返回 `starting` 或 `failed`，错误信息必须安全，不包含 secret。
 
-**Step 3: Register IPC handlers**
+**步骤 3：注册 IPC handlers**
 
-In `src/main/main.ts`, register `profiles:list`, `workspaces:list`, `sessions:list`, and `sessions:launch` with sample data or metadata stores. Keep secret values out of returned payloads.
+在 `src/main/main.ts` 注册 `profiles:list`、`workspaces:list`、`sessions:list`、`sessions:launch`。可以先使用 sample data 或 metadata store。返回 payload 不得包含完整 secret。
 
-**Step 4: Run checks**
+**步骤 4：验证**
 
 ```bash
 npm run test -- sessionService
@@ -854,9 +852,9 @@ npm run typecheck
 npm run build
 ```
 
-Expected: PASS.
+预期：PASS。
 
-**Step 5: Commit**
+**步骤 5：提交**
 
 ```bash
 git add src/main/main.ts src/main/sessionService.ts tests/app/sessionService.test.ts
@@ -865,13 +863,13 @@ git commit -m "feat: add phase one session orchestration"
 
 ---
 
-## Task 9: Update workflow state and perform integration verification
+## 任务 9：更新工作流状态并执行集成验证
 
-**Files:**
-- Modify: `.agent-workflow/state.md`
-- Create: `.agent-workflow/verification/2026-07-01-agentdock-phase-1-mvp-foundation.md`
+**文件：**
+- 修改：`.agent-workflow/state.md`
+- 新建：`.agent-workflow/verification/2026-07-01-agentdock-phase-1-mvp-foundation.md`
 
-**Step 1: Run full verification**
+**步骤 1：运行完整验证**
 
 ```bash
 npm run workflow:doctor
@@ -882,35 +880,35 @@ npm run build
 git status --short --branch
 ```
 
-Expected:
+预期：
 
-- workflow doctor PASS;
-- workflow tests PASS;
-- app tests PASS;
-- typecheck PASS;
-- build PASS;
-- git status contains only intended files before commit, then clean after commit.
+- workflow doctor PASS；
+- workflow tests PASS；
+- app tests PASS；
+- typecheck PASS；
+- build PASS；
+- 提交前 `git status` 只包含预期文件，提交后 clean。
 
-**Step 2: Record verification**
+**步骤 2：记录验证报告**
 
-Create verification report with:
+创建验证报告，必须包含：
 
-- exact commands;
-- actual outputs;
-- L3 note that real PTY/Keychain verification is deferred to Phase 2;
-- security note that no real API key was used or committed.
+- 精确命令；
+- 实际输出；
+- L3 说明：真实 PTY / Keychain 验证延期到第二阶段；
+- 安全说明：本阶段没有使用或提交真实 API Key。
 
-**Step 3: Update state**
+**步骤 3：更新 state**
 
-Set:
+设置：
 
-- 当前任务: AgentDock Phase 1 MVP Foundation
-- 风险等级: L3
-- 当前 Hook: integration_hook or delivery_hook depending on completion status
-- 当前阶段: phase-1-verified
-- 用户待确认: Phase 2 real PTY/Keychain integration scope
+- 当前任务：AgentDock Phase 1 MVP Foundation
+- 风险等级：L3
+- 当前 Hook：根据完成状态设为 `integration_hook` 或 `delivery_hook`
+- 当前阶段：`phase-1-verified`
+- 用户待确认：Phase 2 真实 PTY / Keychain 集成范围
 
-**Step 4: Commit**
+**步骤 4：提交**
 
 ```bash
 git add .agent-workflow/state.md .agent-workflow/verification/2026-07-01-agentdock-phase-1-mvp-foundation.md
@@ -919,7 +917,7 @@ git commit -m "docs: record phase one verification"
 
 ---
 
-## Required verification before claiming Phase 1 complete
+## 宣称第一阶段完成前必须运行的验证
 
 ```bash
 npm run workflow:doctor
@@ -929,18 +927,18 @@ npm run typecheck
 npm run build
 ```
 
-Do not say Phase 1 is complete unless the commands above were run and their outputs were inspected.
+只有刚运行并检查过这些命令输出后，才能说第一阶段完成。
 
-## Phase 2 handoff preview
+## 第二阶段交接预览
 
-After Phase 1 is accepted and verified, Phase 2 should implement the real high-risk integrations:
+第一阶段验收通过后，第二阶段再处理真实高风险集成：
 
-1. macOS Keychain adapter, probably `keytar` first because it is already listed as optional dependency.
-2. `node-pty` adapter for real terminal sessions.
-3. Real xterm.js terminal binding to PTY output/input/resize.
-4. True Claude/Codex launch verification:
-   - different Claude endpoints per session;
-   - different secret values injected only into each PTY;
-   - per-profile `CODEX_HOME`;
-   - Ctrl+C, resize, paste, Chinese input checks.
+1. macOS Keychain adapter：优先评估 `keytar`，因为它已在 optionalDependencies 中。
+2. `node-pty` adapter：用于真实终端会话。
+3. xterm.js 与真实 PTY output / input / resize 绑定。
+4. Claude / Codex 真实会话隔离验证：
+   - 不同 Claude 会话使用不同 endpoint；
+   - 不同 secret 只注入各自 PTY；
+   - Codex 每个 Profile 使用独立 `CODEX_HOME`；
+   - 验证 Ctrl+C、resize、长文本粘贴、中文输入。
 
