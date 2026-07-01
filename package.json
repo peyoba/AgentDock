@@ -1,0 +1,38 @@
+{
+  "name": "agentdock",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AgentDock 代理坞：Claude/Codex 多配置内嵌终端工作台。",
+  "main": "dist/main/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --host 127.0.0.1 --port 5173",
+    "dev:electron": "wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 tsc -p tsconfig.main.json && electron .",
+    "build": "npm run typecheck && vite build && tsc -p tsconfig.main.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.main.json --noEmit",
+    "workflow:doctor": "python3 scripts/workflow.py doctor",
+    "test:workflow": "python3 -m pytest tests/test_workflow_cli.py -v"
+  },
+  "dependencies": {
+    "@xterm/xterm": "^5.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.10",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "concurrently": "^9.2.0",
+    "cross-env": "^7.0.3",
+    "electron": "^37.2.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0",
+    "wait-on": "^8.0.3"
+  },
+  "optionalDependencies": {
+    "keytar": "^7.9.0",
+    "node-pty": "^1.0.0"
+  }
+}
