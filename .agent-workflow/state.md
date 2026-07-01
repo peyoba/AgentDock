@@ -1,7 +1,7 @@
 # Agent Workflow State
 
 ## 当前任务
-AgentDock Phase 1 MVP Foundation：计划内基础层任务已完成并通过验证；等待用户确认是否进入 Phase 2 真实 node-pty / Keychain 集成。
+AgentDock Phase 2 Real Terminal & Keychain：Phase 1 已验证完成；Phase 2 SPEC 与实施计划已创建，下一步将进入真实 node-pty / Keychain 集成暂停点。
 
 ## 风险等级
 L3
@@ -9,10 +9,10 @@ L3
 触发原因：Electron 桌面应用、内嵌终端 PTY、API Key/Keychain、环境变量注入、外部 CLI（Claude/Codex）、GitHub 仓库初始化。
 
 ## 当前 Hook
-integration_hook
+plan_review_hook
 
 ## 当前阶段
-phase-1-verified
+phase-2-plan
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
@@ -22,6 +22,7 @@ phase-1-verified
 | ⑧集成工程师 | PASS | workflow doctor、workflow tests、typecheck、build |
 | ⑨部署工程师 | PASS | GitHub private repo: https://github.com/peyoba/AgentDock |
 | 主 Agent | PASS | Phase 1 基础层实现与验证：测试框架、类型/脱敏、启动环境、adapter contracts、metadata stores、preload IPC、Renderer UI、session orchestration |
+| 主 Agent | RUNNING | Phase 2 SPEC 与实施计划：`.agent-workflow/specs/2026-07-02-agentdock-phase-2-real-terminal-keychain.md`、`docs/plans/2026-07-02-agentdock-phase-2-real-terminal-keychain.md` |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -29,10 +30,10 @@ phase-1-verified
 无
 
 ## 用户待确认
-是否进入 Phase 2 真实 `node-pty` / macOS Keychain 集成。
+是否允许进入 Phase 2 真实 `node-pty` / macOS Keychain 集成。`node-pty` 和 `keytar` 已在 optionalDependencies 中并已安装可 resolve，但真实集成本身仍触发暂停条件。
 
 ## 下一步
-按暂停规则，进入真实 `node-pty` / macOS Keychain 集成前需要用户确认 Phase 2 范围。
+用户确认后，按 Phase 2 计划从 Session Orchestration Adapter Injection 开始，再进入真实 Keychain / PTY adapter 实现与验证。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -77,3 +78,4 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | Phase 1 Batch 2 | PASS | Keychain/PTY adapter contracts、Profile/Workspace metadata stores、preload IPC 安全边界；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-2.md` |
 | Phase 1 Batch 3 | PASS | 终端优先 Renderer、UI 行为测试、内存 session orchestration；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-3.md` |
 | Phase 1 MVP Foundation | PASS | 总验证记录 `.agent-workflow/verification/2026-07-02-agentdock-phase-1-mvp-foundation.md` |
+| Phase 2 Plan | RUNNING | SPEC 与计划已创建；真实集成前等待确认 |
