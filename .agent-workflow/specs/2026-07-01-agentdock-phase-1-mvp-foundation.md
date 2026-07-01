@@ -30,9 +30,10 @@ AgentDock 已完成开发前准备：项目骨架、需求/UI/架构文档、工
 - API Profile 只保存 Keychain 引用，不保存 secret 明文。
 - 环境变量预览必须脱敏敏感值。
 - Claude 启动环境支持独立 `ANTHROPIC_BASE_URL` 和 key 注入。
-- Codex 启动环境支持独立 `CODEX_HOME` 和 key 注入。
+- Codex 启动环境支持独立 endpoint、独立 `CODEX_HOME` 和 key 注入。
 - Keychain 与 PTY 通过 adapter interface 封装，第一阶段使用 fail-fast unavailable adapter。
 - Renderer 只通过 preload IPC 访问主进程，不启用 Node integration。
+- Renderer / preload / IPC 不得返回完整 secret 或完整环境变量对象，只能返回脱敏预览或最小必要 metadata。
 - 当前会话详情默认收起。
 - API 配置 UI 按工具类型分类。
 
@@ -109,6 +110,9 @@ L3
 ## 验收标准
 
 - `npm run test` 覆盖 secret 脱敏、launch environment、adapter fail-fast、metadata store、UI 默认收起状态。
+- launch environment 测试必须覆盖 Codex endpoint 隔离。
+- UI 测试必须覆盖当前会话详情默认收起和 API 配置按工具类型分组。
+- IPC/Renderer 测试必须覆盖不返回完整 secret 或完整 env。
 - `npm run typecheck` 通过。
 - `npm run build` 通过。
 - `npm run workflow:doctor` 通过。
@@ -132,4 +136,3 @@ L3
   - 真实 `node-pty` 启动。
   - 真实 macOS Keychain 读写。
   - 真实 Claude/Codex 会话隔离。
-

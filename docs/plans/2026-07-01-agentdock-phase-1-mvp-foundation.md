@@ -19,6 +19,8 @@
 - 实现 Claude / Codex 启动环境生成器。
 - 定义 Keychain / PTY adapter interface，但不接入真实 native 实现。
 - 定义 main / preload IPC 契约：列出 Profile、列出 Workspace、启动会话、列出会话。
+- Codex 启动环境必须和 Claude 一样隔离 endpoint；不得只隔离 `CODEX_HOME` 和 key。
+- Renderer / preload / IPC 不得返回完整 secret 或完整环境变量对象，只能返回脱敏预览或最小必要 metadata。
 - 将 Renderer 拆成职责清晰的组件，匹配已确认的 v3b 终端优先 UI。
 - 当前会话详情默认收起。
 - API 配置 UI 骨架按工具类型分组：Claude / Codex / Gemini / OpenCode / 全部。
@@ -41,7 +43,7 @@
 npm install -D vitest jsdom @testing-library/react @testing-library/jest-dom
 ```
 
-原因：AgentDock 的第一阶段会涉及 TypeScript 领域函数、React 默认收起状态、IPC 类型契约和安全脱敏逻辑；仅靠 `npm run typecheck` 不能证明行为正确。
+原因：AgentDock 的第一阶段会涉及 TypeScript 领域函数、React 默认收起状态、API 配置按工具类型分组、IPC 类型契约和安全脱敏逻辑；仅靠 `npm run typecheck` 不能证明行为正确。
 
 如果用户不批准新增测试依赖，则只能退回到 `tsc` / build / 手工 UI 检查，但这会弱化 TDD，不推荐。
 
@@ -302,6 +304,7 @@ describe('buildLaunchEnvironment', () => {
       appDataPath: '/Users/example/Library/Application Support/AgentDock',
     });
 
+    expect(env.OPENAI_BASE_URL).toBe('https://example.invalid/v1');
     expect(env.OPENAI_API_KEY).toBe('local-development-secret');
     expect(env.CODEX_HOME).toContain('codex-openai');
   });
@@ -344,6 +347,7 @@ export function buildLaunchEnvironment({
 
   if (profile.toolType === 'codex') {
     return {
+      OPENAI_BASE_URL: profile.baseUrl,
       OPENAI_API_KEY: secret,
       CODEX_HOME:
         profile.codexHome ??
@@ -371,6 +375,7 @@ npm run typecheck
 - 测试只使用明显的假 secret 字符串；
 - 不提交任何看起来像真实 API Key 的 fixture；
 - 环境变量预览脱敏逻辑与 PTY 实际注入逻辑分离。
+- Codex 测试必须证明 endpoint 也按 Profile 隔离，即包含 `OPENAI_BASE_URL`。
 
 **步骤 5：提交**
 
@@ -617,7 +622,7 @@ git commit -m "feat: persist profile and workspace metadata"
 
 **步骤 1：先写类型 / 行为测试**
 
-只测试导出的契约形状，不调用真实 Electron IPC：
+只测试导出的契约形状，不调用真实 Electron IPC；契约不得包含完整 secret 或完整 env：
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -639,6 +644,20 @@ describe('preloadTypes', () => {
       'listSessions',
     ]);
   });
+
+  it('does not expose full secrets or full environment snapshots through the renderer API', () => {
+    const allowedMethodNames = [
+      'version',
+      'listProfiles',
+      'listWorkspaces',
+      'launchSession',
+      'listSessions',
+    ] satisfies Array<keyof AgentDockApi>;
+
+    expect(allowedMethodNames).not.toContain('readSecret');
+    expect(allowedMethodNames).not.toContain('getEnv');
+    expect(allowedMethodNames).not.toContain('listEnvironment');
+  });
 });
 ```
 
@@ -659,6 +678,8 @@ export type AgentDockApi = {
   listSessions(): Promise<AgentSession[]>;
 };
 ```
+
+注意：`AgentDockApi` 不允许新增返回完整 secret 或完整 env 的方法。若后续需要展示环境信息，必须设计为脱敏后的 preview 类型。
 
 **步骤 3：安全暴露占位 API**
 
@@ -842,7 +863,7 @@ describe('sessionService', () => {
 
 **步骤 3：注册 IPC handlers**
 
-在 `src/main/main.ts` 注册 `profiles:list`、`workspaces:list`、`sessions:list`、`sessions:launch`。可以先使用 sample data 或 metadata store。返回 payload 不得包含完整 secret。
+在 `src/main/main.ts` 注册 `profiles:list`、`workspaces:list`、`sessions:list`、`sessions:launch`。可以先使用 sample data 或 metadata store。返回 payload 不得包含完整 secret，也不得包含完整环境变量对象。
 
 **步骤 4：验证**
 
@@ -887,6 +908,9 @@ git status --short --branch
 - app tests PASS；
 - typecheck PASS；
 - build PASS；
+- UI 测试覆盖当前会话详情默认收起和 API 配置按工具类型分组；
+- IPC/Renderer 测试覆盖不返回完整 secret 或完整 env；
+- launch environment 测试覆盖 Codex endpoint 隔离；
 - 提交前 `git status` 只包含预期文件，提交后 clean。
 
 **步骤 2：记录验证报告**
@@ -941,4 +965,3 @@ npm run build
    - 不同 secret 只注入各自 PTY；
    - Codex 每个 Profile 使用独立 `CODEX_HOME`；
    - 验证 Ctrl+C、resize、长文本粘贴、中文输入。
-

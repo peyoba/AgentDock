@@ -35,7 +35,7 @@ Codex D  -> Endpoint D -> Key D -> 项目 Y
 5. 启动器：选择 Profile + Workspace + 命令 + 启动模式。
 6. 内嵌终端标签页：每个会话一个标签页。
 7. Claude 会话隔离：每个 PTY 注入独立 `ANTHROPIC_BASE_URL` 和 Key。
-8. Codex 会话隔离：每个 Profile 使用独立 `CODEX_HOME`。
+8. Codex 会话隔离：每个会话注入独立 endpoint/key，每个 Profile 使用独立 `CODEX_HOME`。
 9. 当前会话详情：默认收起，可展开，显示 endpoint/key 来源/workspace/操作。
 10. 共享目录提示：轻提示，不作为错误。
 
@@ -74,6 +74,7 @@ Codex D  -> Endpoint D -> Key D -> 项目 Y
 - Claude 类型展示：Base URL、模型、Anthropic 协议、API Key、Keychain 位置、环境变量预览。
 - Codex 类型展示：OpenAI base URL、model_provider、默认模型、独立 `CODEX_HOME`、Responses/Chat 适配方式、API Key。
 - API Key 默认脱敏，只能通过用户操作显示/替换。
+- Renderer / preload / IPC 不得返回完整 secret 或完整环境变量对象；环境变量只能以脱敏预览或最小必要字段展示。
 
 ## 5. 技术架构要求
 
@@ -100,19 +101,22 @@ Electron + React + TypeScript + xterm.js + node-pty
 - UI 仅展示脱敏 key，例如 `sk-••••A7f`。
 - 复制环境变量时默认隐藏 key，除非用户明确选择显示。
 - 错误日志不得输出 secret。
+- IPC 响应不得包含完整 secret 或完整 env；测试必须覆盖这一边界。
 
 ## 7. 验收标准
 
 MVP 验收时必须证明：
 
 1. 可新增至少两个 Claude Profile，endpoint/key 不同。
-2. 可新增至少一个 Codex Profile，使用独立 `CODEX_HOME`。
+2. 可新增至少一个 Codex Profile，使用独立 endpoint/key 和独立 `CODEX_HOME`。
 3. 可选择同一个 Workspace 同时启动多个会话。
 4. 每个内嵌终端会话环境变量不同且互不影响。
 5. 关闭/重启一个会话不影响其他会话。
 6. API 配置页面按工具类型分类。
 7. 当前会话详情默认收起，可展开。
 8. 项目可通过 `npm run typecheck` 和 `npm run build`。
+9. UI 测试覆盖当前会话详情默认收起、API 配置按工具类型分组。
+10. IPC/Renderer 测试覆盖不返回完整 secret 或完整 env。
 
 ## 8. 参考资料
 

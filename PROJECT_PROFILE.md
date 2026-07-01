@@ -55,6 +55,7 @@
 | `VITE_DEV_SERVER_URL` | Electron 开发模式加载 Vite 地址 | 否 | npm script |
 | `ANTHROPIC_BASE_URL` | Claude 会话 endpoint；由 AgentDock 注入 PTY | 否 | Profile 配置 |
 | `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` | Claude API Key；由 AgentDock 从 Keychain 注入 PTY | 是 | macOS Keychain |
+| `OPENAI_BASE_URL` | Codex/OpenAI 会话 endpoint；由 AgentDock 按 Profile 注入 PTY | 否 | Profile 配置 |
 | `CODEX_HOME` | Codex 每 Profile 独立配置目录 | 否 | AgentDock 生成 |
 | `OPENAI_API_KEY` | Codex/OpenAI API Key；由 AgentDock 从 Keychain 注入 PTY | 是 | macOS Keychain |
 
@@ -92,7 +93,8 @@
 - API 配置界面按工具类型分类：Claude / Codex / Gemini / OpenCode / 全部，参考 CC Switch。
 - API Profile 与 Workspace 必须解耦。
 - Claude 每个会话通过独立 PTY 环境变量隔离 endpoint/key。
-- Codex 每个 Profile 使用独立 `CODEX_HOME`。
+- Codex 每个会话必须隔离 endpoint/key；每个 Profile 使用独立 `CODEX_HOME`。
+- Renderer / preload / IPC 不得返回完整 secret，也不得返回完整环境变量对象；只能返回脱敏预览或最小必要 metadata。
 - API Key 不得明文写入代码、文档、测试 fixture、日志或前端状态持久化；只保存 Keychain 引用。
 - 不做全局 provider 切换，不修改正在运行的其他终端会话。
 - MVP 暂不做成本统计、请求日志、自动路由、fallback、复杂 Dashboard、分屏 IDE。
