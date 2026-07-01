@@ -47,6 +47,17 @@ npm install -D vitest jsdom @testing-library/react @testing-library/jest-dom
 
 如果用户不批准新增测试依赖，则只能退回到 `tsc` / build / 手工 UI 检查，但这会弱化 TDD，不推荐。
 
+### 第一阶段执行节奏与暂停条件
+
+用户已确认按本 Phase 1 计划执行，并允许新增上述 dev-only 测试依赖。Phase 1 内部任务不需要逐项再确认，按计划、TDD 和验证门禁连续推进。
+
+只有遇到以下情况才暂停并请求用户确认：
+
+- 需要新增生产依赖；
+- 准备进入真实 `node-pty` 或 macOS Keychain 集成；
+- 需要修改已确认的产品范围；
+- 发现新的安全风险或当前安全边界无法满足。
+
 ---
 
 ## 任务 1：建立应用测试框架
