@@ -87,6 +87,7 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
 | 2026-07-02 | `git diff --check` | PASS |
 | 2026-07-02 | Phase 2 total verification | PASS：workflow doctor、workflow tests、app tests、build、key-like scan |
+| 2026-07-02 | Safe end-to-end SessionService verification | PASS：real Keychain + real PTY + local command; returned payload contains no test secret |
 | 2026-07-02 | `npm run test -- keychainAdapter ptyAdapter` | PASS：2 files / 4 tests |
 | 2026-07-02 | `npm run build` | PASS |
 | 2026-07-02 | Real Keychain verification | PASS：test service/account write/read/delete; no real API key |
@@ -116,4 +117,4 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | Phase 2 Task 4（fake IPC/control） | PASS | `SessionService` 支持 terminal write/resize/kill/output 订阅；preload whitelist 增加 terminal API；IPC payload 不暴露 secret/env |
 | Phase 2 Task 5（xterm binding） | PASS | `TerminalPane` 为 active session 创建 xterm；xterm input/resize 通过 preload IPC 发送；terminal output 按 sessionId 写入 xterm；unmount 清理订阅与 terminal instance |
 | Phase 2 Task 2/3（real adapters） | PASS | `createKeytarAdapter` 使用真实 keytar；`createNodePtyAdapter` 使用真实 node-pty 并确保 Unix spawn-helper 可执行；验证记录 `.agent-workflow/verification/2026-07-02-phase-2-real-keychain-pty.md` |
-| Phase 2 Real Terminal & Keychain | PASS | 总验证记录 `.agent-workflow/verification/2026-07-02-phase-2-real-terminal-keychain.md`；真实 API key / CLI 账号未验证（未授权） |
+| Phase 2 Real Terminal & Keychain | PASS | 总验证与安全端到端验证记录 `.agent-workflow/verification/2026-07-02-phase-2-real-terminal-keychain.md`；真实 API key / CLI 账号未验证（未授权） |

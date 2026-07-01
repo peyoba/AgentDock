@@ -56,3 +56,36 @@ Summary:
 - `keytar` is loaded with `createRequire(import.meta.url)` for NodeNext/CJS native-module compatibility.
 - `node-pty` adapter ensures Unix `spawn-helper` executable permissions before spawn to avoid local `posix_spawnp failed` errors.
 - CLI launch with real Claude/Codex credentials was intentionally not verified because no real API keys/accounts were authorized.
+
+## End-to-End Safe SessionService Verification
+
+Command used built `dist/main/sessionService.js`, real `createKeytarAdapter()`, and real `createNodePtyAdapter()`.
+
+Flow:
+
+1. Write test-only secret to macOS Keychain under service `AgentDock E2E Test`.
+2. Launch `SessionService` with real Keychain and real PTY adapters.
+3. Use a Claude-shaped test profile with fake endpoint and test Keychain account.
+4. Run local safe command `printf agentdock-e2e-pty-ok`.
+5. Observe terminal output through `SessionService.onTerminalOutput`.
+6. Confirm returned payload does not contain the test secret.
+7. Delete the test Keychain secret.
+
+Observed output:
+
+```json
+{
+  "session": {
+    "id": "session-1",
+    "status": "running",
+    "title": "E2E Test Profile · AgentDock"
+  },
+  "marker": "agentdock-e2e-pty-ok",
+  "timedOut": false,
+  "output": "agentdock-e2e-pty-ok",
+  "sawMarker": true,
+  "payloadContainsSecret": false
+}
+```
+
+Result: PASS.
