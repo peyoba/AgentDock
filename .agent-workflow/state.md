@@ -12,7 +12,7 @@ L3
 plan_review_hook
 
 ## 当前阶段
-plan-review
+blocked
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
@@ -21,18 +21,18 @@ plan-review
 | ⑦文档工程师 | PASS | docs/PROJECT_REQUIREMENTS.md、README.md、PROJECT_PROFILE.md、DECISIONS.md |
 | ⑧集成工程师 | PASS | workflow doctor、workflow tests、typecheck、build |
 | ⑨部署工程师 | PASS | GitHub private repo: https://github.com/peyoba/AgentDock |
-| 主 Agent | RUNNING | 第一阶段 SPEC 与实施计划：`.agent-workflow/specs/2026-07-01-agentdock-phase-1-mvp-foundation.md`、`docs/plans/2026-07-01-agentdock-phase-1-mvp-foundation.md` |
+| 主 Agent | BLOCKED | 第一阶段 SPEC 与实施计划：`.agent-workflow/specs/2026-07-01-agentdock-phase-1-mvp-foundation.md`、`docs/plans/2026-07-01-agentdock-phase-1-mvp-foundation.md`；等待用户确认后才能进入 dispatch_hook |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
 ## 阻塞点
-无
+等待用户确认 Phase 1 MVP Foundation 计划，并确认是否允许新增 dev-only 测试依赖；根据项目规则，用户确认前不得写业务代码或修改依赖。
 
 ## 用户待确认
 确认是否按 Phase 1 MVP Foundation 计划执行；确认是否允许新增 dev-only 测试依赖 `vitest`、`jsdom`、`@testing-library/react`、`@testing-library/jest-dom`。
 
 ## 下一步
-用户确认后进入 dispatch_hook，按 L3 流程先建立测试框架，再按 TDD 执行第一阶段任务；用户确认前不写业务代码。
+用户回复确认后进入 dispatch_hook，按 L3 流程先建立测试框架，再按 TDD 执行第一阶段任务。
 
 ## 决策记录
 | 时间 | 决策 | 理由 |
