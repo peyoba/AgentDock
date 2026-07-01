@@ -1,7 +1,7 @@
 # Agent Workflow State
 
 ## 当前任务
-AgentDock Phase 2 Real Terminal & Keychain：Phase 1 已验证完成；Phase 2 SPEC 与实施计划已创建，下一步将进入真实 node-pty / Keychain 集成暂停点。
+AgentDock Phase 2 Real Terminal & Keychain：Phase 1 已验证完成；Phase 2 Task 1（Session Orchestration Adapter Injection）已完成，下一步将进入真实 node-pty / Keychain 集成暂停点。
 
 ## 风险等级
 L3
@@ -12,7 +12,7 @@ L3
 plan_review_hook
 
 ## 当前阶段
-phase-2-plan
+phase-2-task-1-pass
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
@@ -22,7 +22,8 @@ phase-2-plan
 | ⑧集成工程师 | PASS | workflow doctor、workflow tests、typecheck、build |
 | ⑨部署工程师 | PASS | GitHub private repo: https://github.com/peyoba/AgentDock |
 | 主 Agent | PASS | Phase 1 基础层实现与验证：测试框架、类型/脱敏、启动环境、adapter contracts、metadata stores、preload IPC、Renderer UI、session orchestration |
-| 主 Agent | RUNNING | Phase 2 SPEC 与实施计划：`.agent-workflow/specs/2026-07-02-agentdock-phase-2-real-terminal-keychain.md`、`docs/plans/2026-07-02-agentdock-phase-2-real-terminal-keychain.md` |
+| 主 Agent | PASS | Phase 2 SPEC 与实施计划：`.agent-workflow/specs/2026-07-02-agentdock-phase-2-real-terminal-keychain.md`、`docs/plans/2026-07-02-agentdock-phase-2-real-terminal-keychain.md` |
+| 主 Agent | PASS | Phase 2 Task 1：SessionService fake Keychain/PTTY adapter 注入编排与安全返回测试 |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -33,7 +34,7 @@ phase-2-plan
 是否允许进入 Phase 2 真实 `node-pty` / macOS Keychain 集成。`node-pty` 和 `keytar` 已在 optionalDependencies 中并已安装可 resolve，但真实集成本身仍触发暂停条件。
 
 ## 下一步
-用户确认后，按 Phase 2 计划从 Session Orchestration Adapter Injection 开始，再进入真实 Keychain / PTY adapter 实现与验证。
+暂停等待用户确认后，再进入 Phase 2 Task 2 / Task 3 的真实 Keychain / PTY adapter 实现与验证。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -70,6 +71,11 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-02 | `npm run test` | PASS：8 files / 15 tests |
 | 2026-07-02 | `npm run build` | PASS |
 | 2026-07-02 | key-like secret scan | 未发现真实 API key；命中项仅为历史文档/mockup 占位符 |
+| 2026-07-02 | `npm run test -- sessionService sessionSecurity` | PASS：2 files / 2 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | `npm run test` | PASS：9 files / 16 tests |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
 
 ## 批次进展
 | 批次 | 状态 | 产出 |
@@ -78,4 +84,5 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | Phase 1 Batch 2 | PASS | Keychain/PTY adapter contracts、Profile/Workspace metadata stores、preload IPC 安全边界；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-2.md` |
 | Phase 1 Batch 3 | PASS | 终端优先 Renderer、UI 行为测试、内存 session orchestration；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-3.md` |
 | Phase 1 MVP Foundation | PASS | 总验证记录 `.agent-workflow/verification/2026-07-02-agentdock-phase-1-mvp-foundation.md` |
-| Phase 2 Plan | RUNNING | SPEC 与计划已创建；真实集成前等待确认 |
+| Phase 2 Plan | PASS | SPEC 与计划已创建；真实集成前等待确认 |
+| Phase 2 Task 1 | PASS | `SessionService` 支持 fake Keychain/PTTY adapter 注入、构建 env 并 spawn fake PTY；返回/list 只暴露安全 metadata |
