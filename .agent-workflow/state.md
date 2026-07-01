@@ -1,7 +1,7 @@
 # Agent Workflow State
 
 ## 当前任务
-AgentDock Phase 2 Real Terminal & Keychain：Phase 1 已验证完成；Phase 2 Task 1、Task 2、Task 3、Task 4、Task 5 已完成；真实 Keychain / node-pty 本地安全验证已通过，下一步进入 Phase 2 总验证与 MVP 收尾。
+AgentDock Phase 2 Real Terminal & Keychain：Phase 1 已验证完成；Phase 2 Task 1-6 已完成；真实 Keychain / node-pty 本地安全验证与 Phase 2 总验证均已通过。
 
 ## 风险等级
 L3
@@ -12,7 +12,7 @@ L3
 plan_review_hook
 
 ## 当前阶段
-phase-2-real-keychain-pty-pass
+phase-2-pass
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
@@ -27,6 +27,7 @@ phase-2-real-keychain-pty-pass
 | 主 Agent | PASS | Phase 2 Task 4（非真实集成部分）：Terminal input/resize/kill IPC whitelist、terminal output 订阅、安全 payload 合同、SessionService fake PTY 控制 |
 | 主 Agent | PASS | Phase 2 Task 5（非真实集成部分）：Renderer TerminalPane 创建 xterm instance，输入/resize 走 IPC，按 sessionId 接收 output，unmount 清理订阅 |
 | 主 Agent | PASS | Phase 2 Task 2/3：真实 `keytar` Keychain adapter、真实 `node-pty` adapter、本地测试 service/account 与安全 PTY 命令验证 |
+| 主 Agent | PASS | Phase 2 Task 6：总验证通过并记录 `.agent-workflow/verification/2026-07-02-phase-2-real-terminal-keychain.md` |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -37,7 +38,7 @@ phase-2-real-keychain-pty-pass
 无。用户已确认进入 Phase 2 真实 Keychain 和真实 node-pty 集成；验证约束为不使用真实 API key，只做测试 service/account 和本地安全 PTY 命令验证。
 
 ## 下一步
-执行 Phase 2 总验证与 MVP 收尾；不得使用真实 API key，除非用户另行明确确认。
+Phase 2 已完成；后续若要验证真实 Claude/Codex CLI 账号或 API key，必须由用户另行明确确认。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -85,6 +86,7 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-02 | `npm run workflow:doctor` | PASS |
 | 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
 | 2026-07-02 | `git diff --check` | PASS |
+| 2026-07-02 | Phase 2 total verification | PASS：workflow doctor、workflow tests、app tests、build、key-like scan |
 | 2026-07-02 | `npm run test -- keychainAdapter ptyAdapter` | PASS：2 files / 4 tests |
 | 2026-07-02 | `npm run build` | PASS |
 | 2026-07-02 | Real Keychain verification | PASS：test service/account write/read/delete; no real API key |
@@ -114,3 +116,4 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | Phase 2 Task 4（fake IPC/control） | PASS | `SessionService` 支持 terminal write/resize/kill/output 订阅；preload whitelist 增加 terminal API；IPC payload 不暴露 secret/env |
 | Phase 2 Task 5（xterm binding） | PASS | `TerminalPane` 为 active session 创建 xterm；xterm input/resize 通过 preload IPC 发送；terminal output 按 sessionId 写入 xterm；unmount 清理订阅与 terminal instance |
 | Phase 2 Task 2/3（real adapters） | PASS | `createKeytarAdapter` 使用真实 keytar；`createNodePtyAdapter` 使用真实 node-pty 并确保 Unix spawn-helper 可执行；验证记录 `.agent-workflow/verification/2026-07-02-phase-2-real-keychain-pty.md` |
+| Phase 2 Real Terminal & Keychain | PASS | 总验证记录 `.agent-workflow/verification/2026-07-02-phase-2-real-terminal-keychain.md`；真实 API key / CLI 账号未验证（未授权） |
