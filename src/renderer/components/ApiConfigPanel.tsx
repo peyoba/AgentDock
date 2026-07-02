@@ -30,6 +30,11 @@ type ApiConfigPanelProps = {
     keychainAccount: string;
     secret: string;
   }): Promise<void>;
+  onReadProfileSecret?(request: {
+    keychainService: string;
+    keychainAccount: string;
+  }): Promise<string>;
+  onFetchProfileModels?(request: { profileId: string }): Promise<string[]>;
   onBackToWorkbench?: () => void;
 };
 
@@ -42,7 +47,27 @@ function createDraft(profile?: ApiProfile): ApiProfile | undefined {
     return undefined;
   }
 
-  return { ...profile };
+  return { ...profile, availableModels: profile.availableModels ? [...profile.availableModels] : undefined };
+}
+
+function normalizeModelList(models: string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const normalizedModels: string[] = [];
+
+  for (const model of models ?? []) {
+    const normalized = model.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    normalizedModels.push(normalized);
+  }
+
+  return normalizedModels;
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
 }
 
 function createUniqueProfileId(toolType: ToolType, profiles: ApiProfile[]): string {
@@ -103,11 +128,19 @@ export function ApiConfigPanel({
   onSelectProfile,
   onSaveProfile,
   onSaveProfileSecret,
+  onReadProfileSecret,
+  onFetchProfileModels,
   onBackToWorkbench,
 }: ApiConfigPanelProps): React.JSX.Element {
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId);
   const [draft, setDraft] = React.useState<ApiProfile | undefined>(() => createDraft(selectedProfile));
   const [secretDraft, setSecretDraft] = React.useState('');
+  const [secretVisible, setSecretVisible] = React.useState(false);
+  const [secretDirty, setSecretDirty] = React.useState(false);
+  const [secretLoading, setSecretLoading] = React.useState(false);
+  const [newModelDraft, setNewModelDraft] = React.useState('');
+  const [modelFetching, setModelFetching] = React.useState(false);
+  const [modelMessage, setModelMessage] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [saveMessage, setSaveMessage] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
@@ -116,6 +149,12 @@ export function ApiConfigPanel({
   React.useEffect(() => {
     setDraft(createDraft(selectedProfile));
     setSecretDraft('');
+    setSecretVisible(false);
+    setSecretDirty(false);
+    setSecretLoading(false);
+    setNewModelDraft('');
+    setModelFetching(false);
+    setModelMessage(null);
     setSaveMessage(null);
     setSaveError(null);
     setAdvancedOpen(false);
@@ -129,14 +168,118 @@ export function ApiConfigPanel({
     setDraft((current) => (current ? { ...current, [key]: value } : current));
   };
 
+  const updateSecretDraft = (value: string): void => {
+    setSecretDraft(value);
+    setSecretDirty(true);
+  };
+
+  const modelOptions = normalizeModelList(draft?.availableModels);
+
+  const setModelOptions = (models: string[], defaultModel?: string): void => {
+    setDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const nextModels = normalizeModelList(models);
+      const nextDefault = defaultModel ?? current.defaultModel;
+
+      return {
+        ...current,
+        availableModels: nextModels.length > 0 ? nextModels : undefined,
+        defaultModel:
+          nextDefault && (nextModels.length === 0 || nextModels.includes(nextDefault))
+            ? nextDefault
+            : nextModels[0],
+      };
+    });
+  };
+
   const startNewProfile = (): void => {
     const nextDraft = createNewProfileDraft({ filter, profiles, selectedProfile });
     setDraft(nextDraft);
     setSecretDraft('');
+    setSecretVisible(false);
+    setSecretDirty(false);
+    setNewModelDraft('');
+    setModelMessage(null);
     setSaveMessage(null);
     setSaveError(null);
     setAdvancedOpen(false);
     onFilterChange(nextDraft.toolType);
+  };
+
+  const toggleSecretVisibility = async (): Promise<void> => {
+    if (!draft) {
+      return;
+    }
+
+    if (secretVisible) {
+      setSecretVisible(false);
+      return;
+    }
+
+    if (!secretDraft && !secretDirty && onReadProfileSecret) {
+      setSecretLoading(true);
+      setSaveError(null);
+      try {
+        const secret = await onReadProfileSecret({
+          keychainService: draft.keychainService,
+          keychainAccount: draft.keychainAccount,
+        });
+        setSecretDraft(secret);
+        setSecretDirty(false);
+      } catch (error) {
+        setSaveError(errorMessage(error, '读取 API Key 失败'));
+        return;
+      } finally {
+        setSecretLoading(false);
+      }
+    }
+
+    setSecretVisible(true);
+  };
+
+  const fetchModels = async (): Promise<void> => {
+    if (!draft || !onFetchProfileModels) {
+      return;
+    }
+
+    setModelFetching(true);
+    setModelMessage(null);
+    setSaveError(null);
+    try {
+      const models = normalizeModelList(await onFetchProfileModels({ profileId: draft.id }));
+      setModelOptions(models, models.includes(draft.defaultModel ?? '') ? draft.defaultModel : models[0]);
+      setModelMessage(`已拉取 ${models.length} 个模型`);
+    } catch (error) {
+      setSaveError(errorMessage(error, '模型拉取失败'));
+    } finally {
+      setModelFetching(false);
+    }
+  };
+
+  const addModel = (): void => {
+    if (!draft) {
+      return;
+    }
+
+    const nextModel = newModelDraft.trim();
+    if (!nextModel) {
+      return;
+    }
+
+    setModelOptions([...modelOptions, nextModel], draft.defaultModel || nextModel);
+    setNewModelDraft('');
+  };
+
+  const removeModel = (model: string): void => {
+    if (!draft) {
+      return;
+    }
+
+    const nextModels = modelOptions.filter((item) => item !== model);
+    setModelOptions(nextModels, draft.defaultModel === model ? nextModels[0] : draft.defaultModel);
   };
 
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
@@ -149,24 +292,28 @@ export function ApiConfigPanel({
     setSaveMessage(null);
     setSaveError(null);
     try {
+      const availableModels = normalizeModelList(draft.availableModels);
       const savedProfile = await onSaveProfile({
         ...draft,
         name: draft.name.trim(),
         baseUrl: draft.baseUrl.trim(),
         defaultModel: draft.defaultModel?.trim() || undefined,
+        availableModels: availableModels.length > 0 ? availableModels : undefined,
         keychainService: draft.keychainService.trim(),
         keychainAccount: draft.keychainAccount.trim(),
         codexHome: draft.codexHome?.trim() || undefined,
       });
-      if (secretDraft.trim()) {
+      if (secretDraft.trim() && secretDirty) {
         await onSaveProfileSecret({
           keychainService: savedProfile.keychainService,
           keychainAccount: savedProfile.keychainAccount,
-          secret: secretDraft,
+          secret: secretDraft.trim(),
         });
         setDraft(savedProfile);
         setSecretDraft('');
-        setSaveMessage('API Key 已写入 Keychain');
+        setSecretVisible(false);
+        setSecretDirty(false);
+        setSaveMessage('API Key 已本机加密保存');
         return;
       }
       setDraft(savedProfile);
@@ -232,7 +379,7 @@ export function ApiConfigPanel({
           <div className="editor-title-row">
             <div>
               <h3>{isNewDraft ? '新增接口配置' : '编辑接口配置'}</h3>
-              <p>每个配置使用独立密钥槽位；不会读取或显示完整 API Key。</p>
+              <p>每个配置使用独立密钥槽位；默认不会读取或显示完整 API Key。</p>
             </div>
             {saveMessage ? <span className="save-status success">{saveMessage}</span> : null}
             {saveError ? <span className="save-status error" role="alert">{saveError}</span> : null}
@@ -265,13 +412,71 @@ export function ApiConfigPanel({
                   onChange={(event) => updateDraft('baseUrl', event.target.value)}
                 />
               </label>
-              <label>
-                <span>默认模型</span>
-                <input
-                  value={draft.defaultModel ?? ''}
-                  onChange={(event) => updateDraft('defaultModel', event.target.value)}
-                />
-              </label>
+              <div className="model-config wide-field">
+                <div className="model-config-header">
+                  <label className="model-default-field">
+                    <span>默认模型</span>
+                    {modelOptions.length > 0 ? (
+                      <select
+                        value={draft.defaultModel ?? modelOptions[0] ?? ''}
+                        onChange={(event) => updateDraft('defaultModel', event.target.value)}
+                      >
+                        {modelOptions.map((model) => (
+                          <option key={model} value={model}>{model}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        value={draft.defaultModel ?? ''}
+                        onChange={(event) => updateDraft('defaultModel', event.target.value)}
+                      />
+                    )}
+                  </label>
+                  <button
+                    type="button"
+                    className="model-fetch-button"
+                    disabled={modelFetching || !onFetchProfileModels}
+                    onClick={() => void fetchModels()}
+                  >
+                    {modelFetching ? '拉取中…' : '拉取模型'}
+                  </button>
+                </div>
+                {modelMessage ? <small className="field-help">{modelMessage}</small> : null}
+                <div className="model-add-row">
+                  <label>
+                    <span>自定义模型 ID</span>
+                    <input
+                      value={newModelDraft}
+                      onChange={(event) => setNewModelDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          addModel();
+                        }
+                      }}
+                    />
+                  </label>
+                  <button type="button" onClick={addModel}>
+                    添加模型
+                  </button>
+                </div>
+                {modelOptions.length > 0 ? (
+                  <div className="model-chip-list" aria-label="可选模型列表">
+                    {modelOptions.map((model) => (
+                      <span key={model} className="model-chip">
+                        {model}
+                        <button
+                          type="button"
+                          aria-label={`删除模型 ${model}`}
+                          onClick={() => removeModel(model)}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               <div className="advanced-settings wide-field">
                 <button
                   type="button"
@@ -307,20 +512,49 @@ export function ApiConfigPanel({
                   ) : null}
                 </>
               ) : null}
-              <label className="wide-field">
-                <span>API Key（保存到 macOS 钥匙串）</span>
-                <small className="field-help">填写后保存到 macOS 钥匙串；留空则保留当前 Key。</small>
-                <input
-                  type="password"
-                  aria-label="API Key（保存到 macOS 钥匙串）"
-                  value={secretDraft}
-                  autoComplete="off"
-                  placeholder="粘贴 API Key，保存后不会显示明文"
-                  onChange={(event) => setSecretDraft(event.target.value)}
-                />
-              </label>
+              <div className="api-key-editor wide-field">
+                <label>
+                  <span>API Key（本机加密保存）</span>
+                  <small className="field-help">
+                    填写后本机加密保存；留空则保留当前 Key。
+                  </small>
+                  <small className="field-help">点击显示才会读取当前配置的 Key。</small>
+                  <input
+                    type={secretVisible ? 'text' : 'password'}
+                    aria-label="API Key（本机加密保存）"
+                    value={secretDraft}
+                    autoComplete="off"
+                    placeholder="粘贴 API Key；留空则保留当前 Key"
+                    onChange={(event) => updateSecretDraft(event.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="secret-visibility-button"
+                  disabled={secretLoading || (!secretDraft && !onReadProfileSecret)}
+                  onClick={() => void toggleSecretVisibility()}
+                >
+                  {secretLoading
+                    ? '读取中…'
+                    : secretVisible
+                      ? '隐藏 API Key'
+                      : secretDraft
+                        ? '显示 API Key'
+                        : '显示已保存 API Key'}
+                </button>
+              </div>
               <div className="profile-editor-actions wide-field">
-                <button type="button" onClick={() => setDraft(createDraft(selectedProfile))}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft(createDraft(selectedProfile));
+                    setSecretDraft('');
+                    setSecretVisible(false);
+                    setSecretDirty(false);
+                    setNewModelDraft('');
+                    setModelMessage(null);
+                  }}
+                >
                   重置
                 </button>
                 <button type="submit" className="primary-button" disabled={saving}>

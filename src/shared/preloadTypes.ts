@@ -2,6 +2,8 @@ import type {
   AgentSession,
   ApiProfile,
   LaunchRequest,
+  ProfileModelsFetchRequest,
+  ProfileSecretReadRequest,
   ProfileSecretSaveRequest,
   TerminalBufferRequest,
   TerminalKillRequest,
@@ -18,6 +20,8 @@ export type AgentDockApi = {
   chooseWorkspace(): Promise<Workspace | undefined>;
   saveProfile(profile: ApiProfile): Promise<ApiProfile>;
   saveProfileSecret(request: ProfileSecretSaveRequest): Promise<void>;
+  readProfileSecret(request: ProfileSecretReadRequest): Promise<string>;
+  fetchProfileModels(request: ProfileModelsFetchRequest): Promise<string[]>;
   launchSession(request: LaunchRequest): Promise<AgentSession>;
   listSessions(): Promise<AgentSession[]>;
   writeTerminal(request: TerminalWriteRequest): Promise<void>;
@@ -34,6 +38,8 @@ export const AGENT_DOCK_API_METHODS = [
   'chooseWorkspace',
   'saveProfile',
   'saveProfileSecret',
+  'readProfileSecret',
+  'fetchProfileModels',
   'launchSession',
   'listSessions',
   'writeTerminal',

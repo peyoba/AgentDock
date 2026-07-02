@@ -79,11 +79,7 @@ const fallbackSessions: AgentSession[] = [
 ];
 
 function defaultCommandFor(profile?: ApiProfile): string {
-  if (profile?.toolType === 'codex') {
-    return 'codex';
-  }
-
-  return 'claude';
+  return profile?.toolType ?? 'claude';
 }
 
 function safeLaunchError(error: unknown): string {
@@ -121,9 +117,6 @@ export default function App(): React.JSX.Element {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState<string | undefined>(
     api ? undefined : fallbackWorkspaces[0]?.id,
   );
-  const [selectedCommand, setSelectedCommand] = React.useState(
-    defaultCommandFor(api ? undefined : fallbackProfiles[0]),
-  );
   const [apiConfigFilter, setApiConfigFilter] = React.useState<ApiConfigFilter>('all');
   const [activeSessionId, setActiveSessionId] = React.useState<string | undefined>(
     api ? undefined : fallbackSessions[0]?.id,
@@ -147,7 +140,6 @@ export default function App(): React.JSX.Element {
         setSessions(nextSessions);
         setSelectedProfileId((current) => current ?? nextProfiles[0]?.id);
         setSelectedWorkspaceId((current) => current ?? nextWorkspaces[0]?.id);
-        setSelectedCommand((current) => current || defaultCommandFor(nextProfiles[0]));
         setActiveSessionId((current) => current ?? nextSessions[0]?.id);
       })
       .catch((error: unknown) => {
@@ -178,17 +170,18 @@ export default function App(): React.JSX.Element {
   const selectProfile = (profileId: string): void => {
     const nextProfile = profiles.find((profile) => profile.id === profileId);
     setSelectedProfileId(profileId);
-    setSelectedCommand(defaultCommandFor(nextProfile));
     if (nextProfile) {
       setApiConfigFilter(nextProfile.toolType);
     }
   };
 
-  const launchSession = async (): Promise<AgentSession | undefined> => {
+  const launchSession = async (commandOverride?: string): Promise<AgentSession | undefined> => {
     if (!selectedProfile || !selectedWorkspace) {
       setLaunchError('启动失败，请先选择 API 配置和工作区。');
       return undefined;
     }
+
+    const command = commandOverride ?? defaultCommandFor(selectedProfile);
 
     if (!api) {
       const session: AgentSession = {
@@ -196,7 +189,7 @@ export default function App(): React.JSX.Element {
         title: `${selectedProfile.name} · ${selectedWorkspace.name}`,
         profileId: selectedProfile.id,
         workspaceId: selectedWorkspace.id,
-        command: selectedCommand,
+        command,
         status: 'running',
         startedAt: new Date().toISOString(),
       };
@@ -205,17 +198,13 @@ export default function App(): React.JSX.Element {
       return session;
     }
 
-    if (!selectedCommand) {
-      return;
-    }
-
     setLaunching(true);
     setLaunchError(null);
     try {
       const session = await api.launchSession({
         profileId: selectedProfile.id,
         workspaceId: selectedWorkspace.id,
-        command: selectedCommand,
+        command,
       });
       setSessions((current) => [...current.filter((item) => item.id !== session.id), session]);
       setActiveSessionId(session.id);
@@ -259,7 +248,6 @@ export default function App(): React.JSX.Element {
     });
     setSelectedProfileId(savedProfile.id);
     setApiConfigFilter(savedProfile.toolType);
-    setSelectedCommand(defaultCommandFor(savedProfile));
 
     return savedProfile;
   };
@@ -274,6 +262,25 @@ export default function App(): React.JSX.Element {
     }
 
     await api.saveProfileSecret(request);
+  };
+
+  const readProfileSecret = async (request: {
+    keychainService: string;
+    keychainAccount: string;
+  }): Promise<string> => {
+    if (!api) {
+      return '';
+    }
+
+    return api.readProfileSecret(request);
+  };
+
+  const fetchProfileModels = async (request: { profileId: string }): Promise<string[]> => {
+    if (!api) {
+      return [];
+    }
+
+    return api.fetchProfileModels(request);
   };
 
   const chooseWorkspace = async (): Promise<void> => {
@@ -300,17 +307,9 @@ export default function App(): React.JSX.Element {
     setApiConfigFilter('all');
   };
 
-  const focusNewSession = (): void => {
-    setActivePage('workbench');
-    window.setTimeout(() => {
-      commandBarRef.current?.scrollIntoView?.({ block: 'nearest' });
-      commandBarRef.current?.querySelector('select')?.focus();
-    }, 0);
-  };
-
   return (
     <main className="app-shell">
-      <AppHeader onShowApiConfig={showApiConfig} onNewSession={focusNewSession} />
+      <AppHeader onShowApiConfig={showApiConfig} />
       {activePage === 'workbench' ? (
         <>
           <CommandBar
@@ -321,17 +320,16 @@ export default function App(): React.JSX.Element {
             workspaces={workspaces}
             workspace={selectedWorkspace}
             workspaceId={selectedWorkspace?.id}
-            command={selectedCommand}
             launching={launching}
             onProfileChange={selectProfile}
             onWorkspaceChange={setSelectedWorkspaceId}
             onChooseWorkspace={api ? () => void chooseWorkspace() : undefined}
-            onCommandChange={setSelectedCommand}
+            onLaunchLocalShell={() => void launchSession('zsh')}
             onLaunch={() => void launchSession()}
           />
           {launchError ? <p role="alert" className="launch-error">{launchError}</p> : null}
 
-          <section className="workspace-grid">
+          <section className={detailsOpen ? 'workspace-grid details-open' : 'workspace-grid'}>
             <section className="terminal-card">
               <SessionTabs
                 tabs={tabs}
@@ -341,7 +339,10 @@ export default function App(): React.JSX.Element {
                 onAddSession={() => void launchSession()}
                 onCloseSession={(sessionId) => void closeSession(sessionId)}
               />
-              <TerminalPane sessionId={activeSessionId} />
+              <TerminalPane
+                sessionId={activeSessionId}
+                preserveHistory={activeSession ? !['zsh', 'bash'].includes(activeSession.command) : true}
+              />
             </section>
 
             <SessionDetailsDrawer
@@ -362,6 +363,8 @@ export default function App(): React.JSX.Element {
           onSelectProfile={selectProfile}
           onSaveProfile={saveProfile}
           onSaveProfileSecret={saveProfileSecret}
+          onReadProfileSecret={readProfileSecret}
+          onFetchProfileModels={fetchProfileModels}
           onBackToWorkbench={() => setActivePage('workbench')}
         />
         </section>

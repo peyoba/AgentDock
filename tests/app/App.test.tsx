@@ -4,10 +4,18 @@ import App from '../../src/renderer/App';
 import type { ApiProfile, Workspace } from '../../src/shared/agentdockTypes';
 import type { AgentDockApi } from '../../src/shared/preloadTypes';
 
+vi.mock('../../src/renderer/components/TerminalPane', () => ({
+  TerminalPane: ({ sessionId }: { sessionId?: string }) => (
+    <div aria-label="终端输出" data-session-id={sessionId ?? ''} />
+  ),
+}));
+
 type TestAgentDockApi = AgentDockApi & {
   chooseWorkspace: ReturnType<typeof vi.fn<() => Promise<Workspace | undefined>>>;
   saveProfile: ReturnType<typeof vi.fn<[(profile: ApiProfile) => Promise<ApiProfile>]>>;
   saveProfileSecret: ReturnType<typeof vi.fn<[(request: { keychainService: string; keychainAccount: string; secret: string }) => Promise<void>]>>;
+  readProfileSecret: ReturnType<typeof vi.fn<[(request: { keychainService: string; keychainAccount: string }) => Promise<string>]>>;
+  fetchProfileModels: ReturnType<typeof vi.fn<[(request: { profileId: string }) => Promise<string[]>]>>;
 };
 
 function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
@@ -33,6 +41,8 @@ function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
     chooseWorkspace: vi.fn().mockResolvedValue(undefined),
     saveProfile: vi.fn(async (profile: ApiProfile) => profile),
     saveProfileSecret: vi.fn().mockResolvedValue(undefined),
+    readProfileSecret: vi.fn().mockResolvedValue(''),
+    fetchProfileModels: vi.fn().mockResolvedValue([]),
     launchSession: vi.fn().mockResolvedValue({
       id: 'session-1',
       title: 'Claude A · AgentDock',
@@ -67,11 +77,27 @@ describe('AgentDock shell', () => {
   it('renders terminal-first launch controls', () => {
     render(<App />);
 
-    expect(screen.getByRole('button', { name: /新建会话/ })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Quick Launch' })).toBeInTheDocument();
-    expect(screen.getByText('选择接口、项目目录和命令，一次启动独立终端会话。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /新建会话/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '启动终端' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Quick Launch' })).not.toBeInTheDocument();
+    expect(screen.queryByText('选择接口、项目目录和命令，一次启动独立终端会话。')).not.toBeInTheDocument();
     expect(screen.getByLabelText('新建终端会话')).toBeInTheDocument();
     expect(screen.getByLabelText('运行中的会话')).toBeInTheDocument();
+    expect(screen.queryByText('共享目录')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('选择启动命令')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'zsh' })).toBeInTheDocument();
+    expect(screen.getByLabelText('选择工作区')).toHaveTextContent('选择其他文件夹…');
+  });
+
+  it('uses the full terminal width until session details are opened', () => {
+    render(<App />);
+
+    const workspaceGrid = screen.getByLabelText('运行中的会话').closest('.workspace-grid');
+    expect(workspaceGrid).not.toHaveClass('details-open');
+
+    fireEvent.click(screen.getByRole('button', { name: /会话详情/ }));
+
+    expect(workspaceGrid).toHaveClass('details-open');
   });
 
   it('keeps current session details collapsed by default', () => {
@@ -162,8 +188,7 @@ describe('AgentDock session launch flow', () => {
 
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText('选择启动命令'), { target: { value: 'zsh' } });
-    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'zsh' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -178,7 +203,7 @@ describe('AgentDock session launch flow', () => {
     const secret = 'agentdock-secret-must-not-render';
     installAgentDockApi({
       launchSession: vi.fn().mockRejectedValue(
-        new Error(`Keychain secret was not found for account "profile-a"; ${secret}`),
+        new Error(`API key was not found for account "profile-a"; ${secret}`),
       ),
     });
 
@@ -186,10 +211,10 @@ describe('AgentDock session launch flow', () => {
     fireEvent.click(await screen.findByRole('button', { name: '启动终端' }));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Keychain secret was not found for account "profile-a"');
+    expect(alert).toHaveTextContent('API key was not found for account "profile-a"');
     expect(alert).not.toHaveTextContent(secret);
   });
-  it('launches with the profile workspace and command selected in command controls', async () => {
+  it('launches with the profile workspace and auto command selected in command controls', async () => {
     const api = installAgentDockApi({
       listProfiles: vi.fn().mockResolvedValue([
         {
@@ -220,7 +245,6 @@ describe('AgentDock session launch flow', () => {
 
     fireEvent.change(await screen.findByLabelText('选择 API 配置'), { target: { value: 'codex-b' } });
     fireEvent.change(screen.getByLabelText('选择工作区'), { target: { value: 'workspace-b' } });
-    fireEvent.change(screen.getByLabelText('选择启动命令'), { target: { value: 'codex' } });
     fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
 
     await waitFor(() => {
@@ -228,6 +252,45 @@ describe('AgentDock session launch flow', () => {
         profileId: 'codex-b',
         workspaceId: 'workspace-b',
         command: 'codex',
+      });
+    });
+  });
+
+  it('derives the agent command from the selected API profile without exposing a command dropdown', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'claude-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://claude.example.invalid/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'claude-a',
+        },
+        {
+          id: 'gemini-a',
+          name: 'Gemini A',
+          toolType: 'gemini',
+          baseUrl: 'https://gemini.example.invalid/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'gemini-a',
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('选择 API 配置'), { target: { value: 'gemini-a' } });
+
+    expect(screen.queryByLabelText('选择启动命令')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+
+    await waitFor(() => {
+      expect(api.launchSession).toHaveBeenCalledWith({
+        profileId: 'gemini-a',
+        workspaceId: 'workspace-a',
+        command: 'gemini',
       });
     });
   });
@@ -244,7 +307,14 @@ describe('AgentDock session launch flow', () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '选择工作区路径' }));
+    const workspaceSelect = await screen.findByLabelText('选择工作区');
+    const chooseOption = [...workspaceSelect.querySelectorAll('option')].find(
+      (option) => option.textContent === '选择其他文件夹…',
+    );
+    expect(chooseOption).toBeDefined();
+    expect(screen.queryByRole('button', { name: '选择工作区路径' })).not.toBeInTheDocument();
+
+    fireEvent.change(workspaceSelect, { target: { value: chooseOption?.value } });
 
     await waitFor(() => {
       expect(api.chooseWorkspace).toHaveBeenCalledTimes(1);
@@ -411,8 +481,8 @@ describe('AgentDock session launch flow', () => {
 
 
 
-  it('writes a replacement API key to Keychain without rendering the secret after save', async () => {
-    const secret = 'test-agentdock-secret-for-keychain-only';
+  it('writes a replacement API key to local encrypted storage without rendering the secret after save', async () => {
+    const secret = 'test-agentdock-secret-for-local-vault-only';
     const api = installAgentDockApi({
       listProfiles: vi.fn().mockResolvedValue([
         {
@@ -431,8 +501,8 @@ describe('AgentDock session launch flow', () => {
 
     await openApiConfigPage();
     fireEvent.click(await screen.findByRole('button', { name: /Codex B/ }));
-    expect(screen.getByText('填写后保存到 macOS 钥匙串；留空则保留当前 Key。')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('API Key（保存到 macOS 钥匙串）'), { target: { value: secret } });
+    expect(screen.getByText('填写后本机加密保存；留空则保留当前 Key。')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('API Key（本机加密保存）'), { target: { value: secret } });
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
 
     await waitFor(() => {
@@ -442,12 +512,150 @@ describe('AgentDock session launch flow', () => {
         secret,
       });
     });
-    expect(await screen.findByText('API Key 已写入 Keychain')).toBeInTheDocument();
-    expect(screen.getByLabelText('API Key（保存到 macOS 钥匙串）')).toHaveValue('');
+    expect(await screen.findByText('API Key 已本机加密保存')).toBeInTheDocument();
+    expect(screen.getByLabelText('API Key（本机加密保存）')).toHaveValue('');
     expect(document.body).not.toHaveTextContent(secret);
   });
 
-  it('creates an additional API profile with its own endpoint and Keychain account', async () => {
+  it('reveals a saved API key only after an explicit show action and can hide it again', async () => {
+    const secret = 'test-agentdock-explicit-display-only';
+    const api = installAgentDockApi({
+      readProfileSecret: vi.fn().mockResolvedValue(secret),
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'profile-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://old.example.invalid',
+          defaultModel: 'claude-old',
+          keychainService: 'AgentDock',
+          keychainAccount: 'profile-a',
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+
+    const secretInput = screen.getByLabelText('API Key（本机加密保存）');
+    expect(api.readProfileSecret).not.toHaveBeenCalled();
+    expect(secretInput).toHaveAttribute('type', 'password');
+    expect(secretInput).toHaveValue('');
+    expect(document.body).not.toHaveTextContent(secret);
+
+    fireEvent.click(screen.getByRole('button', { name: '显示已保存 API Key' }));
+
+    await waitFor(() => {
+      expect(api.readProfileSecret).toHaveBeenCalledWith({
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      });
+    });
+    expect(secretInput).toHaveAttribute('type', 'text');
+    expect(secretInput).toHaveValue(secret);
+
+    fireEvent.click(screen.getByRole('button', { name: '隐藏 API Key' }));
+
+    expect(secretInput).toHaveAttribute('type', 'password');
+    expect(secretInput).toHaveValue(secret);
+  });
+
+  it('fetches model IDs for the selected profile and saves the selected default model list', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'codex-b',
+          name: 'Codex B',
+          toolType: 'codex',
+          baseUrl: 'https://anyrouter.top/v1',
+          defaultModel: 'gpt-5-codex',
+          keychainService: 'AgentDock',
+          keychainAccount: 'codex-openai',
+          availableModels: ['gpt-5-codex'],
+        },
+      ]),
+      fetchProfileModels: vi.fn().mockResolvedValue(['gpt-5-codex', 'gpt-4o']),
+      saveProfile: vi.fn(async (profile: ApiProfile) => profile),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Codex B/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: '拉取模型' }));
+
+    await waitFor(() => {
+      expect(api.fetchProfileModels).toHaveBeenCalledWith({ profileId: 'codex-b' });
+    });
+    expect(screen.getByText('已拉取 2 个模型')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('默认模型'), { target: { value: 'gpt-4o' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    await waitFor(() => {
+      expect(api.saveProfile).toHaveBeenCalledWith({
+        id: 'codex-b',
+        name: 'Codex B',
+        toolType: 'codex',
+        baseUrl: 'https://anyrouter.top/v1',
+        defaultModel: 'gpt-4o',
+        keychainService: 'AgentDock',
+        keychainAccount: 'codex-openai',
+        availableModels: ['gpt-5-codex', 'gpt-4o'],
+      });
+    });
+  });
+
+  it('lets users manually add and remove model IDs from an API profile', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'claude-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://claude.example.invalid/v1',
+          defaultModel: 'claude-3-5-haiku-20241022',
+          keychainService: 'AgentDock',
+          keychainAccount: 'claude-a',
+          availableModels: ['claude-3-5-haiku-20241022', 'claude-3-7-sonnet-20250219'],
+        },
+      ]),
+      saveProfile: vi.fn(async (profile: ApiProfile) => profile),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+
+    fireEvent.change(screen.getByLabelText('自定义模型 ID'), {
+      target: { value: 'claude-opus-4-20250514' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '添加模型' }));
+    fireEvent.change(screen.getByLabelText('默认模型'), {
+      target: { value: 'claude-opus-4-20250514' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '删除模型 claude-3-7-sonnet-20250219' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    await waitFor(() => {
+      expect(api.saveProfile).toHaveBeenCalledWith({
+        id: 'claude-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://claude.example.invalid/v1',
+        defaultModel: 'claude-opus-4-20250514',
+        keychainService: 'AgentDock',
+        keychainAccount: 'claude-a',
+        availableModels: ['claude-3-5-haiku-20241022', 'claude-opus-4-20250514'],
+      });
+    });
+  });
+
+  it('creates an additional API profile with its own endpoint and secret slot', async () => {
     const secret = 'test-second-provider-secret';
     const api = installAgentDockApi({
       saveProfile: vi.fn(async (profile: ApiProfile) => profile),
@@ -461,7 +669,7 @@ describe('AgentDock session launch flow', () => {
     fireEvent.change(screen.getByLabelText('接口名称'), { target: { value: 'Claude Provider B' } });
     fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://provider-b.example.invalid' } });
     fireEvent.change(screen.getByLabelText('默认模型'), { target: { value: 'claude-provider-b' } });
-    fireEvent.change(screen.getByLabelText('API Key（保存到 macOS 钥匙串）'), { target: { value: secret } });
+    fireEvent.change(screen.getByLabelText('API Key（本机加密保存）'), { target: { value: secret } });
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
 
     await waitFor(() => {

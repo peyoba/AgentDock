@@ -22,21 +22,26 @@ input {
 
 .app-shell {
   min-height: 100vh;
-  padding: 54px 28px 24px;
+  padding: 0 8px 8px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
   box-sizing: border-box;
-  background:
-    radial-gradient(circle at 16% 0%, rgba(59, 130, 246, 0.08), transparent 30%),
-    linear-gradient(180deg, #f7f9fd 0%, #eef2f8 100%);
+  background: #f6f7fb;
 }
 
 .titlebar-spacer {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 18px 0 68px;
   -webkit-app-region: drag;
+}
+
+.titlebar-spacer p {
+  display: none;
 }
 
 .titlebar-spacer button,
@@ -45,15 +50,20 @@ input {
   -webkit-app-region: no-drag;
 }
 
+.titlebar-spacer .ghost-button {
+  padding: 6px 10px;
+}
+
 h1 {
   margin: 0;
-  font-size: 30px;
-  letter-spacing: -0.8px;
+  font-size: 18px;
+  letter-spacing: -0.35px;
 }
 
 p {
-  margin: 6px 0 0;
+  margin: 3px 0 0;
   color: #6b7280;
+  font-size: 12px;
 }
 
 .header-actions,
@@ -67,36 +77,35 @@ p {
 .brand-lockup {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 .brand-mark {
-  width: 52px;
-  height: 52px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 18px;
-  background: linear-gradient(145deg, #111827, #2563eb);
+  border-radius: 9px;
+  background: #111827;
   color: #fff;
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 950;
   letter-spacing: -0.5px;
-  box-shadow: 0 18px 36px rgba(37, 99, 235, 0.24);
+  box-shadow: none;
 }
 
 .ghost-button,
 .primary-button,
 .command-bar select,
-.workspace-path-button,
-.mode-chip,
+.local-shell-button,
 .session-tabs button,
 .tool-type-tabs button {
   border: 1px solid #e5e7eb;
-  border-radius: 14px;
+  border-radius: 8px;
   background: #fff;
   color: #374151;
   font-weight: 800;
-  padding: 10px 14px;
+  padding: 8px 12px;
 }
 
 .primary-button,
@@ -107,16 +116,12 @@ p {
 }
 
 .command-bar {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  align-items: stretch;
-  gap: 14px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  border-radius: 28px;
-  padding: 14px;
-  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.12);
-  backdrop-filter: blur(20px);
+  display: block;
+  background: #fff;
+  border: 1px solid #e1e5ec;
+  border-radius: 12px;
+  padding: 8px 12px;
+  box-shadow: none;
 }
 
 .command-bar button {
@@ -125,15 +130,29 @@ p {
 
 .command-bar label {
   min-width: 0;
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: #6b7280;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 0 0 0 10px;
+}
+
+.command-bar label span {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .command-bar select {
   width: 100%;
+  min-height: 30px;
+  border: 0;
+  border-left: 1px solid #e5e7eb;
+  border-radius: 0 8px 8px 0;
   color: #374151;
   appearance: none;
   background-image: linear-gradient(45deg, transparent 50%, #6b7280 50%),
@@ -143,71 +162,40 @@ p {
   background-repeat: no-repeat;
 }
 
-.command-intro {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 18px;
-  border-radius: 22px;
-  background:
-    linear-gradient(140deg, rgba(17, 24, 39, 0.96), rgba(30, 64, 175, 0.92)),
-    #111827;
-  color: #fff;
-  padding: 18px;
-  min-height: 118px;
-}
-
-.command-intro h2 {
-  margin: 0;
-  color: #fff;
-  font-size: 22px;
-  line-height: 1.1;
-  letter-spacing: -0.4px;
-}
-
-.command-intro p {
-  max-width: 230px;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
 .command-fields {
   display: grid;
-  grid-template-columns: minmax(180px, 1.1fr) minmax(180px, 1fr) auto minmax(150px, 0.75fr) minmax(150px, auto);
-  align-items: end;
-  gap: 10px;
-  border-radius: 22px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  padding: 16px;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.2fr) auto minmax(132px, auto);
+  align-items: center;
+  gap: 8px;
 }
 
-.workspace-path-button {
+.local-shell-button {
   border: 1px solid #d1d5db;
-  min-width: 108px !important;
-}
-
-.mode-chip {
-  width: fit-content;
-  background: rgba(236, 253, 245, 0.16);
-  border-color: rgba(167, 243, 208, 0.34);
-  color: #d1fae5;
-  align-self: end;
+  min-width: 58px !important;
+  min-height: 32px;
   text-align: center;
+  background: #fff;
+  color: #374151;
 }
 
 .launch-button {
-  min-width: 150px;
-  align-self: end;
+  min-width: 132px;
+  min-height: 34px;
+  align-self: center;
+  border-radius: 9px;
 }
 
 .workspace-grid {
   flex: 1;
   min-height: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.workspace-grid.details-open {
   grid-template-columns: minmax(0, 1fr) minmax(260px, 316px);
-  gap: 16px;
+  gap: 12px;
 }
 
 .terminal-card {
@@ -216,17 +204,17 @@ p {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 28px;
+  border-radius: 12px;
   border: 1px solid #e5e7eb;
   background: #fff;
-  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.12);
+  box-shadow: none;
 }
 
 .session-tabs {
   overflow-x: auto;
-  padding: 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid #e5e7eb;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  background: #fff;
   scrollbar-width: thin;
 }
 
@@ -246,7 +234,7 @@ p {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 8px 11px;
+  padding: 7px 10px;
   font-size: 12px;
 }
 
@@ -284,8 +272,9 @@ p {
 
 .details-toggle {
   margin-left: auto;
-  background: #eef2ff !important;
-  color: #3730a3 !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  color: #374151 !important;
   flex: 0 0 auto;
 }
 
@@ -294,11 +283,15 @@ p {
   margin: 0;
   padding: 28px;
   overflow: auto;
-  background:
-    radial-gradient(circle at 80% 0%, rgba(37, 99, 235, 0.15), transparent 26%),
-    #050814;
+  background: #07080c;
   color: #d1d5db;
   font: 14px/1.7 "SF Mono", Menlo, Consolas, monospace;
+}
+
+.terminal-surface {
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .terminal-empty {
@@ -322,7 +315,48 @@ p {
 }
 
 .terminal-surface .xterm {
+  display: block !important;
+  width: 100% !important;
   height: 100%;
+  max-width: none !important;
+}
+
+.terminal-surface .xterm-viewport {
+  left: 0 !important;
+  right: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  width: auto !important;
+  overflow-y: scroll !important;
+  background-color: #07080c !important;
+  scrollbar-gutter: stable;
+  scrollbar-color: #4b5563 #07080c;
+  scrollbar-width: thin;
+}
+
+.terminal-surface .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.terminal-surface .xterm-viewport::-webkit-scrollbar-track {
+  background: #07080c;
+}
+
+.terminal-surface .xterm-viewport::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 999px;
+  border: 2px solid #07080c;
+}
+
+.terminal-surface .xterm-screen {
+  padding-right: 14px;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.terminal-surface .xterm-rows {
+  width: 100% !important;
+  max-width: none !important;
 }
 
 .session-details,
@@ -535,6 +569,66 @@ p {
 .profile-editor input[readonly] {
   background: #f3f4f6;
   color: #6b7280;
+}
+
+.model-config,
+.api-key-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.model-config-header,
+.model-add-row,
+.api-key-editor {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.model-config-header,
+.model-add-row {
+  display: grid;
+  gap: 10px;
+}
+
+.model-fetch-button,
+.model-add-row button,
+.secret-visibility-button {
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  background: #fff;
+  color: #374151;
+  font-weight: 900;
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+
+.model-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 8px 6px 10px;
+}
+
+.model-chip button {
+  border: 0;
+  border-radius: 999px;
+  background: rgba(29, 78, 216, 0.1);
+  color: #1d4ed8;
+  font-weight: 900;
+  line-height: 1;
+  padding: 3px 6px;
 }
 
 .wide-field {

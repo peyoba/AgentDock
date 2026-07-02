@@ -2,10 +2,9 @@ import React from 'react';
 
 type AppHeaderProps = {
   onShowApiConfig(): void;
-  onNewSession(): void;
 };
 
-export function AppHeader({ onShowApiConfig, onNewSession }: AppHeaderProps): React.JSX.Element {
+export function AppHeader({ onShowApiConfig }: AppHeaderProps): React.JSX.Element {
   return (
     <header className="titlebar-spacer">
       <div className="brand-lockup">
@@ -18,9 +17,6 @@ export function AppHeader({ onShowApiConfig, onNewSession }: AppHeaderProps): Re
       <div className="header-actions">
         <button type="button" className="ghost-button" onClick={onShowApiConfig}>
           🔑 接口配置
-        </button>
-        <button type="button" className="primary-button" onClick={onNewSession}>
-          新建会话
         </button>
       </div>
     </header>

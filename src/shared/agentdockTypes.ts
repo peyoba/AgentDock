@@ -6,6 +6,7 @@ export type ApiProfile = {
   toolType: ToolType;
   baseUrl: string;
   defaultModel?: string;
+  availableModels?: string[];
   keychainService: string;
   keychainAccount: string;
   codexHome?: string;
@@ -39,6 +40,15 @@ export type ProfileSecretSaveRequest = {
   keychainService: string;
   keychainAccount: string;
   secret: string;
+};
+
+export type ProfileSecretReadRequest = {
+  keychainService: string;
+  keychainAccount: string;
+};
+
+export type ProfileModelsFetchRequest = {
+  profileId: string;
 };
 
 export type TerminalWriteRequest = {

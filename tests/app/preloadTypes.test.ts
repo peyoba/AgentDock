@@ -11,6 +11,8 @@ describe('preloadTypes', () => {
       'chooseWorkspace',
       'saveProfile',
       'saveProfileSecret',
+      'readProfileSecret',
+      'fetchProfileModels',
       'launchSession',
       'listSessions',
       'writeTerminal',
@@ -23,7 +25,8 @@ describe('preloadTypes', () => {
     expect(AGENT_DOCK_API_METHODS).toEqual(methodNames);
   });
 
-  it('does not expose full secrets or full environment snapshots through the renderer API', () => {
+  it('only exposes an explicit profile-secret read path and no raw secret/env APIs', () => {
+    expect(AGENT_DOCK_API_METHODS).toContain('readProfileSecret');
     expect(AGENT_DOCK_API_METHODS).not.toContain('readSecret');
     expect(AGENT_DOCK_API_METHODS).not.toContain('getEnv');
     expect(AGENT_DOCK_API_METHODS).not.toContain('listEnvironment');

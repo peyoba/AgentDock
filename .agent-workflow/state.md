@@ -206,3 +206,68 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-02 | `npm run workflow:doctor` | PASS |
 | 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
 | 2026-07-02 | `git diff --check` | PASS |
+| 2026-07-02 | Local encrypted API key vault | PASS：新保存 API Key 写入 `secrets.vault.json` 本机加密 vault，不再直接写 macOS Keychain；Keychain 仅作为旧数据一次性迁移 fallback |
+| 2026-07-02 | API key storage UI copy | PASS：配置页改为 `API Key（本机加密保存）` / `API Key 已本机加密保存`，不再默认提示保存到 Keychain |
+| 2026-07-02 | `npm run test` | PASS：22 files / 68 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-02 | local package codesign verify | PASS：`codesign --verify --deep --strict --verbose=2` |
+| 2026-07-02 | secret scan | PASS：变更文件未发现真实 API key/token/private key；剩余命中为文档占位符 |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-02 | `git diff --check` | PASS |
+| 2026-07-02 | Terminal-first compact UI | PASS：移除大块 Quick Launch/共享目录伪按钮/顶部重复“新建会话”；启动动作统一为“启动终端”；详情关闭时终端全宽 |
+| 2026-07-02 | Claude inherited env conflict fix | PASS：PTY 启动前清理继承的 `ANTHROPIC_API_KEY`/OpenAI/CODEX 环境变量，只保留当前 profile 注入，避免 Claude Auth conflict |
+| 2026-07-02 | `npm run test` | PASS：22 files / 71 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-02 | packaged compact UI smoke | PASS：app.asar 不再包含 `新建会话`/`共享目录`/`Quick Launch`，保留 `启动终端` |
+| 2026-07-02 | local package codesign verify | PASS：`codesign --verify --deep --strict --verbose=2` |
+| 2026-07-02 | secret scan | PASS：未发现真实 API key/token/private key；剩余命中为文档/验证记录占位符 |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-02 | macOS titlebar alignment | PASS：BrowserWindow 改为 `titleBarStyle: hidden`，自定义标题栏左侧预留交通灯空间，使窗口控制按钮与 AgentDock 标题同一行 |
+| 2026-07-02 | Auto command selection | PASS：命令跟随 API 配置工具类型自动设置；命令下拉只提供 `自动：<tool>` 与 `zsh（本地 Shell）` |
+| 2026-07-02 | xterm scrollbar polish | PASS：终端滚动条改为暗色细滚动条并贴终端右边，xterm screen 增加右侧内边距避免内容压住滚动条 |
+| 2026-07-02 | `npm run test` | PASS：22 files / 74 tests |
+| 2026-07-02 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-02 | packaged UI smoke | PASS：app.asar 确认 `titleBarStyle: hidden`、包含 `自动：` 与 `xterm-viewport`，不含 `新建会话`/`共享目录` |
+| 2026-07-02 | local package codesign verify | PASS：`codesign --verify --deep --strict --verbose=2` |
+| 2026-07-02 | secret scan | PASS：未发现真实 API key/token/private key；剩余命中为文档/验证记录占位符 |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-02 | No automatic Keychain fallback | PASS：主进程改为直接使用本机加密 `secrets.vault.json`，不再自动读 macOS Keychain fallback，避免本地/adhoc App 反复弹系统密码；缺 key 时要求用户在接口配置中粘贴保存一次 |
+| 2026-07-02 | API config model fetch and visible key controls | PASS：配置页支持显式显示/隐藏当前 API Key、拉取模型列表、默认模型下拉、手动添加/删除模型；renderer 默认不读取 secret，fetch models 只返回模型 ID |
+| 2026-07-02 | `npm run test` | PASS：23 files / 80 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-02 | local package codesign verify | PASS：`codesign --verify --deep --strict --verbose=2` |
+| 2026-07-02 | packaged main entry scan | PASS：app.asar 主入口不含 `createKeytarAdapter` / `createVaultBackedSecretAdapter` / `keychainAdapter` 引用 |
+| 2026-07-02 | strict secret scan | PASS：source/tests/docs（排除 mockup assets）未发现真实 API key/token/private key pattern |
+| 2026-07-03 | macOS traffic-light titlebar alignment | PASS：`.titlebar-spacer` 压缩为 34px 单行标题栏，隐藏标题栏副标题并缩小右侧按钮 padding，使左上角三色窗口控制按钮与 AgentDock logo/title 中线对齐 |
+| 2026-07-03 | `npm run test` | PASS：23 files / 81 tests |
+| 2026-07-03 | `npm run build` | PASS |
+| 2026-07-03 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-03 | local package codesign verify | PASS：`codesign --verify --deep --strict --verbose=2` |
+| 2026-07-03 | `git diff --check` | PASS |
+| 2026-07-03 | Terminal scrollback context retention | PASS：xterm 显式设置 `scrollback: 50_000`，主进程每个 session 的 PTY replay buffer 从 200KB 提升到 5MB，避免新输出/切换 tab 后旧上下文过早丢失 |
+| 2026-07-03 | `npm run test` | PASS：23 files / 83 tests |
+| 2026-07-03 | `npm run build` | PASS |
+| 2026-07-03 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-03 | local package codesign verify | PASS：`codesign --verify --deep --strict --verbose=2` |
+| 2026-07-03 | strict secret scan | PASS：source/tests/docs（排除 mockup assets）未发现真实 API key/token/private key pattern |
+| 2026-07-03 | Terminal history preserve mode | PASS：Agent 会话输出进入 xterm 前过滤备用屏幕/清屏/光标重定位 ANSI 控制码，避免 Codex/Claude redraw 覆盖旧上下文；zsh/bash 本地 shell 保留原生控制码 |
+| 2026-07-03 | Stable terminal scrollbar gutter | PASS：xterm viewport 显式 `overflow-y: scroll !important` 和 `scrollbar-gutter: stable`，右侧滚动槽稳定预留 |
+| 2026-07-03 | `npm run typecheck` | PASS |
+| 2026-07-03 | `npm run test` | PASS：23 files / 85 tests |
+| 2026-07-03 | `npm run build` | PASS |
+| 2026-07-03 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-03 | local package codesign verify | PASS：`codesign --verify --deep --strict --verbose=2` |
+| 2026-07-03 | strict secret scan | PASS：source/tests/docs（排除 mockup assets）未发现真实 API key/token/private key pattern |
+| 2026-07-03 | Terminal ANSI filter narrowed | PASS：修复上一版历史保留过滤过度导致 Codex/Claude 启动画面错乱；现在只过滤备用屏幕和清除 scrollback 控制码，保留正常光标/清屏/颜色控制序列 |
+| 2026-07-03 | `npm run typecheck` | PASS |
+| 2026-07-03 | `npm run test` | PASS：23 files / 85 tests |
+| 2026-07-03 | `npm run build` | PASS |
+| 2026-07-03 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-03 | local package codesign verify | PASS：`codesign --verify --deep --strict --verbose=2` |
+| 2026-07-03 | strict secret scan | PASS：source/tests/docs（排除 mockup assets）未发现真实 API key/token/private key pattern |

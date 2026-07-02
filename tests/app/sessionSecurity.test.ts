@@ -3,7 +3,7 @@ import { createSessionService } from '../../src/main/sessionService';
 import type { KeychainAdapter } from '../../src/main/adapters/keychainAdapter';
 import type { PtyAdapter } from '../../src/main/adapters/ptyAdapter';
 
-const secret = 'sk-test-secret-that-must-not-reach-renderer';
+const secret = 'test-openai-secret-that-must-not-reach-renderer';
 
 function createService() {
   const keychain: KeychainAdapter = {

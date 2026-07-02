@@ -163,6 +163,54 @@ describe('createNodePtyAdapter', () => {
     );
   });
 
+  it('drops inherited agent API credentials before injecting the selected profile environment', async () => {
+    let spawnedEnv: Record<string, string | undefined> = {};
+    const adapter = createNodePtyAdapter({
+      module: {
+        spawn(_file, _args, options) {
+          spawnedEnv = options.env;
+          return {
+            write() {},
+            resize() {},
+            kill() {},
+            onData() {
+              return { dispose() {} };
+            },
+          };
+        },
+      },
+      shell: '/bin/zsh',
+      baseEnv: {
+        PATH: '/usr/bin',
+        HOME: '/Users/example',
+        ANTHROPIC_API_KEY: 'inherited-anthropic-api-key',
+        ANTHROPIC_AUTH_TOKEN: 'inherited-anthropic-auth-token',
+        ANTHROPIC_BASE_URL: 'https://inherited-anthropic.example.invalid',
+        OPENAI_API_KEY: 'inherited-openai-api-key',
+        OPENAI_BASE_URL: 'https://inherited-openai.example.invalid/v1',
+        CODEX_HOME: '/tmp/inherited-codex-home',
+      },
+      ensureHelper: false,
+    });
+
+    await adapter.spawn({
+      sessionId: 'session-claude',
+      command: 'claude',
+      cwd: '/tmp',
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'selected-profile-token',
+        ANTHROPIC_BASE_URL: 'https://selected-profile.example.invalid',
+      },
+    });
+
+    expect(spawnedEnv.ANTHROPIC_AUTH_TOKEN).toBe('selected-profile-token');
+    expect(spawnedEnv.ANTHROPIC_BASE_URL).toBe('https://selected-profile.example.invalid');
+    expect(spawnedEnv.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(spawnedEnv.OPENAI_API_KEY).toBeUndefined();
+    expect(spawnedEnv.OPENAI_BASE_URL).toBeUndefined();
+    expect(spawnedEnv.CODEX_HOME).toBeUndefined();
+  });
+
 });
 
 

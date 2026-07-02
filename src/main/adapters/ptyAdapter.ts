@@ -66,6 +66,15 @@ const COMMON_CLI_PATHS = [
   '/sbin',
 ];
 
+const MANAGED_AGENT_ENV_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+  'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
+  'CODEX_HOME',
+];
+
 function loadNodePty(): NodePtyLike {
   return require('node-pty') as NodePtyLike;
 }
@@ -150,6 +159,11 @@ function buildPtyEnvironment(
     ...baseEnv,
     ...env,
   };
+  for (const key of MANAGED_AGENT_ENV_KEYS) {
+    if (!(key in env)) {
+      delete mergedEnv[key];
+    }
+  }
   const originalPath = mergedEnv.PATH ?? '';
   const homeDir = mergedEnv.HOME;
   mergedEnv.PATH = uniquePathEntries([

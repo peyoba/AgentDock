@@ -85,4 +85,27 @@ describe('sessionService launch failure safety', () => {
       service.writeTerminal({ sessionId: 'session-1', input: 'help\n' }),
     ).rejects.toThrow('Terminal session was not found');
   });
+
+  it('rethrows missing local API key errors so the UI can tell users to save a key', async () => {
+    const service = createSessionService({
+      keychain: {
+        async readSecret() {
+          throw new Error('API key was not found for account "profile-a"');
+        },
+        async writeSecret() {},
+        async deleteSecret() {},
+      },
+      pty: {
+        async spawn() {
+          throw new Error('should not spawn without an API key');
+        },
+      },
+      appDataPath: '/tmp/agentdock-test-data',
+      workspaceExists: () => true,
+    });
+
+    await expect(
+      service.launch({ profile, workspace: { ...workspace, path: '/tmp' }, command: 'claude' }),
+    ).rejects.toThrow('API key was not found for account "profile-a"');
+  });
 });

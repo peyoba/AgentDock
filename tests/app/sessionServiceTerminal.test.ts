@@ -105,6 +105,24 @@ describe('sessionService terminal controls', () => {
     ]);
   });
 
+  it('keeps a multi-megabyte PTY replay buffer so switching tabs does not erase earlier context', async () => {
+    const runtime = createTerminalRuntime();
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+    });
+    const session = await launchTestSession(service);
+
+    runtime.emit(`BEGIN-CONTEXT\n${'a'.repeat(250_000)}\n`);
+    runtime.emit(`LATEST-CONTEXT\n${'b'.repeat(250_000)}\n`);
+
+    const replayBuffer = await service.readTerminalBuffer({ sessionId: session.id });
+
+    expect(replayBuffer).toContain('BEGIN-CONTEXT');
+    expect(replayBuffer).toContain('LATEST-CONTEXT');
+  });
+
 
 
   it('launches a local zsh shell without reading API secrets', async () => {

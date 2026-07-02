@@ -53,7 +53,7 @@ export type SessionService = {
   onTerminalOutput(listener: TerminalOutputListener): () => void;
 };
 
-const MAX_TERMINAL_BUFFER_LENGTH = 200_000;
+const MAX_TERMINAL_BUFFER_LENGTH = 5_000_000;
 
 const defaultClock: Clock = { now: () => new Date() };
 
@@ -120,6 +120,15 @@ function cloneSession(session: AgentSession): AgentSession {
 function isLocalShellCommand(command: string): boolean {
   const normalizedCommand = command.trim().split(/\s+/)[0] ?? '';
   return normalizedCommand === 'zsh' || normalizedCommand === 'bash';
+}
+
+function isSecretReadError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (/API key was not found for account/.test(error.message) ||
+      /Keychain secret was not found for account/.test(error.message) ||
+      /Unable to decrypt local API key vault entry/.test(error.message))
+  );
 }
 
 export function createSessionService(
@@ -208,7 +217,7 @@ export function createSessionService(
         return cloneSession(session);
       } catch (error) {
         session.status = 'failed';
-        if (error instanceof Error && error.message.startsWith('Keychain secret was not found')) {
+        if (isSecretReadError(error)) {
           throw error;
         }
         throw new Error(`Failed to launch terminal command "${command}"`);

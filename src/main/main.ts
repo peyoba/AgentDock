@@ -2,8 +2,9 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createKeytarAdapter } from './adapters/keychainAdapter.js';
 import { createNodePtyAdapter } from './adapters/ptyAdapter.js';
+import { createEncryptedVaultAdapter } from './adapters/secretVaultAdapter.js';
+import { fetchProfileModels } from './modelFetchService.js';
 import { createSessionService } from './sessionService.js';
 import { createProfileStore } from './stores/profileStore.js';
 import { createWorkspaceStore } from './stores/workspaceStore.js';
@@ -11,6 +12,8 @@ import { createWorkspaceFromPath, mergeWorkspaces } from './workspaceService.js'
 import type {
   ApiProfile,
   LaunchRequest,
+  ProfileModelsFetchRequest,
+  ProfileSecretReadRequest,
   ProfileSecretSaveRequest,
   TerminalBufferRequest,
   TerminalKillRequest,
@@ -20,13 +23,16 @@ import type {
 } from '../shared/agentdockTypes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const profileStore = createProfileStore(app.getPath('userData'));
-const workspaceStore = createWorkspaceStore(app.getPath('userData'));
-const keychainAdapter = createKeytarAdapter();
+const userDataPath = app.getPath('userData');
+const profileStore = createProfileStore(userDataPath);
+const workspaceStore = createWorkspaceStore(userDataPath);
+const secretAdapter = createEncryptedVaultAdapter({
+  filePath: path.join(userDataPath, 'secrets.vault.json'),
+});
 const sessionService = createSessionService({
-  keychain: keychainAdapter,
+  keychain: secretAdapter,
   pty: createNodePtyAdapter(),
-  appDataPath: app.getPath('userData'),
+  appDataPath: userDataPath,
   workspaceExists: fs.existsSync,
 });
 
@@ -37,6 +43,12 @@ const defaultProfiles: ApiProfile[] = [
     toolType: 'claude',
     baseUrl: 'https://anyrouter.top',
     defaultModel: 'claude-3-5-haiku-20241022',
+    availableModels: [
+      'claude-3-5-haiku-20241022',
+      'claude-3-7-sonnet-20250219',
+      'claude-sonnet-4-20250514',
+      'claude-opus-4-20250514',
+    ],
     keychainService: 'AgentDock',
     keychainAccount: 'claude-anyrouter',
   },
@@ -46,6 +58,7 @@ const defaultProfiles: ApiProfile[] = [
     toolType: 'codex',
     baseUrl: 'https://anyrouter.top/v1',
     defaultModel: 'gpt-5-codex',
+    availableModels: ['gpt-5-codex', 'gpt-4o', 'gpt-4.1', 'o3'],
     keychainService: 'AgentDock',
     keychainAccount: 'codex-openai',
     codexHome: '~/.agentdock/codex-profiles/codex-openai',
@@ -61,16 +74,35 @@ const defaultWorkspaces: Workspace[] = [
 ];
 
 function sanitizeProfile(profile: ApiProfile): ApiProfile {
+  const availableModels = normalizeModelList(profile.availableModels);
+
   return {
     id: profile.id,
     name: profile.name,
     toolType: profile.toolType,
     baseUrl: profile.baseUrl,
     defaultModel: profile.defaultModel || undefined,
+    availableModels: availableModels.length > 0 ? availableModels : undefined,
     keychainService: profile.keychainService,
     keychainAccount: profile.keychainAccount,
     codexHome: profile.codexHome || undefined,
   };
+}
+
+function normalizeModelList(models: string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const model of models ?? []) {
+    const normalized = model.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+
+  return result;
 }
 
 async function listProfiles(): Promise<ApiProfile[]> {
@@ -124,11 +156,22 @@ function registerIpcHandlers(): void {
   ipcMain.handle('profiles:list', () => listProfiles());
   ipcMain.handle('profiles:save', (_event, profile: ApiProfile) => saveProfile(profile));
   ipcMain.handle('profiles:saveSecret', async (_event, request: ProfileSecretSaveRequest) => {
-    await keychainAdapter.writeSecret(
+    await secretAdapter.writeSecret(
       request.keychainService,
       request.keychainAccount,
       request.secret,
     );
+  });
+  ipcMain.handle('profiles:readSecret', (_event, request: ProfileSecretReadRequest) =>
+    secretAdapter.readSecret(request.keychainService, request.keychainAccount),
+  );
+  ipcMain.handle('profiles:fetchModels', async (_event, request: ProfileModelsFetchRequest) => {
+    const profile = (await listProfiles()).find((item) => item.id === request.profileId);
+    if (!profile) {
+      throw new Error('Cannot fetch models because profile was not found');
+    }
+
+    return fetchProfileModels({ profile, secretAdapter });
   });
   ipcMain.handle('workspaces:list', () => listWorkspaces());
   ipcMain.handle('workspaces:choose', (event) =>
@@ -173,7 +216,7 @@ function createMainWindow(): void {
     minHeight: 480,
     resizable: true,
     title: 'AgentDock 代理坞',
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: 'hidden',
     backgroundColor: '#f6f7fb',
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.cjs'),

@@ -14,6 +14,7 @@ export function createProfileStore(rootDir: string) {
         toolType: profile.toolType,
         baseUrl: profile.baseUrl,
         defaultModel: profile.defaultModel,
+        availableModels: profile.availableModels,
         keychainService: profile.keychainService,
         keychainAccount: profile.keychainAccount,
         codexHome: profile.codexHome,
