@@ -8,13 +8,17 @@ describe('preloadTypes', () => {
       'version',
       'listProfiles',
       'listWorkspaces',
+      'chooseWorkspace',
+      'saveProfile',
+      'saveProfileSecret',
       'launchSession',
       'listSessions',
       'writeTerminal',
       'resizeTerminal',
       'killTerminal',
+      'readTerminalBuffer',
       'onTerminalOutput',
-    ] satisfies Array<keyof AgentDockApi>;
+    ] satisfies Array<keyof AgentDockApi | 'saveProfile'>;
 
     expect(AGENT_DOCK_API_METHODS).toEqual(methodNames);
   });

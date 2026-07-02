@@ -35,6 +35,12 @@ export type LaunchRequest = {
   command: string;
 };
 
+export type ProfileSecretSaveRequest = {
+  keychainService: string;
+  keychainAccount: string;
+  secret: string;
+};
+
 export type TerminalWriteRequest = {
   sessionId: string;
   input: string;
@@ -47,6 +53,10 @@ export type TerminalResizeRequest = {
 };
 
 export type TerminalKillRequest = {
+  sessionId: string;
+};
+
+export type TerminalBufferRequest = {
   sessionId: string;
 };
 

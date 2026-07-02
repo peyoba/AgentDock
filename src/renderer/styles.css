@@ -1,6 +1,6 @@
 :root {
   color: #111827;
-  background: #f6f7fb;
+  background: #f4f6fb;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
 }
 
@@ -12,24 +12,42 @@ button {
   font: inherit;
 }
 
+select {
+  font: inherit;
+}
+
+input {
+  font: inherit;
+}
+
 .app-shell {
   min-height: 100vh;
-  padding: 56px 28px 24px;
+  padding: 54px 28px 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   box-sizing: border-box;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(59, 130, 246, 0.08), transparent 30%),
+    linear-gradient(180deg, #f7f9fd 0%, #eef2f8 100%);
 }
 
 .titlebar-spacer {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
+  -webkit-app-region: drag;
+}
+
+.titlebar-spacer button,
+.titlebar-spacer input,
+.titlebar-spacer select {
+  -webkit-app-region: no-drag;
 }
 
 h1 {
   margin: 0;
-  font-size: 32px;
+  font-size: 30px;
   letter-spacing: -0.8px;
 }
 
@@ -39,7 +57,6 @@ p {
 }
 
 .header-actions,
-.command-bar,
 .session-tabs,
 .tool-type-tabs {
   display: flex;
@@ -47,9 +64,30 @@ p {
   gap: 10px;
 }
 
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-mark {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #111827, #2563eb);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 950;
+  letter-spacing: -0.5px;
+  box-shadow: 0 18px 36px rgba(37, 99, 235, 0.24);
+}
+
 .ghost-button,
 .primary-button,
-.command-bar button,
+.command-bar select,
+.workspace-path-button,
 .mode-chip,
 .session-tabs button,
 .tool-type-tabs button {
@@ -69,31 +107,107 @@ p {
 }
 
 .command-bar {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 22px;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 14px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 28px;
   padding: 14px;
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.11);
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.12);
+  backdrop-filter: blur(20px);
 }
 
 .command-bar button {
-  min-width: 220px;
+  min-width: auto;
+}
+
+.command-bar label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.command-bar select {
+  width: 100%;
+  color: #374151;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #6b7280 50%),
+    linear-gradient(135deg, #6b7280 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+
+.command-intro {
   display: flex;
+  flex-direction: column;
   justify-content: space-between;
+  gap: 18px;
+  border-radius: 22px;
+  background:
+    linear-gradient(140deg, rgba(17, 24, 39, 0.96), rgba(30, 64, 175, 0.92)),
+    #111827;
+  color: #fff;
+  padding: 18px;
+  min-height: 118px;
+}
+
+.command-intro h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 22px;
+  line-height: 1.1;
+  letter-spacing: -0.4px;
+}
+
+.command-intro p {
+  max-width: 230px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.command-fields {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(180px, 1fr) auto minmax(150px, 0.75fr) minmax(150px, auto);
+  align-items: end;
+  gap: 10px;
+  border-radius: 22px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  padding: 16px;
+}
+
+.workspace-path-button {
+  border: 1px solid #d1d5db;
+  min-width: 108px !important;
 }
 
 .mode-chip {
-  background: #ecfdf5;
-  border-color: #a7f3d0;
-  color: #047857;
+  width: fit-content;
+  background: rgba(236, 253, 245, 0.16);
+  border-color: rgba(167, 243, 208, 0.34);
+  color: #d1fae5;
+  align-self: end;
+  text-align: center;
+}
+
+.launch-button {
+  min-width: 150px;
+  align-self: end;
 }
 
 .workspace-grid {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 316px);
+  gap: 16px;
 }
 
 .terminal-card {
@@ -102,22 +216,49 @@ p {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 24px;
+  border-radius: 28px;
   border: 1px solid #e5e7eb;
   background: #fff;
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.11);
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.12);
 }
 
 .session-tabs {
-  padding: 10px 12px;
+  overflow-x: auto;
+  padding: 12px;
   border-bottom: 1px solid #e5e7eb;
-  background: #fbfcfe;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  scrollbar-width: thin;
 }
 
-.session-tabs button.active {
-  background: #111827;
+.session-tab {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.session-tab button {
+  border: 0;
+  border-radius: 0;
+  max-width: 168px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 8px 11px;
+  font-size: 12px;
+}
+
+.session-tab.active {
+  background: #0f172a;
   color: #fff;
   border-color: #111827;
+}
+
+.session-tab.active button {
+  background: #111827;
+  color: #fff;
 }
 
 .live-dot {
@@ -131,17 +272,21 @@ p {
 
 .close-mark {
   opacity: 0.55;
-  margin-left: 8px;
+  min-width: auto !important;
+  padding-left: 8px !important;
+  padding-right: 10px !important;
 }
 
 .add-tab {
   color: #1677ff !important;
+  flex: 0 0 auto;
 }
 
 .details-toggle {
   margin-left: auto;
   background: #eef2ff !important;
   color: #3730a3 !important;
+  flex: 0 0 auto;
 }
 
 .terminal-preview {
@@ -149,9 +294,35 @@ p {
   margin: 0;
   padding: 28px;
   overflow: auto;
-  background: #0b1020;
+  background:
+    radial-gradient(circle at 80% 0%, rgba(37, 99, 235, 0.15), transparent 26%),
+    #050814;
   color: #d1d5db;
   font: 14px/1.7 "SF Mono", Menlo, Consolas, monospace;
+}
+
+.terminal-empty {
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.terminal-empty h2 {
+  margin: 0;
+  color: #f9fafb;
+  font: 700 20px/1.3 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+}
+
+.terminal-empty p {
+  max-width: 620px;
+  margin: 0;
+  color: #9ca3af;
+  font: 14px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+}
+
+.terminal-surface .xterm {
+  height: 100%;
 }
 
 .session-details,
@@ -163,7 +334,7 @@ p {
 }
 
 .session-details {
-  width: 280px;
+  width: auto;
   padding: 18px;
 }
 
@@ -192,12 +363,31 @@ p {
   overflow-wrap: anywhere;
 }
 
+.session-details-advanced {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #edf0f5;
+}
+
 .api-config-panel {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+}
+
+.api-config-heading {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 18px;
-  padding: 14px 16px;
+}
+
+.api-config-heading-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .tool-type-tabs {
@@ -205,8 +395,190 @@ p {
   justify-content: flex-end;
 }
 
-.tool-type-tabs button:first-child {
+.tool-type-tabs button.active {
   background: #111827;
   border-color: #111827;
   color: #fff;
+}
+
+.add-profile-button {
+  border: 1px solid #1677ff;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #0f5fd7;
+  font-weight: 900;
+  padding: 8px 12px;
+}
+
+.back-to-workbench-button {
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  color: #374151;
+  font-weight: 900;
+  padding: 8px 12px;
+}
+
+.settings-page {
+  display: grid;
+  gap: 16px;
+}
+
+.profile-card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 10px;
+}
+
+.api-config-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.profile-card {
+  display: grid;
+  gap: 7px;
+  text-align: left;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: #fff;
+  padding: 14px;
+  color: #374151;
+}
+
+.profile-card.active {
+  border-color: #1677ff;
+  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.12);
+}
+
+.profile-card span {
+  color: #4f46e5;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.profile-card small,
+.empty-state {
+  color: #6b7280;
+  overflow-wrap: anywhere;
+}
+
+.profile-editor {
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  padding: 16px;
+  background: #fbfcfe;
+}
+
+.editor-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.editor-title-row h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.profile-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.profile-editor label {
+  display: grid;
+  gap: 6px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.field-help {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.advanced-settings {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.advanced-toggle-button {
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  color: #374151;
+  font-weight: 900;
+  padding: 8px 12px;
+}
+
+.profile-editor input,
+.profile-editor select {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  color: #111827;
+  padding: 10px 12px;
+  font-weight: 700;
+}
+
+.profile-editor input[readonly] {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.profile-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.profile-editor-actions button {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  color: #374151;
+  font-weight: 800;
+  padding: 10px 14px;
+}
+
+.save-status {
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.save-status.success {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.save-status.error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+@media (max-width: 980px) {
+  .command-bar,
+  .command-fields,
+  .api-config-layout,
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
 }

@@ -57,6 +57,15 @@ export type EnsureNodePtySpawnHelperInput = {
   arch?: NodeJS.Architecture;
 };
 
+const COMMON_CLI_PATHS = [
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  '/usr/bin',
+  '/bin',
+  '/usr/sbin',
+  '/sbin',
+];
+
 function loadNodePty(): NodePtyLike {
   return require('node-pty') as NodePtyLike;
 }
@@ -74,7 +83,10 @@ export function ensureNodePtySpawnHelperExecutable({
     return;
   }
 
-  const helperPath = path.join(packageRoot, 'prebuilds', `${platform}-${arch}`, 'spawn-helper');
+  const helperPath = path
+    .join(packageRoot, 'prebuilds', `${platform}-${arch}`, 'spawn-helper')
+    .replace('app.asar', 'app.asar.unpacked')
+    .replace('node_modules.asar', 'node_modules.asar.unpacked');
   if (!fs.existsSync(helperPath)) {
     return;
   }
@@ -89,6 +101,66 @@ function defaultShell(): string {
   return process.env.SHELL ?? (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
 }
 
+function interactiveShellSpawn(command: string): { file: string; args: string[] } | undefined {
+  const trimmedCommand = command.trim();
+  const shellName = path.basename(trimmedCommand);
+
+  if (shellName === 'zsh' || shellName === 'bash') {
+    return { file: trimmedCommand, args: ['-l'] };
+  }
+
+  return undefined;
+}
+
+function uniquePathEntries(entries: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const uniqueEntries: string[] = [];
+
+  for (const entry of entries) {
+    if (!entry || seen.has(entry)) {
+      continue;
+    }
+
+    seen.add(entry);
+    uniqueEntries.push(entry);
+  }
+
+  return uniqueEntries;
+}
+
+function userCliPaths(homeDir: string | undefined): string[] {
+  if (!homeDir) {
+    return [];
+  }
+
+  return [
+    path.join(homeDir, '.npm-global', 'bin'),
+    path.join(homeDir, '.local', 'bin'),
+    path.join(homeDir, '.codex', 'bin'),
+    path.join(homeDir, '.claude', 'bin'),
+    path.join(homeDir, '.opencode', 'bin'),
+  ];
+}
+
+function buildPtyEnvironment(
+  baseEnv: Record<string, string | undefined>,
+  env: Record<string, string>,
+): Record<string, string | undefined> {
+  const mergedEnv = {
+    ...baseEnv,
+    ...env,
+  };
+  const originalPath = mergedEnv.PATH ?? '';
+  const homeDir = mergedEnv.HOME;
+  mergedEnv.PATH = uniquePathEntries([
+    ...originalPath.split(path.delimiter),
+    ...userCliPaths(homeDir),
+    ...COMMON_CLI_PATHS,
+  ]).join(path.delimiter);
+
+  return mergedEnv;
+}
+
 export function createNodePtyAdapter({
   module = loadNodePty(),
   shell = defaultShell(),
@@ -101,13 +173,11 @@ export function createNodePtyAdapter({
 
   return {
     async spawn({ sessionId, command, cwd, env }: PtySpawnRequest): Promise<PtySession> {
-      const pty = module.spawn(shell, ['-lc', command], {
+      const interactiveShell = interactiveShellSpawn(command);
+      const pty = module.spawn(interactiveShell?.file ?? shell, interactiveShell?.args ?? ['-lc', command], {
         name: 'xterm-256color',
         cwd,
-        env: {
-          ...baseEnv,
-          ...env,
-        },
+        env: buildPtyEnvironment(baseEnv, env),
       });
 
       return {

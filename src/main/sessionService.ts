@@ -1,6 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type {
   AgentSession,
   ApiProfile,
+  TerminalBufferRequest,
   TerminalKillRequest,
   TerminalOutputEvent,
   TerminalResizeRequest,
@@ -28,6 +31,9 @@ type CreateSessionServiceOptions = {
   keychain?: KeychainAdapter;
   pty?: PtyAdapter;
   appDataPath?: string;
+  homeDir?: string;
+  ensureDirectory?: (directoryPath: string) => void | Promise<void>;
+  writeTextFile?: (filePath: string, content: string) => void | Promise<void>;
   workspaceExists?: (workspacePath: string) => boolean;
 };
 
@@ -43,10 +49,39 @@ export type SessionService = {
   writeTerminal(request: TerminalWriteRequest): Promise<void>;
   resizeTerminal(request: TerminalResizeRequest): Promise<void>;
   killTerminal(request: TerminalKillRequest): Promise<AgentSession>;
+  readTerminalBuffer(request: TerminalBufferRequest): Promise<string>;
   onTerminalOutput(listener: TerminalOutputListener): () => void;
 };
 
+const MAX_TERMINAL_BUFFER_LENGTH = 200_000;
+
 const defaultClock: Clock = { now: () => new Date() };
+
+function defaultEnsureDirectory(directoryPath: string): void {
+  fs.mkdirSync(directoryPath, { recursive: true });
+}
+
+function defaultWriteTextFile(filePath: string, content: string): void {
+  fs.writeFileSync(filePath, content, 'utf-8');
+}
+
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function buildCodexConfig(profile: ApiProfile): string {
+  return [
+    `model = ${tomlString(profile.defaultModel ?? 'gpt-5-codex')}`,
+    'model_provider = "agentdock"',
+    '',
+    '[model_providers.agentdock]',
+    'name = "AgentDock"',
+    `base_url = ${tomlString(profile.baseUrl)}`,
+    'wire_api = "responses"',
+    'env_key = "OPENAI_API_KEY"',
+    '',
+  ].join('\n');
+}
 
 function normalizeOptions(
   optionsOrClock: Clock | CreateSessionServiceOptions = {},
@@ -57,6 +92,9 @@ function normalizeOptions(
       keychain: createUnavailableKeychainAdapter(),
       pty: createUnavailablePtyAdapter(),
       appDataPath: process.cwd(),
+      homeDir: process.env.HOME ?? process.cwd(),
+      ensureDirectory: defaultEnsureDirectory,
+      writeTextFile: defaultWriteTextFile,
       workspaceExists: undefined,
     };
   }
@@ -68,6 +106,9 @@ function normalizeOptions(
     keychain: options.keychain ?? createUnavailableKeychainAdapter(),
     pty: options.pty ?? createUnavailablePtyAdapter(),
     appDataPath: options.appDataPath ?? process.cwd(),
+    homeDir: options.homeDir ?? process.env.HOME ?? process.cwd(),
+    ensureDirectory: options.ensureDirectory ?? defaultEnsureDirectory,
+    writeTextFile: options.writeTextFile ?? defaultWriteTextFile,
     workspaceExists: options.workspaceExists,
   };
 }
@@ -76,13 +117,20 @@ function cloneSession(session: AgentSession): AgentSession {
   return { ...session };
 }
 
+function isLocalShellCommand(command: string): boolean {
+  const normalizedCommand = command.trim().split(/\s+/)[0] ?? '';
+  return normalizedCommand === 'zsh' || normalizedCommand === 'bash';
+}
+
 export function createSessionService(
   optionsOrClock?: Clock | CreateSessionServiceOptions,
 ): SessionService {
-  const { clock, keychain, pty, appDataPath, workspaceExists } = normalizeOptions(optionsOrClock);
+  const { clock, keychain, pty, appDataPath, homeDir, ensureDirectory, writeTextFile, workspaceExists } =
+    normalizeOptions(optionsOrClock);
   const sessions: AgentSession[] = [];
   const ptySessions = new Map<string, PtySession>();
   const ptyUnsubscribers = new Map<string, () => void>();
+  const terminalBuffers = new Map<string, string>();
   const terminalOutputListeners = new Set<TerminalOutputListener>();
 
   const findSession = (sessionId: string): AgentSession | undefined =>
@@ -97,6 +145,12 @@ export function createSessionService(
   };
 
   const publishTerminalOutput = (event: TerminalOutputEvent): void => {
+    const currentBuffer = terminalBuffers.get(event.sessionId) ?? '';
+    terminalBuffers.set(
+      event.sessionId,
+      `${currentBuffer}${event.data}`.slice(-MAX_TERMINAL_BUFFER_LENGTH),
+    );
+
     for (const listener of terminalOutputListeners) {
       listener(event);
     }
@@ -121,11 +175,23 @@ export function createSessionService(
       sessions.push(session);
 
       try {
-        const secret = await keychain.readSecret(
-          profile.keychainService,
-          profile.keychainAccount,
-        );
-        const env = buildLaunchEnvironment({ profile, secret, appDataPath });
+        const env = isLocalShellCommand(command)
+          ? {}
+          : buildLaunchEnvironment({
+              profile,
+              secret: await keychain.readSecret(
+                profile.keychainService,
+                profile.keychainAccount,
+              ),
+              appDataPath,
+              homeDir,
+            });
+        if (env.CODEX_HOME) {
+          await ensureDirectory(env.CODEX_HOME);
+          if (profile.toolType === 'codex') {
+            await writeTextFile(path.join(env.CODEX_HOME, 'config.toml'), buildCodexConfig(profile));
+          }
+        }
         const ptySession = await pty.spawn({
           sessionId: session.id,
           command,
@@ -174,6 +240,15 @@ export function createSessionService(
       }
       session.status = 'stopped';
       return cloneSession(session);
+    },
+
+    async readTerminalBuffer({ sessionId }: TerminalBufferRequest): Promise<string> {
+      const session = findSession(sessionId);
+      if (!session) {
+        throw new Error('Terminal session was not found');
+      }
+
+      return terminalBuffers.get(sessionId) ?? '';
     },
 
     onTerminalOutput(listener: TerminalOutputListener): () => void {

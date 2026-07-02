@@ -15,11 +15,15 @@ const api: AgentDockApi = {
   version: '0.1.0',
   listProfiles: () => ipcRenderer.invoke('profiles:list'),
   listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
+  chooseWorkspace: () => ipcRenderer.invoke('workspaces:choose'),
+  saveProfile: (profile) => ipcRenderer.invoke('profiles:save', profile),
+  saveProfileSecret: (request) => ipcRenderer.invoke('profiles:saveSecret', request),
   launchSession: (request) => ipcRenderer.invoke('sessions:launch', request),
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   writeTerminal: (request) => ipcRenderer.invoke('terminal:write', request),
   resizeTerminal: (request) => ipcRenderer.invoke('terminal:resize', request),
   killTerminal: (request) => ipcRenderer.invoke('terminal:kill', request),
+  readTerminalBuffer: (request) => ipcRenderer.invoke('terminal:buffer', request),
   onTerminalOutput: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
       if (isTerminalOutputEvent(payload)) {

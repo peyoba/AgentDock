@@ -2,7 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
-import { ApiConfigPanel } from './components/ApiConfigPanel';
+import { ApiConfigPanel, type ApiConfigFilter } from './components/ApiConfigPanel';
 import { AppHeader } from './components/AppHeader';
 import { CommandBar } from './components/CommandBar';
 import { SessionDetailsDrawer } from './components/SessionDetailsDrawer';
@@ -16,15 +16,27 @@ export type SessionTab = {
   active?: boolean;
 };
 
+type ActivePage = 'workbench' | 'apiConfig';
+
 const fallbackProfiles: ApiProfile[] = [
   {
     id: 'claude-anyrouter',
     name: 'Claude · AnyRouter A',
     toolType: 'claude',
-    baseUrl: 'https://anyrouter.example.com/v1',
-    defaultModel: 'sonnet-4',
+    baseUrl: 'https://anyrouter.top',
+    defaultModel: 'claude-3-5-haiku-20241022',
     keychainService: 'AgentDock',
     keychainAccount: 'claude-anyrouter',
+  },
+  {
+    id: 'codex-openai',
+    name: 'Codex · AnyRouter',
+    toolType: 'codex',
+    baseUrl: 'https://anyrouter.top/v1',
+    defaultModel: 'gpt-5-codex',
+    keychainService: 'AgentDock',
+    keychainAccount: 'codex-openai',
+    codexHome: '~/.agentdock/codex-profiles/codex-openai',
   },
 ];
 
@@ -83,12 +95,36 @@ function safeLaunchError(error: unknown): string {
   return firstLine || '启动失败，请检查配置。';
 }
 
+function upsertWorkspace(workspaces: Workspace[], nextWorkspace: Workspace): Workspace[] {
+  const existingIndex = workspaces.findIndex(
+    (workspace) => workspace.id === nextWorkspace.id || workspace.path === nextWorkspace.path,
+  );
+
+  if (existingIndex === -1) {
+    return [...workspaces, nextWorkspace];
+  }
+
+  return workspaces.map((workspace, index) => (index === existingIndex ? nextWorkspace : workspace));
+}
+
 export default function App(): React.JSX.Element {
   const api = typeof window === 'undefined' ? undefined : window.agentDock;
+  const commandBarRef = React.useRef<HTMLElement>(null);
+  const [activePage, setActivePage] = React.useState<ActivePage>('workbench');
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [profiles, setProfiles] = React.useState<ApiProfile[]>(api ? [] : fallbackProfiles);
   const [workspaces, setWorkspaces] = React.useState<Workspace[]>(api ? [] : fallbackWorkspaces);
   const [sessions, setSessions] = React.useState<AgentSession[]>(api ? [] : fallbackSessions);
+  const [selectedProfileId, setSelectedProfileId] = React.useState<string | undefined>(
+    api ? undefined : fallbackProfiles[0]?.id,
+  );
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState<string | undefined>(
+    api ? undefined : fallbackWorkspaces[0]?.id,
+  );
+  const [selectedCommand, setSelectedCommand] = React.useState(
+    defaultCommandFor(api ? undefined : fallbackProfiles[0]),
+  );
+  const [apiConfigFilter, setApiConfigFilter] = React.useState<ApiConfigFilter>('all');
   const [activeSessionId, setActiveSessionId] = React.useState<string | undefined>(
     api ? undefined : fallbackSessions[0]?.id,
   );
@@ -109,6 +145,9 @@ export default function App(): React.JSX.Element {
         setProfiles(nextProfiles);
         setWorkspaces(nextWorkspaces);
         setSessions(nextSessions);
+        setSelectedProfileId((current) => current ?? nextProfiles[0]?.id);
+        setSelectedWorkspaceId((current) => current ?? nextWorkspaces[0]?.id);
+        setSelectedCommand((current) => current || defaultCommandFor(nextProfiles[0]));
         setActiveSessionId((current) => current ?? nextSessions[0]?.id);
       })
       .catch((error: unknown) => {
@@ -122,17 +161,51 @@ export default function App(): React.JSX.Element {
     };
   }, [api]);
 
-  const selectedProfile = profiles[0];
-  const selectedWorkspace = workspaces[0];
-  const command = defaultCommandFor(selectedProfile);
+  const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0];
+  const selectedWorkspace =
+    workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? workspaces[0];
+  const activeSession = sessions.find((session) => session.id === activeSessionId);
+  const activeSessionProfile = profiles.find((profile) => profile.id === activeSession?.profileId);
+  const activeSessionWorkspace = workspaces.find(
+    (workspace) => workspace.id === activeSession?.workspaceId,
+  );
   const tabs = sessions.map((session) => ({
     id: session.id,
     title: session.title,
     active: session.id === activeSessionId,
   }));
 
-  const launchSession = async (): Promise<void> => {
-    if (!api || !selectedProfile || !selectedWorkspace) {
+  const selectProfile = (profileId: string): void => {
+    const nextProfile = profiles.find((profile) => profile.id === profileId);
+    setSelectedProfileId(profileId);
+    setSelectedCommand(defaultCommandFor(nextProfile));
+    if (nextProfile) {
+      setApiConfigFilter(nextProfile.toolType);
+    }
+  };
+
+  const launchSession = async (): Promise<AgentSession | undefined> => {
+    if (!selectedProfile || !selectedWorkspace) {
+      setLaunchError('启动失败，请先选择 API 配置和工作区。');
+      return undefined;
+    }
+
+    if (!api) {
+      const session: AgentSession = {
+        id: `local-${Date.now()}`,
+        title: `${selectedProfile.name} · ${selectedWorkspace.name}`,
+        profileId: selectedProfile.id,
+        workspaceId: selectedWorkspace.id,
+        command: selectedCommand,
+        status: 'running',
+        startedAt: new Date().toISOString(),
+      };
+      setSessions((current) => [...current, session]);
+      setActiveSessionId(session.id);
+      return session;
+    }
+
+    if (!selectedCommand) {
       return;
     }
 
@@ -142,44 +215,157 @@ export default function App(): React.JSX.Element {
       const session = await api.launchSession({
         profileId: selectedProfile.id,
         workspaceId: selectedWorkspace.id,
-        command,
+        command: selectedCommand,
       });
       setSessions((current) => [...current.filter((item) => item.id !== session.id), session]);
       setActiveSessionId(session.id);
+      return session;
     } catch (error) {
       setLaunchError(safeLaunchError(error));
+      return undefined;
     } finally {
       setLaunching(false);
     }
   };
 
+  const closeSession = async (sessionId: string): Promise<void> => {
+    if (api) {
+      try {
+        await api.killTerminal({ sessionId });
+      } catch (error) {
+        setLaunchError(safeLaunchError(error));
+        return;
+      }
+    }
+
+    setSessions((current) => current.filter((session) => session.id !== sessionId));
+    setActiveSessionId((current) => {
+      if (current !== sessionId) {
+        return current;
+      }
+      return sessions.find((session) => session.id !== sessionId)?.id;
+    });
+  };
+
+  const saveProfile = async (profile: ApiProfile): Promise<ApiProfile> => {
+    const savedProfile = api ? await api.saveProfile(profile) : profile;
+
+    setProfiles((current) => {
+      if (!current.some((item) => item.id === savedProfile.id)) {
+        return [...current, savedProfile];
+      }
+
+      return current.map((item) => (item.id === savedProfile.id ? savedProfile : item));
+    });
+    setSelectedProfileId(savedProfile.id);
+    setApiConfigFilter(savedProfile.toolType);
+    setSelectedCommand(defaultCommandFor(savedProfile));
+
+    return savedProfile;
+  };
+
+  const saveProfileSecret = async (request: {
+    keychainService: string;
+    keychainAccount: string;
+    secret: string;
+  }): Promise<void> => {
+    if (!api) {
+      return;
+    }
+
+    await api.saveProfileSecret(request);
+  };
+
+  const chooseWorkspace = async (): Promise<void> => {
+    if (!api) {
+      return;
+    }
+
+    setLaunchError(null);
+    try {
+      const workspace = await api.chooseWorkspace();
+      if (!workspace) {
+        return;
+      }
+
+      setWorkspaces((current) => upsertWorkspace(current, workspace));
+      setSelectedWorkspaceId(workspace.id);
+    } catch (error) {
+      setLaunchError(safeLaunchError(error));
+    }
+  };
+
+  const showApiConfig = (): void => {
+    setActivePage('apiConfig');
+    setApiConfigFilter('all');
+  };
+
+  const focusNewSession = (): void => {
+    setActivePage('workbench');
+    window.setTimeout(() => {
+      commandBarRef.current?.scrollIntoView?.({ block: 'nearest' });
+      commandBarRef.current?.querySelector('select')?.focus();
+    }, 0);
+  };
+
   return (
     <main className="app-shell">
-      <AppHeader />
-      <CommandBar
-        profile={selectedProfile}
-        workspace={selectedWorkspace}
-        command={command}
-        launching={launching}
-        onLaunch={() => void launchSession()}
-      />
-      {launchError ? <p role="alert" className="launch-error">{launchError}</p> : null}
-
-      <section className="workspace-grid">
-        <section className="terminal-card">
-          <SessionTabs
-            tabs={tabs}
-            detailsOpen={detailsOpen}
-            onToggleDetails={() => setDetailsOpen((open) => !open)}
-            onSelectSession={setActiveSessionId}
+      <AppHeader onShowApiConfig={showApiConfig} onNewSession={focusNewSession} />
+      {activePage === 'workbench' ? (
+        <>
+          <CommandBar
+            ref={commandBarRef}
+            profiles={profiles}
+            profile={selectedProfile}
+            profileId={selectedProfile?.id}
+            workspaces={workspaces}
+            workspace={selectedWorkspace}
+            workspaceId={selectedWorkspace?.id}
+            command={selectedCommand}
+            launching={launching}
+            onProfileChange={selectProfile}
+            onWorkspaceChange={setSelectedWorkspaceId}
+            onChooseWorkspace={api ? () => void chooseWorkspace() : undefined}
+            onCommandChange={setSelectedCommand}
+            onLaunch={() => void launchSession()}
           />
-          <TerminalPane sessionId={activeSessionId} />
+          {launchError ? <p role="alert" className="launch-error">{launchError}</p> : null}
+
+          <section className="workspace-grid">
+            <section className="terminal-card">
+              <SessionTabs
+                tabs={tabs}
+                detailsOpen={detailsOpen}
+                onToggleDetails={() => setDetailsOpen((open) => !open)}
+                onSelectSession={setActiveSessionId}
+                onAddSession={() => void launchSession()}
+                onCloseSession={(sessionId) => void closeSession(sessionId)}
+              />
+              <TerminalPane sessionId={activeSessionId} />
+            </section>
+
+            <SessionDetailsDrawer
+              open={detailsOpen}
+              session={activeSession}
+              profile={activeSessionProfile}
+              workspace={activeSessionWorkspace}
+            />
+          </section>
+        </>
+      ) : (
+        <section className="settings-page" aria-label="接口配置页面">
+        <ApiConfigPanel
+          profiles={profiles}
+          selectedProfileId={selectedProfile?.id}
+          filter={apiConfigFilter}
+          onFilterChange={setApiConfigFilter}
+          onSelectProfile={selectProfile}
+          onSaveProfile={saveProfile}
+          onSaveProfileSecret={saveProfileSecret}
+          onBackToWorkbench={() => setActivePage('workbench')}
+        />
         </section>
-
-        <SessionDetailsDrawer open={detailsOpen} />
-      </section>
-
-      <ApiConfigPanel />
+      )}
     </main>
   );
 }

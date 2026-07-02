@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "workflow:doctor": "python3 scripts/workflow.py doctor",
-    "test:workflow": "python3 -m pytest tests/test_workflow_cli.py -v"
+    "test:workflow": "python3 -m pytest tests/test_workflow_cli.py -v",
+    "package:mac": "npm run build && electron-packager . AgentDock --platform=darwin --arch=arm64 --out=release --overwrite --prune=true --asar.unpack=\"**/{*.node,spawn-helper}\" --ignore=\"^/(src|tests|docs|scripts|release|\\.agent-workflow|\\.git)(/|$)\" && codesign --force --deep --sign - release/AgentDock-darwin-arm64/AgentDock.app"
   },
   "dependencies": {
     "@xterm/xterm": "^5.5.0",
@@ -22,6 +23,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@electron/packager": "^20.0.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^24.0.10",

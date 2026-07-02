@@ -37,4 +37,20 @@ describe('buildLaunchEnvironment', () => {
     expect(env.CODEX_HOME).toContain('codex-openai');
     expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
   });
+
+  it('expands a configured Codex Home under the user home directory', () => {
+    const env = buildLaunchEnvironment({
+      profile: {
+        ...baseProfile,
+        id: 'codex-openai',
+        toolType: 'codex',
+        codexHome: '~/.agentdock/codex-profiles/codex-openai',
+      },
+      secret: 'local-development-secret',
+      appDataPath: '/Users/example/Library/Application Support/AgentDock',
+      homeDir: '/Users/example',
+    });
+
+    expect(env.CODEX_HOME).toBe('/Users/example/.agentdock/codex-profiles/codex-openai');
+  });
 });

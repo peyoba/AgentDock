@@ -1,18 +1,6 @@
 import React from 'react';
 import { Terminal } from '@xterm/xterm';
 
-const previewText = `# 会话环境预览
-✓ 已从 macOS 钥匙串读取 API Key：••••••A7f
-✓ 已注入 ANTHROPIC_BASE_URL=https://anyrouter.example.com/v1
-✓ 工作目录：~/Documents/Obsidian Vault/项目/AgentDock
-
-peyoba@MacBook AgentDock % claude
-Claude Code 正在启动...
-当前配置：Claude · AnyRouter A / sonnet-4
-当前目录：/Users/peyoba/Documents/Obsidian Vault/项目/AgentDock
-
-这个终端标签页使用独立 endpoint 和 API key，不会影响其他 Claude / Codex 会话。`;
-
 type TerminalPaneProps = {
   sessionId?: string;
 };
@@ -25,6 +13,7 @@ export function TerminalPane({ sessionId }: TerminalPaneProps): React.JSX.Elemen
       return undefined;
     }
 
+    let disposed = false;
     const terminal = new Terminal({
       convertEol: true,
       cursorBlink: true,
@@ -33,6 +22,14 @@ export function TerminalPane({ sessionId }: TerminalPaneProps): React.JSX.Elemen
     });
 
     terminal.open(terminalElementRef.current);
+    void window.agentDock
+      .readTerminalBuffer({ sessionId })
+      .then((buffer) => {
+        if (!disposed && buffer) {
+          terminal.write(buffer);
+        }
+      })
+      .catch(() => undefined);
 
     const dataSubscription = terminal.onData((input) => {
       void window.agentDock.writeTerminal({ sessionId, input }).catch(() => undefined);
@@ -49,6 +46,7 @@ export function TerminalPane({ sessionId }: TerminalPaneProps): React.JSX.Elemen
     });
 
     return () => {
+      disposed = true;
       dataSubscription.dispose();
       resizeSubscription.dispose();
       unsubscribeOutput();
@@ -56,8 +54,23 @@ export function TerminalPane({ sessionId }: TerminalPaneProps): React.JSX.Elemen
     };
   }, [sessionId]);
 
-  if (!sessionId || !window.agentDock) {
-    return <pre className="terminal-preview">{previewText}</pre>;
+  if (!window.agentDock) {
+    return (
+      <section className="terminal-preview terminal-empty" aria-label="终端状态">
+        <h2>Electron API 未连接</h2>
+        <p>请从打包后的 AgentDock App 启动，浏览器预览不会连接真实 PTY。</p>
+      </section>
+    );
+  }
+
+  if (!sessionId) {
+    return (
+      <section className="terminal-preview terminal-empty" aria-label="终端状态">
+        <h2>尚未启动真实终端</h2>
+        <p>选择 API 配置、工作区和命令后，点击“启动终端”会创建真实 node-pty 会话。</p>
+        <p>如果只是想验证终端输入输出，请在命令下拉里选择 zsh。</p>
+      </section>
+    );
   }
 
   return (

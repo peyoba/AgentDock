@@ -6,6 +6,8 @@ type SessionTabsProps = {
   detailsOpen: boolean;
   onToggleDetails(): void;
   onSelectSession?(sessionId: string): void;
+  onAddSession?(): void;
+  onCloseSession?(sessionId: string): void;
 };
 
 export function SessionTabs({
@@ -13,22 +15,30 @@ export function SessionTabs({
   detailsOpen,
   onToggleDetails,
   onSelectSession,
+  onAddSession,
+  onCloseSession,
 }: SessionTabsProps): React.JSX.Element {
   return (
     <nav className="session-tabs" aria-label="运行中的会话">
       {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          className={tab.active ? 'active' : ''}
-          onClick={() => onSelectSession?.(tab.id)}
-        >
-          <span className="live-dot" />
-          {tab.title}
-          <span className="close-mark">×</span>
-        </button>
+        <span key={tab.id} className={tab.active ? 'session-tab active' : 'session-tab'}>
+          <button type="button" onClick={() => onSelectSession?.(tab.id)}>
+            <span className="live-dot" />
+            {tab.title}
+          </button>
+          <button
+            type="button"
+            className="close-mark"
+            aria-label={`关闭 ${tab.title}`}
+            onClick={() => onCloseSession?.(tab.id)}
+          >
+            ×
+          </button>
+        </span>
       ))}
-      <button type="button" className="add-tab">＋</button>
+      <button type="button" className="add-tab" onClick={onAddSession}>
+        ＋
+      </button>
       <button type="button" className="details-toggle" onClick={onToggleDetails}>
         会话详情 {detailsOpen ? '⌄' : '›'}
       </button>

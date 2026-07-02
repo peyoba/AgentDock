@@ -65,11 +65,13 @@ describe('TerminalPane xterm binding', () => {
       version: '0.1.0',
       listProfiles: vi.fn().mockResolvedValue([]),
       listWorkspaces: vi.fn().mockResolvedValue([]),
+      saveProfile: vi.fn(),
       launchSession: vi.fn(),
       listSessions: vi.fn().mockResolvedValue([]),
       writeTerminal: vi.fn().mockResolvedValue(undefined),
       resizeTerminal: vi.fn().mockResolvedValue(undefined),
       killTerminal: vi.fn(),
+      readTerminalBuffer: vi.fn().mockResolvedValue(''),
       onTerminalOutput: vi.fn((listener) => {
         outputListener = listener;
         return unsubscribeOutput;
@@ -80,6 +82,28 @@ describe('TerminalPane xterm binding', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+
+
+  it('shows a clear empty state instead of a fake terminal transcript when no session is running', () => {
+    render(<TerminalPane />);
+
+    expect(document.body).toHaveTextContent('尚未启动真实终端');
+    expect(document.body).not.toHaveTextContent('Claude Code 正在启动');
+    expect(FakeTerminal.instances).toHaveLength(0);
+  });
+
+  it('replays buffered PTY output when the real terminal mounts', async () => {
+    agentDock.readTerminalBuffer = vi.fn().mockResolvedValue('restored prompt % ');
+
+    render(<TerminalPane sessionId="session-1" />);
+    const terminal = FakeTerminal.instances[0];
+
+    await vi.waitFor(() => {
+      expect(agentDock.readTerminalBuffer).toHaveBeenCalledWith({ sessionId: 'session-1' });
+      expect(terminal.write).toHaveBeenCalledWith('restored prompt % ');
+    });
   });
 
   it('creates an xterm instance and bridges input, resize, and scoped output through IPC', () => {

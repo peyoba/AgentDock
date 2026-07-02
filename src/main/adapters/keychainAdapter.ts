@@ -19,21 +19,33 @@ function loadKeytar(): KeytarLike {
 }
 
 export function createKeytarAdapter(keytarModule: KeytarLike = loadKeytar()): KeychainAdapter {
+  const secretCache = new Map<string, string>();
+  const cacheKey = (service: string, account: string): string => `${service}\0${account}`;
+
   return {
     async readSecret(service: string, account: string): Promise<string> {
+      const key = cacheKey(service, account);
+      const cachedSecret = secretCache.get(key);
+      if (cachedSecret) {
+        return cachedSecret;
+      }
+
       const secret = await keytarModule.getPassword(service, account);
       if (!secret) {
         throw new Error(`Keychain secret was not found for account "${account}"`);
       }
+      secretCache.set(key, secret);
       return secret;
     },
 
     async writeSecret(service: string, account: string, secret: string): Promise<void> {
       await keytarModule.setPassword(service, account, secret);
+      secretCache.set(cacheKey(service, account), secret);
     },
 
     async deleteSecret(service: string, account: string): Promise<void> {
       await keytarModule.deletePassword(service, account);
+      secretCache.delete(cacheKey(service, account));
     },
   };
 }

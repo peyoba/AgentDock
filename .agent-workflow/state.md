@@ -88,6 +88,15 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-02 | `npm run workflow:doctor` | PASS |
 | 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
 | 2026-07-02 | `git diff --check` | PASS |
+| 2026-07-02 | API Key input clarity | PASS：配置页显示 `API Key（保存到 macOS 钥匙串）` 密码框和留空保留当前 Key 说明 |
+| 2026-07-02 | packaged Codex PATH lookup | PASS：PTY PATH 补齐 `~/.npm-global/bin` 等用户 CLI 路径；成品 App `command -v codex` 输出 `/Users/peyoba/.npm-global/bin/codex` |
+| 2026-07-02 | `npm run test` | PASS：17 files / 47 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-02 | packaged API key and Codex PATH smoke | PASS：remote debugging 验证 API Key 输入框和 packaged shell Codex PATH |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-02 | `git diff --check` | PASS |
 | 2026-07-02 | Phase 2 total verification | PASS：workflow doctor、workflow tests、app tests、build、key-like scan |
 | 2026-07-02 | Safe end-to-end SessionService verification | PASS：real Keychain + real PTY + local command; returned payload contains no test secret |
 | 2026-07-02 | Renderer launch flow tests | PASS：App launch IPC and safe error behavior covered |
@@ -109,6 +118,31 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
 | 2026-07-02 | `git diff --check` | PASS |
 
+| 2026-07-02 | `npm run package:mac` | PASS：生成本地 ad-hoc signed App；原生模块 unpack 检查通过 |
+| 2026-07-02 | macOS package validation | PASS：codesign verify、app.asar 内容、node-pty/keytar unpack、Gatekeeper expected reject |
+
+| 2026-07-02 | packaged App white-screen fix | PASS：Vite `base: './'` 修复 file:// 下 `/assets` 绝对路径导致的白屏；packaged DOM 冒烟通过 |
+| 2026-07-02 | `npm run test` | PASS：16 files / 31 tests |
+
+| 2026-07-02 | renderer interaction completion | PASS：命令选择、API 类型过滤、配置卡片选择、加号启动、关闭 tab、动态详情已接状态/IPC |
+| 2026-07-02 | packaged UI interaction smoke | PASS：成品 App 中点击 Codex 过滤与配置卡片选择生效 |
+
+| 2026-07-02 | System AnyRouter API key test | PARTIAL PASS：`/v1/models` 鉴权成功 16 models；模型调用返回上游 Service Unavailable/配置提示 |
+| 2026-07-02 | AgentDock AnyRouter endpoint config | PASS：Claude CLI base URL 修正为 `https://anyrouter.top`，避免 `/v1/v1/messages` |
+
+| 2026-07-02 | API config editing | PASS：可编辑名称、工具类型、Base URL、默认模型、Keychain 引用、Codex Home；保存走 `profiles:save` IPC 并影响 launch profile |
+| 2026-07-02 | packaged API config editing smoke | PASS：成品 App 表单存在、保存提示出现、未暴露 secret/env 字段名 |
+| 2026-07-02 | API config page plan alignment | PASS：默认终端工作台不再内嵌配置；顶部“接口配置”打开独立配置页；“返回终端工作台”回到主界面 |
+| 2026-07-02 | API multi-profile creation | PASS：新增配置生成唯一 profile id 和唯一 Keychain Account，可保存不同 Base URL/API Key |
+| 2026-07-02 | Codex Home preparation | PASS：`~/...` 展开为绝对路径，并在启动 Codex 前创建 `CODEX_HOME` 目录 |
+| 2026-07-02 | `npm run test` | PASS：17 files / 46 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-02 | packaged API config page smoke | PASS：remote debugging 验证默认主界面、进入独立 API 配置页、返回终端工作台 |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-02 | `git diff --check` | PASS |
+
 ## 批次进展
 | 批次 | 状态 | 产出 |
 |------|------|------|
@@ -124,3 +158,51 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | Phase 2 Real Terminal & Keychain | PASS | 总验证与安全端到端验证记录 `.agent-workflow/verification/2026-07-02-phase-2-real-terminal-keychain.md`；真实 API key / CLI 账号未验证（未授权） |
 | Renderer launch flow | PASS | 验证记录 `.agent-workflow/verification/2026-07-02-renderer-launch-flow.md`；启动按钮已接真实 preload IPC |
 | Session launch failure safety | PASS | 验证记录 `.agent-workflow/verification/2026-07-02-session-launch-failure-safety.md`；缺 workspace/PTY fail 不泄露 secret/env |
+| macOS local package | PASS | 产物 `release/AgentDock-darwin-arm64/AgentDock.app`；验证记录 `.agent-workflow/verification/2026-07-02-macos-local-package.md`；仅本地 ad-hoc 签名，未 notarize |
+| Renderer MVP interactions | PASS | 命令栏 select、API 配置筛选/选择、加号启动、关闭会话、动态详情；验证记录 `.agent-workflow/verification/2026-07-02-macos-local-package.md` |
+| Real AnyRouter key smoke | PARTIAL PASS | 系统 `ANYROUTER_API_KEY` 已写入 Keychain `AgentDock/claude-anyrouter`；models 鉴权成功；上游模型调用暂不可用；默认 endpoint 修正为 `https://anyrouter.top` |
+| API Config Editing MVP | PASS | 接口配置编辑表单、`saveProfile` preload API、主进程 profileStore 保存、launch 读取保存后配置；验证记录 `.agent-workflow/verification/2026-07-02-macos-local-package.md` |
+| API Config Page Alignment | PASS | 按计划改为独立配置页面/视图；支持多 profile 新增与独立 Keychain Account；验证记录 `.agent-workflow/verification/2026-07-02-macos-local-package.md` |
+| Codex Home Launch Fix | PASS | `CODEX_HOME` 展开 `~` 并自动创建目录，避免 Codex CLI 启动前报路径不存在 |
+| API Key Input Clarity | PASS | 配置页明确显示 API Key 密码框，保存到 macOS Keychain，留空保留当前 Key |
+| Packaged Codex PATH Fix | PASS | 打包 App 的 PTY 环境补齐用户 CLI PATH，解决 `zsh:1: command not found: codex` |
+| 2026-07-02 | Keychain prompt mitigation | PASS：主进程缓存同一 App 运行期间已读取/写入的 secret，减少重复 macOS 系统密码弹窗；不通过 renderer/IPC 暴露 secret/env |
+| 2026-07-02 | `npm run test` | PASS：17 files / 50 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-02 | `git diff --check` | PASS |
+| 2026-07-02 | macOS window move/resize fix | PASS：自定义标题栏增加 drag/no-drag 区域；BrowserWindow 显式 resizable 且最小尺寸降为 720x480；打包 app.asar 已确认包含修复 |
+| 2026-07-02 | `npm run test` | PASS：18 files / 52 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-02 | packaged window chrome smoke | PASS：app.asar 包含 720x480/resizable true 和 app-region drag/no-drag CSS |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-02 | `git diff --check` | PASS |
+| 2026-07-02 | Workspace path picker | PASS：主界面工作区下拉旁新增“选择路径”；首次目录选择后保存到 `workspaces.json` 并立即选中，下次 `workspaces:list` 可直接选择 |
+| 2026-07-02 | `npm run test` | PASS：19 files / 55 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-02 | packaged workspace picker smoke | PASS：app.asar 包含 `workspaces:choose`、目录选择器、preload `chooseWorkspace`、renderer “选择路径”按钮、workspaceStore/workspaceService |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-02 | `git diff --check` | PASS |
+| 2026-07-02 | API config advanced fields UX | PASS：默认隐藏配置 ID/Keychain/Codex Home；高级设置展开后内部字段只读；Codex Home 仅 Codex 配置显示 |
+| 2026-07-02 | `npm run test` | PASS：19 files / 57 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-02 | packaged API advanced fields smoke | PASS：app.asar 包含“显示/隐藏高级设置”、高级说明和 readOnly 逻辑 |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-02 | `git diff --check` | PASS |
+| 2026-07-02 | Main UI visible redesign | PASS：顶部品牌图标、Quick Launch 深色说明卡 + 白色字段面板、胶囊式会话 tabs、详情高级信息默认隐藏 |
+| 2026-07-02 | API config visual polish | PASS：配置卡片不再默认显示 Keychain 引用，文案转为“密钥存储”，保持高级字段默认隐藏/只读 |
+| 2026-07-02 | Pre-push security check | PASS：release/dist/node_modules/env/workspaces/profiles 未跟踪；无真实 key/token/private key；测试假 sk 字符串已改为 test 形态 |
+| 2026-07-02 | `npm run test` | PASS：20 files / 62 tests |
+| 2026-07-02 | `npm run build` | PASS |
+| 2026-07-02 | `npm run package:mac` | PASS：重新生成 `release/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-02 | `npm run workflow:doctor` | PASS |
+| 2026-07-02 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-02 | `git diff --check` | PASS |
