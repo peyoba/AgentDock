@@ -28,6 +28,11 @@ type CreateSessionServiceOptions = {
   keychain?: KeychainAdapter;
   pty?: PtyAdapter;
   appDataPath?: string;
+  workspaceExists?: (workspacePath: string) => boolean;
+};
+
+type NormalizedSessionServiceOptions = Required<Omit<CreateSessionServiceOptions, 'workspaceExists'>> & {
+  workspaceExists?: (workspacePath: string) => boolean;
 };
 
 type TerminalOutputListener = (event: TerminalOutputEvent) => void;
@@ -45,13 +50,14 @@ const defaultClock: Clock = { now: () => new Date() };
 
 function normalizeOptions(
   optionsOrClock: Clock | CreateSessionServiceOptions = {},
-): Required<CreateSessionServiceOptions> {
+): NormalizedSessionServiceOptions {
   if ('now' in optionsOrClock && typeof optionsOrClock.now === 'function') {
     return {
       clock: optionsOrClock,
       keychain: createUnavailableKeychainAdapter(),
       pty: createUnavailablePtyAdapter(),
       appDataPath: process.cwd(),
+      workspaceExists: undefined,
     };
   }
 
@@ -62,6 +68,7 @@ function normalizeOptions(
     keychain: options.keychain ?? createUnavailableKeychainAdapter(),
     pty: options.pty ?? createUnavailablePtyAdapter(),
     appDataPath: options.appDataPath ?? process.cwd(),
+    workspaceExists: options.workspaceExists,
   };
 }
 
@@ -72,7 +79,7 @@ function cloneSession(session: AgentSession): AgentSession {
 export function createSessionService(
   optionsOrClock?: Clock | CreateSessionServiceOptions,
 ): SessionService {
-  const { clock, keychain, pty, appDataPath } = normalizeOptions(optionsOrClock);
+  const { clock, keychain, pty, appDataPath, workspaceExists } = normalizeOptions(optionsOrClock);
   const sessions: AgentSession[] = [];
   const ptySessions = new Map<string, PtySession>();
   const ptyUnsubscribers = new Map<string, () => void>();
@@ -97,6 +104,10 @@ export function createSessionService(
 
   return {
     async launch({ profile, workspace, command }: LaunchSessionInput): Promise<AgentSession> {
+      if (workspaceExists && !workspaceExists(workspace.path)) {
+        throw new Error(`Workspace path is not available: ${workspace.path}`);
+      }
+
       const session: AgentSession = {
         id: `session-${sessions.length + 1}`,
         title: `${profile.name} · ${workspace.name}`,
@@ -109,25 +120,33 @@ export function createSessionService(
 
       sessions.push(session);
 
-      const secret = await keychain.readSecret(
-        profile.keychainService,
-        profile.keychainAccount,
-      );
-      const env = buildLaunchEnvironment({ profile, secret, appDataPath });
-      const ptySession = await pty.spawn({
-        sessionId: session.id,
-        command,
-        cwd: workspace.path,
-        env,
-      });
+      try {
+        const secret = await keychain.readSecret(
+          profile.keychainService,
+          profile.keychainAccount,
+        );
+        const env = buildLaunchEnvironment({ profile, secret, appDataPath });
+        const ptySession = await pty.spawn({
+          sessionId: session.id,
+          command,
+          cwd: workspace.path,
+          env,
+        });
 
-      ptySessions.set(session.id, ptySession);
-      ptyUnsubscribers.set(
-        session.id,
-        ptySession.onData((data) => publishTerminalOutput({ sessionId: session.id, data })),
-      );
-      session.status = 'running';
-      return cloneSession(session);
+        ptySessions.set(session.id, ptySession);
+        ptyUnsubscribers.set(
+          session.id,
+          ptySession.onData((data) => publishTerminalOutput({ sessionId: session.id, data })),
+        );
+        session.status = 'running';
+        return cloneSession(session);
+      } catch (error) {
+        session.status = 'failed';
+        if (error instanceof Error && error.message.startsWith('Keychain secret was not found')) {
+          throw error;
+        }
+        throw new Error(`Failed to launch terminal command "${command}"`);
+      }
     },
 
     async list(): Promise<AgentSession[]> {

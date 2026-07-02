@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createKeytarAdapter } from './adapters/keychainAdapter.js';
@@ -18,6 +19,7 @@ const sessionService = createSessionService({
   keychain: createKeytarAdapter(),
   pty: createNodePtyAdapter(),
   appDataPath: app.getPath('userData'),
+  workspaceExists: fs.existsSync,
 });
 
 const sampleProfiles: ApiProfile[] = [

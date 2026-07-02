@@ -29,6 +29,7 @@ phase-2-pass
 | 主 Agent | PASS | Phase 2 Task 2/3：真实 `keytar` Keychain adapter、真实 `node-pty` adapter、本地测试 service/account 与安全 PTY 命令验证 |
 | 主 Agent | PASS | Phase 2 Task 6：总验证通过并记录 `.agent-workflow/verification/2026-07-02-phase-2-real-terminal-keychain.md` |
 | 主 Agent | PASS | Renderer launch flow：启动按钮接入 `launchSession`、动态 sessions/tabs、active xterm session、安全错误显示 |
+| 主 Agent | PASS | Session launch failure safety：workspace 缺失先失败、PTY 启动失败标记 failed、安全错误不泄露 secret/env |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -39,7 +40,7 @@ phase-2-pass
 无。用户已确认进入 Phase 2 真实 Keychain 和真实 node-pty 集成；验证约束为不使用真实 API key，只做测试 service/account 和本地安全 PTY 命令验证。
 
 ## 下一步
-Phase 2 已完成；已继续补上 renderer 启动按钮到真实 IPC/session 的产品化连接。后续若要验证真实 Claude/Codex CLI 账号或 API key，必须由用户另行明确确认。
+Phase 2 已完成；已继续补上 renderer 启动按钮到真实 IPC/session 的产品化连接，并加固 launch failure 安全处理。后续若要验证真实 Claude/Codex CLI 账号或 API key，必须由用户另行明确确认。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -90,6 +91,7 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-02 | Phase 2 total verification | PASS：workflow doctor、workflow tests、app tests、build、key-like scan |
 | 2026-07-02 | Safe end-to-end SessionService verification | PASS：real Keychain + real PTY + local command; returned payload contains no test secret |
 | 2026-07-02 | Renderer launch flow tests | PASS：App launch IPC and safe error behavior covered |
+| 2026-07-02 | Session launch failure safety tests | PASS：15 files / 29 tests、build、workflow、diff check |
 | 2026-07-02 | `npm run test -- keychainAdapter ptyAdapter` | PASS：2 files / 4 tests |
 | 2026-07-02 | `npm run build` | PASS |
 | 2026-07-02 | Real Keychain verification | PASS：test service/account write/read/delete; no real API key |
@@ -121,3 +123,4 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | Phase 2 Task 2/3（real adapters） | PASS | `createKeytarAdapter` 使用真实 keytar；`createNodePtyAdapter` 使用真实 node-pty 并确保 Unix spawn-helper 可执行；验证记录 `.agent-workflow/verification/2026-07-02-phase-2-real-keychain-pty.md` |
 | Phase 2 Real Terminal & Keychain | PASS | 总验证与安全端到端验证记录 `.agent-workflow/verification/2026-07-02-phase-2-real-terminal-keychain.md`；真实 API key / CLI 账号未验证（未授权） |
 | Renderer launch flow | PASS | 验证记录 `.agent-workflow/verification/2026-07-02-renderer-launch-flow.md`；启动按钮已接真实 preload IPC |
+| Session launch failure safety | PASS | 验证记录 `.agent-workflow/verification/2026-07-02-session-launch-failure-safety.md`；缺 workspace/PTY fail 不泄露 secret/env |
