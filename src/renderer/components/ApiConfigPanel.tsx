@@ -173,22 +173,30 @@ function ModelValueInput({
   models: string[];
   onChange(value: string): void;
 }): React.JSX.Element {
-  const modelListId = `model-list-${label.replace(/\s+/g, '-').toLowerCase()}`;
+  const modelOptions = models.includes(value) ? models : normalizeModelList([value, ...models]);
 
   return (
     <label>
       <span>{label}</span>
-      <input
-        aria-label={label}
-        list={modelListId}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      <datalist id={modelListId}>
-        {models.map((model) => (
-          <option key={model} value={model} />
-        ))}
-      </datalist>
+      {modelOptions.length > 0 ? (
+        <select
+          aria-label={label}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          {modelOptions.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          aria-label={label}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
     </label>
   );
 }

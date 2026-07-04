@@ -526,6 +526,29 @@ describe('AgentDock session launch flow', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
 
     expect(screen.getByText('模型映射')).toBeInTheDocument();
+
+    const expectedModelOptions = [
+      'claude-opus-4-8',
+      'claude-haiku-4-5-20251001',
+      'claude-fable-5',
+    ];
+    const haikuModelSelect = screen.getByLabelText('Haiku 默认模型') as HTMLSelectElement;
+    const sonnetModelSelect = screen.getByLabelText('Sonnet 默认模型') as HTMLSelectElement;
+    const opusModelSelect = screen.getByLabelText('Opus 默认模型') as HTMLSelectElement;
+
+    expect(haikuModelSelect.tagName).toBe('SELECT');
+    expect(sonnetModelSelect.tagName).toBe('SELECT');
+    expect(opusModelSelect.tagName).toBe('SELECT');
+    expect(Array.from(haikuModelSelect.options).map((option) => option.value)).toEqual(
+      expectedModelOptions,
+    );
+    expect(Array.from(sonnetModelSelect.options).map((option) => option.value)).toEqual(
+      expectedModelOptions,
+    );
+    expect(Array.from(opusModelSelect.options).map((option) => option.value)).toEqual(
+      expectedModelOptions,
+    );
+
     fireEvent.change(screen.getByLabelText('主模型'), {
       target: { value: 'claude-opus-4-8' },
     });
