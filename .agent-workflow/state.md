@@ -1,12 +1,12 @@
 # Agent Workflow State
 
 ## 当前任务
-Agent CLI PATH 版本同步修复。
+2026-07-04 全项目审查修复批次收尾（低优先级批量 + PTY 退出感知 + 跨窗口 session ID + 文档同步）。
 
 ## 风险等级
 L3
 
-触发原因：Electron 桌面应用、真实 node-pty、外部 Claude/Codex CLI PATH 解析、环境变量/PATH 行为、macOS 打包验证。
+触发原因：Electron 桌面应用、真实 node-pty 生命周期、跨窗口共享 workspace 上下文、依赖管理调整（node-pty 移入 dependencies）。
 
 ## 当前 Hook
 delivery_hook
@@ -68,7 +68,7 @@ delivery
 无
 
 ## 下一步
-用户用 `release/packages/20260704-193715/AgentDock-darwin-arm64/AgentDock.app` 手动 smoke：启动 Claude profile，确认 Agent 会话使用新版 Claude CLI；同时继续检查 workspace shared context、Claude/Codex/zsh 启动。
+重新打包后真机 smoke：启动 Claude profile 确认新版 CLI；开两个窗口在同一 workspace 各启一个会话，确认 transcript 文件不再互相覆盖（`session-w<id>-1.md`）；在终端里 exit 退出 CLI，确认出现"进程已退出"提示且标签页可正常关闭。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -94,6 +94,8 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 ## 验证记录
 | 时间 | 命令 | 结果 |
 |------|------|------|
+| 2026-07-04 | `npm run typecheck`（审查修复批次收尾后） | PASS |
+| 2026-07-04 | `npx vitest run`（审查修复批次收尾后） | PASS：30 files / 177 tests |
 | 2026-07-04 | `npm run test -- tests/app/ptyAdapter.test.ts` RED | PASS：新增 PATH 测试先失败，证明旧实现命中 Homebrew 优先顺序 |
 | 2026-07-04 | `npm run test -- tests/app/ptyAdapter.test.ts` | PASS：1 file / 8 tests |
 | 2026-07-04 | `npm run test` | PASS：30 files / 159 tests |

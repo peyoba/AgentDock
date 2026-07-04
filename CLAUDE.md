@@ -130,17 +130,22 @@ npm run package:mac     # 打包 macOS app
 
 ---
 
-## 🔍 最近改进（2026-07-03）
+## 🔍 最近改进（2026-07-04）
 
-### 代码审查发现
-- ✅ 高质量的代码结构和测试覆盖
-- ⚠️ 权限绕过标志需监控使用场景（`--dangerously-skip-permissions` 等）
-- ✅ 国际化支持完善（中文错误消息）
+### 代码审查修复（全项目审查后的批量落地）
+- ✅ 高优先级：PTY 进程退出感知（session 标记 `exited` + 终端内提示，退出后标签页仍可关闭）
+- ✅ 高优先级：跨窗口 session ID 冲突（每窗口注入 `w<windowId>-` 前缀，共享上下文 transcript 不再互相覆盖）
+- ✅ Agent CLI PATH 同步（用户级 `~/.local/bin` 等优先 + login shell 内重新 export PATH）
+- ✅ keytar→vault 迁移接线、孤儿密钥清理、profile ID 校验
+- ✅ 共享上下文节流重建 + 每 workspace 串行写队列；终端缓冲回放竞态修复
+- ✅ 低优先级批量：Gemini/OpenCode 半成品入口隐藏、短密钥全遮蔽、死代码清理（redactEnvironmentPreview/migrateAll）、node-pty 移入 dependencies、模型拉取超时 + baseUrl 中文报错
+
+### 产品决策（用户确认）
+- 🔓 API Key 允许界面主动查看（类似 ccswitch）：本地加密保存、不外发即可，不追求防本机攻击者
+- ⚙️ 危险权限标志默认开启是有意设计，高级设置可关，不作为缺陷处理
 
 ### 项目清理分析
-- 📄 已生成清理分析报告：`docs/reports/2026-07-03-project-cleanup-analysis.md`
-- 🗑️ 建议删除：4 个过时文档 + 8 个旧 UI 原型 (~500KB)
-- 📦 可选归档：`.agent-workflow/` + `docs/requirements/` (~400KB)
+- 📄 已生成清理分析报告：`docs/reports/2026-07-03-project-cleanup-analysis.md`（待执行）
 
 ---
 
@@ -167,7 +172,7 @@ npm run package:mac     # 打包 macOS app
 
 ```
 构建状态        ✅ 通过 (npm run build)
-测试状态        ✅ 通过 (27 files / 135 tests)
+测试状态        ✅ 通过 (30 files / 177 tests)
 类型检查        ✅ 通过 (npm run typecheck)
 安全扫描        ✅ 通过 (无真实 API key 发现)
 打包验证        ✅ 通过 (macOS ad-hoc signed)
@@ -178,8 +183,7 @@ npm run package:mac     # 打包 macOS app
 ## 🔗 Git 信息
 
 - **主分支**: `main`
-- **当前状态**: 未提交改动已审查；默认模型和内置配置删除保护已修复，仍待用户决定提交或清理
-- **最后提交**: `Ship AgentDock packaged app usability fixes`
+- **当前状态**: 2026-07-04 审查修复批次已提交（滚动条 macOS 化、会话详情/标签提示、PATH 同步、稳定性加固、session 生命周期修复），待推送远端
 - **仓库**: https://github.com/peyoba/AgentDock (私有)
 
 ---
@@ -198,6 +202,9 @@ npm run package:mac     # 打包 macOS app
 
 | 日期 | 类型 | 内容 |
 |------|------|------|
+| 2026-07-04 | 修复 | 全项目审查修复批次：PTY 退出感知、跨窗口 session ID、PATH 同步、密钥迁移接线、上下文节流、低优先级批量 |
+| 2026-07-04 | 优化 | 终端滚动条 macOS 悬浮化；会话详情显示 API 配置名；标签悬停显示全名 |
+| 2026-07-04 | 决策 | API Key 界面可见（本地保存不外发）；危险权限标志默认开启为预期设计 |
 | 2026-07-03 | 文档 | 创建 CLAUDE.md 项目上下文文档 |
 | 2026-07-03 | 分析 | 完成代码审查和项目清理分析 |
 | 2026-07-03 | 验收 | Phase 2 所有功能已验证完成 |
@@ -206,6 +213,6 @@ npm run package:mac     # 打包 macOS app
 
 ---
 
-**下一步**: 根据 `docs/reports/2026-07-03-project-cleanup-analysis.md` 的建议执行项目清理，然后开始下一阶段开发。
+**下一步**: 用最新构建做一次真机 smoke（新包启动 Claude profile、多窗口同工作区、CLI 退出提示），然后按清理分析报告执行项目清理。
 
 Happy coding! 🚀
