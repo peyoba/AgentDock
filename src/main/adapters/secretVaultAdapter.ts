@@ -21,6 +21,7 @@ type VaultFile = {
 type EncryptedVaultAdapterOptions = {
   filePath: string;
   keyMaterial?: string;
+  legacyKeyMaterials?: string[];
   ensureDirectory?: (directoryPath: string) => Promise<void> | void;
   readTextFile?: (filePath: string) => Promise<string>;
   writeTextFile?: (filePath: string, content: string) => Promise<void>;
@@ -40,17 +41,26 @@ function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error;
 }
 
-function defaultKeyMaterial(filePath: string): string {
-  let username = 'unknown-user';
+function vaultUsername(): string {
   try {
-    username = os.userInfo().username || username;
+    return os.userInfo().username || 'unknown-user';
   } catch {
-    username = 'unknown-user';
+    return 'unknown-user';
   }
+}
 
+// v1 材料混入了 os.hostname() 和 vault 目录字符串：hostname 会随网络漂移
+// （"设备名.local" ↔ 纯 IP），目录字符串会随应用名大小写变化，任何一个变了
+// 旧记录就再也解不开。v2 只保留跨网络、跨打包环境稳定的分量。
+function defaultKeyMaterial(): string {
+  return ['AgentDock local encrypted vault v2', vaultUsername(), os.homedir()].join('\0');
+}
+
+// 仅用于解密 v2 之前写入的旧记录；命中后 readSecret 会用 v2 材料重加密回写。
+function legacyKeyMaterialV1(filePath: string): string {
   return [
     'AgentDock local encrypted vault v1',
-    username,
+    vaultUsername(),
     os.homedir(),
     os.hostname(),
     path.dirname(filePath),
@@ -95,7 +105,11 @@ function encryptSecret(secret: string, keyMaterial: string): VaultRecord {
   };
 }
 
-function decryptSecret(record: VaultRecord, keyMaterial: string, _account: string): string {
+function unreadableSecretError(): Error {
+  return new Error(`无法读取已保存的 API Key，请重新粘贴并保存一次以修复本机加密记录。`);
+}
+
+function tryDecryptSecret(record: VaultRecord, keyMaterial: string): string | null {
   try {
     const salt = Buffer.from(record.salt, 'base64');
     const iv = Buffer.from(record.iv, 'base64');
@@ -107,9 +121,7 @@ function decryptSecret(record: VaultRecord, keyMaterial: string, _account: strin
 
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
   } catch {
-    throw new Error(
-      `无法读取已保存的 API Key，请重新粘贴并保存一次以修复本机加密记录。`,
-    );
+    return null;
   }
 }
 
@@ -144,7 +156,8 @@ async function defaultWriteTextFile(filePath: string, content: string): Promise<
 
 export function createEncryptedVaultAdapter({
   filePath,
-  keyMaterial = defaultKeyMaterial(filePath),
+  keyMaterial = defaultKeyMaterial(),
+  legacyKeyMaterials = [legacyKeyMaterialV1(filePath)],
   ensureDirectory = defaultEnsureDirectory,
   readTextFile = defaultReadTextFile,
   writeTextFile = defaultWriteTextFile,
@@ -169,12 +182,32 @@ export function createEncryptedVaultAdapter({
   return {
     async readSecret(service: string, account: string): Promise<string> {
       const vault = await readVault();
-      const record = vault.secrets[secretId(service, account)];
+      const id = secretId(service, account);
+      const record = vault.secrets[id];
       if (!record) {
         throw missingSecretError(account);
       }
 
-      return decryptSecret(record, keyMaterial, account);
+      const secret = tryDecryptSecret(record, keyMaterial);
+      if (secret !== null) {
+        return secret;
+      }
+
+      for (const legacyMaterial of legacyKeyMaterials) {
+        const legacySecret = tryDecryptSecret(record, legacyMaterial);
+        if (legacySecret !== null) {
+          // 自愈：用当前稳定材料重加密回写，之后不再依赖 legacy 材料
+          vault.secrets[id] = encryptSecret(legacySecret, keyMaterial);
+          try {
+            await writeVault(vault);
+          } catch (error) {
+            console.warn('[secret-vault] 自愈回写失败（不影响本次读取）:', error);
+          }
+          return legacySecret;
+        }
+      }
+
+      throw unreadableSecretError();
     },
 
     async writeSecret(service: string, account: string, secret: string): Promise<void> {

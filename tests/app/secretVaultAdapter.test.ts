@@ -88,6 +88,44 @@ describe('encrypted local secret vault', () => {
     );
   });
 
+  it('decrypts records written with a legacy key material and heals them to the current one', async () => {
+    const memory = createMemoryFiles();
+    const filePath = '/tmp/agentdock-test/secrets.vault.json';
+    const writer = createEncryptedVaultAdapter({
+      filePath,
+      keyMaterial: 'legacy-host-bound-material',
+      ensureDirectory: async () => undefined,
+      readTextFile: memory.readTextFile,
+      writeTextFile: memory.writeTextFile,
+    });
+    await writer.writeSecret('AgentDock', 'profile-a', 'test-migrated-secret');
+
+    const reader = createEncryptedVaultAdapter({
+      filePath,
+      keyMaterial: 'stable-material-v2',
+      legacyKeyMaterials: ['legacy-host-bound-material'],
+      ensureDirectory: async () => undefined,
+      readTextFile: memory.readTextFile,
+      writeTextFile: memory.writeTextFile,
+    });
+    await expect(reader.readSecret('AgentDock', 'profile-a')).resolves.toBe(
+      'test-migrated-secret',
+    );
+
+    // 自愈后：新 adapter 不带 legacy 材料也必须能读到同一条记录
+    const healedReader = createEncryptedVaultAdapter({
+      filePath,
+      keyMaterial: 'stable-material-v2',
+      legacyKeyMaterials: [],
+      ensureDirectory: async () => undefined,
+      readTextFile: memory.readTextFile,
+      writeTextFile: memory.writeTextFile,
+    });
+    await expect(healedReader.readSecret('AgentDock', 'profile-a')).resolves.toBe(
+      'test-migrated-secret',
+    );
+  });
+
   it('migrates a legacy Keychain secret into the local vault on first read only', async () => {
     const { adapter: vault, files, filePath } = createMemoryVault();
     const fallbackCalls: string[] = [];
