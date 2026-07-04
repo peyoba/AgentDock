@@ -30,7 +30,18 @@ npm run build
 npm run dev
 npm run workflow:doctor
 npm run test:workflow
+npm run package:mac
 ```
+
+## macOS 打包
+
+`npm run package:mac` 会构建并输出到新的时间戳目录，例如：
+
+```text
+release/packages/20260704-153000/AgentDock-darwin-arm64/AgentDock.app
+```
+
+默认不会覆盖 `release/AgentDock-darwin-arm64/AgentDock.app`。
 
 ## 重要文档
 
