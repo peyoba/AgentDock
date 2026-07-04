@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/renderer/App';
-import type { ApiProfile, Workspace } from '../../src/shared/agentdockTypes';
+import type { AgentSession, ApiProfile, Workspace } from '../../src/shared/agentdockTypes';
 import type { AgentDockApi } from '../../src/shared/preloadTypes';
 
 vi.mock('../../src/renderer/components/TerminalPane', () => ({
@@ -17,6 +17,8 @@ type TestAgentDockApi = AgentDockApi & {
   saveProfileSecret: ReturnType<typeof vi.fn<[(request: { keychainService: string; keychainAccount: string; secret: string }) => Promise<void>]>>;
   readProfileSecret: ReturnType<typeof vi.fn<[(request: { keychainService: string; keychainAccount: string }) => Promise<string>]>>;
   fetchProfileModels: ReturnType<typeof vi.fn<[(request: { profileId: string }) => Promise<string[]>]>>;
+  readWorkspaceContext: ReturnType<typeof vi.fn<[(request: { workspaceId: string }) => Promise<{ filePath: string; content: string }>]>>;
+  openWorkspaceContextFolder: ReturnType<typeof vi.fn<[(request: { workspaceId: string }) => Promise<void>]>>;
   openNewWindow: ReturnType<typeof vi.fn<() => Promise<void>>>;
   onMetadataChanged: ReturnType<typeof vi.fn<[(listener: () => void) => () => void]>>;
 };
@@ -62,6 +64,8 @@ function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
     killTerminal: vi.fn(),
     readTerminalBuffer: vi.fn().mockResolvedValue(''),
     onTerminalOutput: vi.fn(() => () => undefined),
+    readWorkspaceContext: vi.fn().mockResolvedValue({ filePath: '', content: '' }),
+    openWorkspaceContextFolder: vi.fn().mockResolvedValue(undefined),
     openNewWindow: vi.fn().mockResolvedValue(undefined),
     onMetadataChanged: vi.fn(() => () => undefined),
     ...overrides,
@@ -183,6 +187,42 @@ describe('AgentDock shell', () => {
     fireEvent.click(screen.getByRole('button', { name: '显示高级详情' }));
 
     expect(screen.getByText(/Keychain 位置/)).toBeInTheDocument();
+  });
+
+  it('shows workspace shared context from current session details', async () => {
+    const runningSession: AgentSession = {
+      id: 'session-1',
+      title: 'Claude A · AgentDock',
+      profileId: 'profile-a',
+      workspaceId: 'workspace-a',
+      command: 'claude',
+      status: 'running',
+      startedAt: '2026-07-02T00:00:00.000Z',
+    };
+    const api = installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([runningSession]),
+      readWorkspaceContext: vi.fn().mockResolvedValue({
+        filePath: '/Users/example/Desktop/web/AgentDock/.agentdock/context/shared-context.md',
+        content: '# AgentDock Shared Context',
+      }),
+      openWorkspaceContextFolder: vi.fn().mockResolvedValue(undefined),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('button', { name: /^Claude A · AgentDock$/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /会话详情/ }));
+    fireEvent.click(screen.getByRole('button', { name: '查看共享上下文' }));
+
+    expect(await screen.findByText('/Users/example/Desktop/web/AgentDock/.agentdock/context/shared-context.md')).toBeInTheDocument();
+    expect(screen.getByText('# AgentDock Shared Context')).toBeInTheDocument();
+    expect(api.readWorkspaceContext).toHaveBeenCalledWith({ workspaceId: 'workspace-a' });
+
+    fireEvent.click(screen.getByRole('button', { name: '打开上下文文件夹' }));
+
+    await waitFor(() => {
+      expect(api.openWorkspaceContextFolder).toHaveBeenCalledWith({ workspaceId: 'workspace-a' });
+    });
   });
 
   it('opens API config as a separate page instead of embedding it in the terminal workspace', async () => {

@@ -366,6 +366,20 @@ export default function App(): React.JSX.Element {
     });
   };
 
+  const readWorkspaceContext = async (
+    workspaceId: string,
+  ): Promise<{ filePath: string; content: string }> => {
+    if (!api) {
+      return { filePath: '', content: '' };
+    }
+
+    return api.readWorkspaceContext({ workspaceId });
+  };
+
+  const openWorkspaceContextFolder = async (workspaceId: string): Promise<void> => {
+    await api?.openWorkspaceContextFolder({ workspaceId });
+  };
+
   return (
     <main className="app-shell">
       <AppHeader
@@ -414,6 +428,8 @@ export default function App(): React.JSX.Element {
               session={activeSession}
               profile={activeSessionProfile}
               workspace={activeSessionWorkspace}
+              onReadWorkspaceContext={readWorkspaceContext}
+              onOpenWorkspaceContextFolder={openWorkspaceContextFolder}
             />
           </section>
         </>

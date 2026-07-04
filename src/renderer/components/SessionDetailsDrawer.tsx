@@ -6,6 +6,8 @@ type SessionDetailsDrawerProps = {
   session?: AgentSession;
   profile?: ApiProfile;
   workspace?: Workspace;
+  onReadWorkspaceContext?(workspaceId: string): Promise<{ filePath: string; content: string }>;
+  onOpenWorkspaceContextFolder?(workspaceId: string): Promise<void>;
 };
 
 export function SessionDetailsDrawer({
@@ -13,12 +15,48 @@ export function SessionDetailsDrawer({
   session,
   profile,
   workspace,
+  onReadWorkspaceContext,
+  onOpenWorkspaceContextFolder,
 }: SessionDetailsDrawerProps): React.JSX.Element | null {
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const [contextFilePath, setContextFilePath] = React.useState('');
+  const [contextContent, setContextContent] = React.useState('');
+  const [contextError, setContextError] = React.useState('');
 
   React.useEffect(() => {
     setAdvancedOpen(false);
+    setContextFilePath('');
+    setContextContent('');
+    setContextError('');
   }, [session?.id]);
+
+  const readWorkspaceContext = async (): Promise<void> => {
+    if (!workspace || !onReadWorkspaceContext) {
+      return;
+    }
+
+    setContextError('');
+    try {
+      const context = await onReadWorkspaceContext(workspace.id);
+      setContextFilePath(context.filePath);
+      setContextContent(context.content);
+    } catch (error) {
+      setContextError(error instanceof Error ? error.message : '无法读取共享上下文');
+    }
+  };
+
+  const openWorkspaceContextFolder = async (): Promise<void> => {
+    if (!workspace || !onOpenWorkspaceContextFolder) {
+      return;
+    }
+
+    setContextError('');
+    try {
+      await onOpenWorkspaceContextFolder(workspace.id);
+    } catch (error) {
+      setContextError(error instanceof Error ? error.message : '无法打开上下文文件夹');
+    }
+  };
 
   if (!open) {
     return null;
@@ -45,6 +83,31 @@ export function SessionDetailsDrawer({
       )}
       {session && profile && workspace ? (
         <div className="session-details-advanced">
+          <div className="workspace-context-panel">
+            <div className="workspace-context-actions">
+              <button
+                type="button"
+                className="advanced-toggle-button"
+                onClick={() => void readWorkspaceContext()}
+              >
+                查看共享上下文
+              </button>
+              <button
+                type="button"
+                className="advanced-toggle-button"
+                onClick={() => void openWorkspaceContextFolder()}
+              >
+                打开上下文文件夹
+              </button>
+            </div>
+            {contextError ? <p role="alert">{contextError}</p> : null}
+            {contextFilePath ? (
+              <div className="workspace-context-preview">
+                <span>{contextFilePath}</span>
+                <pre>{contextContent}</pre>
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             className="advanced-toggle-button"

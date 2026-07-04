@@ -417,6 +417,45 @@ p {
   border-top: 1px solid #edf0f5;
 }
 
+.workspace-context-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 14px;
+}
+
+.workspace-context-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workspace-context-preview {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workspace-context-preview span {
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.workspace-context-preview pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #111827;
+  padding: 10px;
+}
+
 .api-config-panel {
   display: grid;
   gap: 18px;
