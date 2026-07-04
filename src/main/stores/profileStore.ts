@@ -123,17 +123,9 @@ export function createProfileStore(rootDir: string) {
     await store.replaceAll(filtered.map(versionProfile));
   }
 
-  async function migrateAll(): Promise<void> {
-    await store.migrateAll((item: unknown) => {
-      const migrated = migrateProfile(item);
-      return versionProfile(migrated);
-    });
-  }
-
   return {
     list,
     save,
     delete: deleteProfile,
-    migrateAll,
   };
 }

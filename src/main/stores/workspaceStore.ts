@@ -21,12 +21,5 @@ export function createWorkspaceStore(rootDir: string) {
       });
       return store.save(versionedWorkspace as Workspace);
     },
-    async migrateAll(): Promise<void> {
-      // 应用迁移到所有已保存的工作区
-      await store.migrateAll((item: unknown) => {
-        const migrated = migrateWorkspace(item);
-        return addVersionToWorkspace(migrated);
-      });
-    },
   };
 }

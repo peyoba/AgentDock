@@ -103,4 +103,38 @@ describe('modelFetchService', () => {
     expect((thrown as Error).message).not.toContain('Authorization');
     expect((thrown as Error).message).not.toContain('Incorrect API key');
   });
+
+  it('rejects invalid base URLs with a Chinese error before any network request', async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      fetchProfileModels({
+        profile: { ...codexProfile, baseUrl: 'not-a-valid-url' },
+        secretAdapter: createSecretAdapter(),
+        fetchImpl,
+      }),
+    ).rejects.toThrow('Base URL 无效，无法解析：not-a-valid-url');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('applies a request timeout and reports it in Chinese', async () => {
+    const timeoutError = new Error('The operation was aborted due to timeout');
+    timeoutError.name = 'TimeoutError';
+    const fetchImpl = vi.fn(async () => {
+      throw timeoutError;
+    });
+
+    await expect(
+      fetchProfileModels({
+        profile: codexProfile,
+        secretAdapter: createSecretAdapter(),
+        fetchImpl,
+      }),
+    ).rejects.toThrow('拉取模型列表超时，请检查 Endpoint 地址和网络连接');
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://provider.example/v1/models',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
 });

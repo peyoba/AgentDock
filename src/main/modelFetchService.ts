@@ -12,6 +12,8 @@ type ModelListShape = {
   models?: unknown;
 };
 
+const MODEL_FETCH_TIMEOUT_MS = 10_000;
+
 function unique(values: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -29,7 +31,12 @@ function unique(values: string[]): string[] {
 }
 
 function buildModelEndpointCandidates(baseUrl: string): string[] {
-  const url = new URL(baseUrl);
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new Error(`Base URL 无效，无法解析：${baseUrl}`);
+  }
   const pathname = url.pathname.replace(/\/+$/, '');
   const basePath = pathname === '/' ? '' : pathname;
   const originAndPath = `${url.origin}${basePath}`;
@@ -103,10 +110,19 @@ export async function fetchProfileModels({
   const headers = buildHeaders(profile, secret);
 
   for (const [index, endpoint] of endpoints.entries()) {
-    const response = await fetchImpl(endpoint, {
-      method: 'GET',
-      headers,
-    });
+    let response: Response;
+    try {
+      response = await fetchImpl(endpoint, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(MODEL_FETCH_TIMEOUT_MS),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        throw new Error('拉取模型列表超时，请检查 Endpoint 地址和网络连接');
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       const canTryNext = (response.status === 404 || response.status === 405) && index < endpoints.length - 1;

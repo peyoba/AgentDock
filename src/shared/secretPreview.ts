@@ -1,25 +1,16 @@
-const SENSITIVE_ENV_NAMES = new Set([
-  'ANTHROPIC_AUTH_TOKEN',
-  'ANTHROPIC_API_KEY',
-  'OPENAI_API_KEY',
-]);
+const FULL_MASK = '••••••';
+const MIN_SUFFIX_REVEAL_LENGTH = 8;
 
 export function maskSecret(secret: string): string {
   if (secret.length === 0) {
     return '未设置';
   }
 
-  const suffix = secret.slice(-3);
-  return `••••••${suffix}`;
-}
+  // 过短的密钥展示尾部等于全量泄露，直接全遮蔽
+  if (secret.length < MIN_SUFFIX_REVEAL_LENGTH) {
+    return FULL_MASK;
+  }
 
-export function redactEnvironmentPreview(
-  env: Record<string, string>,
-): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(env).map(([key, value]) => [
-      key,
-      SENSITIVE_ENV_NAMES.has(key) ? maskSecret(value) : value,
-    ]),
-  );
+  const suffix = secret.slice(-3);
+  return `${FULL_MASK}${suffix}`;
 }

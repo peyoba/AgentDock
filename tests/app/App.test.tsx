@@ -279,8 +279,8 @@ describe('AgentDock shell', () => {
 
     expect(screen.getByRole('button', { name: 'Claude' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Codex' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Gemini' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'OpenCode' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Gemini' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'OpenCode' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '全部' })).toBeInTheDocument();
   });
 

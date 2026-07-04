@@ -9,19 +9,23 @@ import {
 
 export type ApiConfigFilter = ToolType | 'all';
 
+const toolTypeLabels: Record<ToolType, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  gemini: 'Gemini',
+  opencode: 'OpenCode',
+};
+
+// gemini/opencode 的启动环境尚未实现（不注入凭证），暂不提供筛选和创建入口
 const toolTypes: Array<{ label: string; value: ApiConfigFilter }> = [
   { label: 'Claude', value: 'claude' },
   { label: 'Codex', value: 'codex' },
-  { label: 'Gemini', value: 'gemini' },
-  { label: 'OpenCode', value: 'opencode' },
   { label: '全部', value: 'all' },
 ];
 
 const editableToolTypes: Array<{ label: string; value: ToolType }> = [
   { label: 'Claude', value: 'claude' },
   { label: 'Codex', value: 'codex' },
-  { label: 'Gemini', value: 'gemini' },
-  { label: 'OpenCode', value: 'opencode' },
 ];
 
 const claudeLaunchModes = [
@@ -54,7 +58,7 @@ type ApiConfigPanelProps = {
 };
 
 function toolLabel(toolType: ToolType): string {
-  return toolTypes.find((item) => item.value === toolType)?.label ?? toolType;
+  return toolTypeLabels[toolType] ?? toolType;
 }
 
 function createDraft(profile?: ApiProfile): ApiProfile | undefined {
@@ -126,11 +130,15 @@ function defaultNewProfileToolType(
   filter: ApiConfigFilter,
   selectedProfile?: ApiProfile,
 ): ToolType {
-  if (filter !== 'all') {
+  const editableValues = editableToolTypes.map((toolType) => toolType.value);
+  if (filter !== 'all' && editableValues.includes(filter)) {
     return filter;
   }
 
-  return selectedProfile?.toolType ?? 'claude';
+  const selectedToolType = selectedProfile?.toolType;
+  return selectedToolType && editableValues.includes(selectedToolType)
+    ? selectedToolType
+    : 'claude';
 }
 
 function createNewProfileDraft({

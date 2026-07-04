@@ -11,15 +11,7 @@ export type JsonStore<T extends Identified> = {
   replaceAll(items: T[]): Promise<void>;
 };
 
-export type JsonStoreWithMigration<T extends Identified> = JsonStore<T> & {
-  /**
-   * 应用迁移函数到所有已存储的数据
-   * 当配置格式变化时调用此方法以升级用户数据
-   */
-  migrateAll(migrator: (data: unknown) => T): Promise<void>;
-};
-
-export function createJsonStore<T extends Identified>(filePath: string): JsonStoreWithMigration<T> {
+export function createJsonStore<T extends Identified>(filePath: string): JsonStore<T> {
   async function list(): Promise<T[]> {
     try {
       const text = await readFile(filePath, 'utf-8');
@@ -61,16 +53,9 @@ export function createJsonStore<T extends Identified>(filePath: string): JsonSto
     await writeItems(items);
   }
 
-  async function migrateAll(migrator: (data: unknown) => T): Promise<void> {
-    const items = await list();
-    const migratedItems = items.map((item) => migrator(item as unknown));
-    await writeItems(migratedItems);
-  }
-
   return {
     list,
     save,
     replaceAll,
-    migrateAll,
   };
 }
