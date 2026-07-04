@@ -18,8 +18,6 @@ describe('default API profiles', () => {
     expect(claudeProfile?.claudeCodeRetryWatchdog).toBe(true);
     expect(claudeProfile?.claudeCodeMaxRetries).toBe(100);
     expect(claudeProfile?.anthropicBetas).toBe('context-1m-2025-08-07');
-    expect(claudeProfile?.httpProxy).toBe('http://127.0.0.1:7897');
-    expect(claudeProfile?.httpsProxy).toBe('http://127.0.0.1:7897');
     expect(claudeProfile?.claudeCodeDisableNonessentialTraffic).toBe(true);
     expect(claudeProfile?.claudeCodeAttributionHeader).toBe('0');
     expect(claudeProfile?.disableInstallationChecks).toBe(true);
@@ -28,6 +26,9 @@ describe('default API profiles', () => {
     for (const profile of defaultApiProfiles) {
       expect(profile.defaultModel).toBeTruthy();
       expect(profile.availableModels).toBeUndefined();
+      // 出厂配置不得携带机器特定值（如本机代理端口），代理由用户在高级设置里自行填写
+      expect(profile.httpProxy).toBeUndefined();
+      expect(profile.httpsProxy).toBeUndefined();
     }
   });
 

@@ -24,8 +24,6 @@ export const defaultApiProfiles: ApiProfile[] = [
     claudeCodeRetryWatchdog: true,
     claudeCodeMaxRetries: 100,
     anthropicBetas: ANYROUTER_CLAUDE_BETA,
-    httpProxy: 'http://127.0.0.1:7897',
-    httpsProxy: 'http://127.0.0.1:7897',
     claudeCodeDisableNonessentialTraffic: true,
     claudeCodeAttributionHeader: '0',
     disableInstallationChecks: true,

@@ -76,7 +76,7 @@ if (isDirectRun) {
     `--out=${outputDirectory}`,
     '--prune=true',
     '--asar.unpack=**/{*.node,spawn-helper}',
-    '--ignore=^/(src|tests|docs|scripts|release|\\.agent-workflow|\\.git)(/|$)',
+    '--ignore=^/(src|tests|docs|scripts|release|\\.agent-workflow|\\.agentdock|\\.claude|\\.git|\\.pytest_cache)(/|$)|^/\\.env(?:\\..*)?$|^/.*\\.log$',
   ]);
 
   const signingIdentity = resolveSigningIdentity();

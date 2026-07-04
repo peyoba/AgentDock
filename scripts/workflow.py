@@ -44,6 +44,8 @@ EXPECTED_WORK_DIRS = [
 ]
 
 IGNORED_MARKDOWN_DIRS = {
+    ".agentdock",
+    ".claude",
     ".git",
     ".pytest_cache",
     "__pycache__",

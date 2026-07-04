@@ -11,7 +11,16 @@ WORKFLOW = REPO_ROOT / "scripts" / "workflow.py"
 
 def copy_template(tmp_path: Path) -> Path:
     project = tmp_path / "project"
-    ignore = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache")
+    ignore = shutil.ignore_patterns(
+        ".agentdock",
+        ".claude",
+        ".git",
+        ".pytest_cache",
+        "__pycache__",
+        "dist",
+        "node_modules",
+        "release",
+    )
     shutil.copytree(REPO_ROOT, project, ignore=ignore)
     return project
 
@@ -54,7 +63,17 @@ def test_doctor_ignores_generated_and_dependency_directories(tmp_path: Path) -> 
     node_readme = project / "node_modules" / "get-stream" / "readme.md"
     dist_readme = project / "dist" / "renderer" / "readme.md"
     git_readme = project / ".git" / "readme.md"
-    for path in [node_readme, dist_readme, git_readme]:
+    agentdock_context = project / ".agentdock" / "context" / "sessions" / "session-7.md"
+    claude_local_settings = project / ".claude" / "settings.local.md"
+    pytest_cache_note = project / ".pytest_cache" / "README.md"
+    for path in [
+        node_readme,
+        dist_readme,
+        git_readme,
+        agentdock_context,
+        claude_local_settings,
+        pytest_cache_note,
+    ]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("```unclosed generated fence\n", encoding="utf-8")
 
@@ -64,6 +83,9 @@ def test_doctor_ignores_generated_and_dependency_directories(tmp_path: Path) -> 
     assert "node_modules/get-stream/readme.md" not in result.stdout
     assert "dist/renderer/readme.md" not in result.stdout
     assert ".git/readme.md" not in result.stdout
+    assert ".agentdock/context/sessions/session-7.md" not in result.stdout
+    assert ".claude/settings.local.md" not in result.stdout
+    assert ".pytest_cache/README.md" not in result.stdout
 
 
 def test_new_task_creates_standard_artifacts_and_updates_state(tmp_path: Path) -> None:
