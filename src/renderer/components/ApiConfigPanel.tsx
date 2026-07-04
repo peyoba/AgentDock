@@ -1,5 +1,11 @@
 import React from 'react';
 import type { ApiProfile, ToolType } from '../../shared/agentdockTypes';
+import {
+  ANYROUTER_CLAUDE_HAIKU_MODEL,
+  ANYROUTER_CLAUDE_OPUS_MODEL,
+  ANYROUTER_CLAUDE_PRIMARY_MODEL,
+  ANYROUTER_CLAUDE_SONNET_MODEL,
+} from '../../shared/claudeProfileDefaults';
 
 export type ApiConfigFilter = ToolType | 'all';
 
@@ -17,6 +23,14 @@ const editableToolTypes: Array<{ label: string; value: ToolType }> = [
   { label: 'Gemini', value: 'gemini' },
   { label: 'OpenCode', value: 'opencode' },
 ];
+
+const claudeLaunchModes = [
+  { label: 'Default', value: 'default' },
+  { label: 'Opus', value: 'opus' },
+  { label: 'Sonnet', value: 'sonnet' },
+  { label: 'Haiku', value: 'haiku' },
+  { label: 'Custom', value: 'custom' },
+] as const;
 
 type ApiConfigPanelProps = {
   profiles: ApiProfile[];
@@ -137,10 +151,46 @@ function createNewProfileDraft({
     name: `${label} 自定义 ${id.split('-').at(-1) ?? '1'}`,
     toolType,
     baseUrl: '',
+    defaultModel: toolType === 'claude' ? ANYROUTER_CLAUDE_PRIMARY_MODEL : undefined,
+    claudeHaikuModel: toolType === 'claude' ? ANYROUTER_CLAUDE_HAIKU_MODEL : undefined,
+    claudeSonnetModel: toolType === 'claude' ? ANYROUTER_CLAUDE_SONNET_MODEL : undefined,
+    claudeOpusModel: toolType === 'claude' ? ANYROUTER_CLAUDE_OPUS_MODEL : undefined,
+    claudeDefaultLaunchMode: toolType === 'claude' ? 'default' : undefined,
     keychainService: selectedProfile?.keychainService || 'AgentDock',
     keychainAccount: id,
     codexHome: toolType === 'codex' ? `~/.agentdock/codex-profiles/${id}` : undefined,
   };
+}
+
+function ModelValueInput({
+  label,
+  value,
+  models,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  models: string[];
+  onChange(value: string): void;
+}): React.JSX.Element {
+  const modelListId = `model-list-${label}`;
+
+  return (
+    <label>
+      <span>{label}</span>
+      <input
+        aria-label={label}
+        list={modelListId}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <datalist id={modelListId}>
+        {models.map((model) => (
+          <option key={model} value={model} />
+        ))}
+      </datalist>
+    </label>
+  );
 }
 
 export function ApiConfigPanel({
@@ -403,6 +453,16 @@ export function ApiConfigPanel({
           draft.toolType === 'claude'
             ? normalizePositiveInteger(draft.claudeCleanupPeriodDays)
             : undefined,
+        claudeDefaultLaunchMode:
+          draft.toolType === 'claude' ? draft.claudeDefaultLaunchMode ?? 'default' : undefined,
+        claudeHaikuModel:
+          draft.toolType === 'claude' ? normalizeOptionalString(draft.claudeHaikuModel) : undefined,
+        claudeSonnetModel:
+          draft.toolType === 'claude' ? normalizeOptionalString(draft.claudeSonnetModel) : undefined,
+        claudeOpusModel:
+          draft.toolType === 'claude' ? normalizeOptionalString(draft.claudeOpusModel) : undefined,
+        claudeAlwaysThinkingEnabled:
+          draft.toolType === 'claude' ? draft.claudeAlwaysThinkingEnabled : undefined,
       });
       if (secretDraft.trim() && secretDirty) {
         await onSaveProfileSecret({
@@ -629,6 +689,56 @@ export function ApiConfigPanel({
                   </div>
                 ) : null}
               </div>
+              {draft.toolType === 'claude' ? (
+                <fieldset className="model-mapping-panel wide-field">
+                  <legend>模型映射</legend>
+                  <div className="model-mapping-grid">
+                    <ModelValueInput
+                      label="主模型"
+                      value={draft.defaultModel ?? ''}
+                      models={defaultModelOptions}
+                      onChange={(value) => updateDraft('defaultModel', value)}
+                    />
+                    <ModelValueInput
+                      label="Haiku 默认模型"
+                      value={draft.claudeHaikuModel ?? ''}
+                      models={defaultModelOptions}
+                      onChange={(value) => updateDraft('claudeHaikuModel', value)}
+                    />
+                    <ModelValueInput
+                      label="Sonnet 默认模型"
+                      value={draft.claudeSonnetModel ?? ''}
+                      models={defaultModelOptions}
+                      onChange={(value) => updateDraft('claudeSonnetModel', value)}
+                    />
+                    <ModelValueInput
+                      label="Opus 默认模型"
+                      value={draft.claudeOpusModel ?? ''}
+                      models={defaultModelOptions}
+                      onChange={(value) => updateDraft('claudeOpusModel', value)}
+                    />
+                    <label>
+                      <span>默认启动选项</span>
+                      <select
+                        aria-label="默认启动选项"
+                        value={draft.claudeDefaultLaunchMode ?? 'default'}
+                        onChange={(event) =>
+                          updateDraft(
+                            'claudeDefaultLaunchMode',
+                            event.target.value as ApiProfile['claudeDefaultLaunchMode'],
+                          )
+                        }
+                      >
+                        {claudeLaunchModes.map((mode) => (
+                          <option key={mode.value} value={mode.value}>
+                            {mode.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </fieldset>
+              ) : null}
               <div className="advanced-settings wide-field">
                 <button
                   type="button"
@@ -671,6 +781,19 @@ export function ApiConfigPanel({
                             <span>启用 Claude Code Retry Watchdog</span>
                             <small className="field-help">
                               注入 CLAUDE_CODE_RETRY_WATCHDOG=1
+                            </small>
+                          </label>
+                          <label className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={draft.claudeAlwaysThinkingEnabled ?? false}
+                              onChange={(event) =>
+                                updateDraft('claudeAlwaysThinkingEnabled', event.target.checked)
+                              }
+                            />
+                            <span>启用 Thinking 模式</span>
+                            <small className="field-help">
+                              写入 Claude settings 的 alwaysThinkingEnabled。
                             </small>
                           </label>
                         </div>

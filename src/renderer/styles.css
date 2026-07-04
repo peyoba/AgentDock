@@ -547,6 +547,30 @@ p {
   flex-wrap: wrap;
 }
 
+.model-mapping-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+}
+
+.model-mapping-panel legend {
+  padding: 0 6px;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.model-mapping-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .advanced-toggle-button {
   border: 1px solid #d1d5db;
   border-radius: 999px;
@@ -879,7 +903,8 @@ p {
   .advanced-field-grid,
   .advanced-field-grid-compact,
   .advanced-option-list,
-  .advanced-readonly-fields {
+  .advanced-readonly-fields,
+  .model-mapping-grid {
     grid-template-columns: 1fr;
   }
 }
