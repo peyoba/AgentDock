@@ -1,7 +1,7 @@
 # Agent Workflow State
 
 ## 当前任务
-AgentDock Phase 2 Real Terminal & Keychain：Phase 1 已验证完成；Phase 2 Task 1-6 已完成；真实 Keychain / node-pty 本地安全验证与 Phase 2 总验证均已通过。
+未提交改动审查后修复：AnyRouter Claude 默认模型更新为 `claude-fable-5`；内置默认 API 配置禁止假删除；`opus[1m]` 仍只作为历史迁移输入处理。
 
 ## 风险等级
 L3
@@ -9,10 +9,10 @@ L3
 触发原因：Electron 桌面应用、内嵌终端 PTY、API Key/Keychain、环境变量注入、外部 CLI（Claude/Codex）、GitHub 仓库初始化。
 
 ## 当前 Hook
-plan_review_hook
+delivery_hook
 
 ## 当前阶段
-phase-2-pass
+delivery-pass
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
@@ -30,6 +30,8 @@ phase-2-pass
 | 主 Agent | PASS | Phase 2 Task 6：总验证通过并记录 `.agent-workflow/verification/2026-07-02-phase-2-real-terminal-keychain.md` |
 | 主 Agent | PASS | Renderer launch flow：启动按钮接入 `launchSession`、动态 sessions/tabs、active xterm session、安全错误显示 |
 | 主 Agent | PASS | Session launch failure safety：workspace 缺失先失败、PTY 启动失败标记 failed、安全错误不泄露 secret/env |
+| 主 Agent | PASS | Claude AnyRouter 1m 配置修复、代理 URL 防呆、默认工作区清空、Desktop 预检查跳过；交付报告 `.agent-workflow/delivery/2026-07-03-claude-anyrouter-desktop-permission-delivery-report.md` |
+| 主 Agent | PASS | Claude 默认模型选择修复：移除 `opus[1m]` 伪模型并迁移历史配置；交付报告 `.agent-workflow/delivery/2026-07-04-claude-model-selector-fix-delivery-report.md` |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -40,7 +42,7 @@ phase-2-pass
 无。用户已确认进入 Phase 2 真实 Keychain 和真实 node-pty 集成；验证约束为不使用真实 API key，只做测试 service/account 和本地安全 PTY 命令验证。
 
 ## 下一步
-Phase 2 已完成；已继续补上 renderer 启动按钮到真实 IPC/session 的产品化连接，并加固 launch failure 安全处理。后续若要验证真实 Claude/Codex CLI 账号或 API key，必须由用户另行明确确认。
+本次修复已交付。新包路径：`/private/tmp/agentdock-package-20260704-000803/AgentDock-darwin-arm64/AgentDock.app`。若继续使用 `~/Desktop/...` 工作区，macOS 仍可能在 Claude/Codex 实际访问文件时弹系统权限；彻底规避需迁移工作区或给固定签名 App 授权。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -57,6 +59,30 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 ## 验证记录
 | 时间 | 命令 | 结果 |
 |------|------|------|
+| 2026-07-04 | `npm run test && npm run workflow:doctor && npm run test:workflow && npm run typecheck && npm run build` | PASS：27 files / 135 tests；workflow 8 passed；build 仅 Vite chunk size warning |
+| 2026-07-04 | `git diff --check` | PASS |
+| 2026-07-04 | key-like secret scan | PASS：当前变更和未跟踪文件无命中 |
+| 2026-07-04 | `npm run test` | PASS：26 files / 131 tests |
+| 2026-07-04 | `npm run workflow:doctor` | PASS |
+| 2026-07-04 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-04 | `npm run typecheck` | PASS |
+| 2026-07-04 | `npm run build` | PASS：存在 Vite chunk size warning，非失败 |
+| 2026-07-04 | `git diff --check` | PASS |
+| 2026-07-04 | key-like secret scan | PASS：源码与成品均无命中 |
+| 2026-07-04 | `electron-packager` 新目录打包 | PASS：`/private/tmp/agentdock-package-20260704-000803/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-04 | local package codesign verify | PASS：`codesign --verify --deep --strict --verbose=2` |
+| 2026-07-04 | packaged pseudo model scan | PASS：成品不含 `defaultModel: "opus[1m]"` 或 `model: "opus[1m]"` |
+| 2026-07-04 | local profileStore read verification | PASS：AnyRouter Claude profiles 返回真实可选模型，`hasLegacyOpusAlias: false` |
+| 2026-07-03 | `npm run test` | PASS：26 files / 130 tests |
+| 2026-07-03 | `npm run workflow:doctor` | PASS |
+| 2026-07-03 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-03 | `npm run typecheck` | PASS |
+| 2026-07-03 | `npm run build` | PASS：存在 Vite chunk size warning，非失败 |
+| 2026-07-03 | `git diff --check` | PASS |
+| 2026-07-03 | key-like secret scan | PASS：源码与成品均无命中 |
+| 2026-07-03 | `electron-packager` 新目录打包 | PASS：`/private/tmp/agentdock-package-20260703-235150/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-03 | local package codesign verify | PASS：`codesign --verify --deep --strict --verbose=2` |
+| 2026-07-03 | packaged Desktop path scan | PASS：成品 `app.asar` 不含 `/Users/peyoba/Desktop` 或 `Desktop/web/AgentDock` |
 | 2026-07-01 | `npm run workflow:doctor` | PASS |
 | 2026-07-01 | `npm run test:workflow` | PASS：8 passed |
 | 2026-07-01 | `npm run typecheck` | PASS |
