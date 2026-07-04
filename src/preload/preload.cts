@@ -37,6 +37,9 @@ const api: AgentDockApi = {
     ipcRenderer.on('terminal:output', handler);
     return () => ipcRenderer.off('terminal:output', handler);
   },
+  readWorkspaceContext: (request) => ipcRenderer.invoke('workspaceContext:read', request),
+  openWorkspaceContextFolder: (request) =>
+    ipcRenderer.invoke('workspaceContext:openFolder', request),
   openNewWindow: () => ipcRenderer.invoke('windows:new'),
   onMetadataChanged: (listener) => {
     const handler = () => listener();

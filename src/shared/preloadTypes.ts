@@ -11,6 +11,9 @@ import type {
   TerminalResizeRequest,
   TerminalWriteRequest,
   Workspace,
+  WorkspaceContextOpenRequest,
+  WorkspaceContextReadRequest,
+  WorkspaceContextReadResult,
 } from './agentdockTypes.js';
 
 export type AgentDockApi = {
@@ -30,6 +33,8 @@ export type AgentDockApi = {
   killTerminal(request: TerminalKillRequest): Promise<AgentSession>;
   readTerminalBuffer(request: TerminalBufferRequest): Promise<string>;
   onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void;
+  readWorkspaceContext(request: WorkspaceContextReadRequest): Promise<WorkspaceContextReadResult>;
+  openWorkspaceContextFolder(request: WorkspaceContextOpenRequest): Promise<void>;
   openNewWindow(): Promise<void>;
   onMetadataChanged(listener: () => void): () => void;
 };
@@ -51,6 +56,8 @@ export const AGENT_DOCK_API_METHODS = [
   'killTerminal',
   'readTerminalBuffer',
   'onTerminalOutput',
+  'readWorkspaceContext',
+  'openWorkspaceContextFolder',
   'openNewWindow',
   'onMetadataChanged',
 ] as const satisfies ReadonlyArray<keyof AgentDockApi>;

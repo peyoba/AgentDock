@@ -10,6 +10,7 @@ import { createSessionService } from './sessionService.js';
 import { createProfileStore } from './stores/profileStore.js';
 import { createWorkspaceStore } from './stores/workspaceStore.js';
 import { createWindowSessionRegistry } from './windowSessionRegistry.js';
+import { createWorkspaceContextStore } from './workspaceContextStore.js';
 import { createWorkspaceFromPath, mergeWorkspaces } from './workspaceService.js';
 import { normalizeClaudeProfileDefaults } from '../shared/claudeProfileDefaults.js';
 import { defaultApiProfiles, isDefaultApiProfileId } from '../shared/defaultApiProfiles.js';
@@ -25,6 +26,8 @@ import type {
   TerminalResizeRequest,
   TerminalWriteRequest,
   Workspace,
+  WorkspaceContextOpenRequest,
+  WorkspaceContextReadRequest,
 } from '../shared/agentdockTypes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,12 +37,14 @@ const workspaceStore = createWorkspaceStore(userDataPath);
 const secretAdapter = createEncryptedVaultAdapter({
   filePath: path.join(userDataPath, 'secrets.vault.json'),
 });
+const workspaceContextStore = createWorkspaceContextStore();
 const sessionRegistry = createWindowSessionRegistry(() =>
   createSessionService({
     keychain: secretAdapter,
     pty: createNodePtyAdapter(),
     appDataPath: userDataPath,
     workspaceExists: fs.existsSync,
+    workspaceContext: workspaceContextStore,
   }),
 );
 
@@ -171,6 +176,17 @@ async function chooseWorkspace(parentWindow: BrowserWindow | null): Promise<Work
   return workspace;
 }
 
+async function requireWorkspaceForContext(
+  workspaceId: string,
+  missingMessage: string,
+): Promise<Workspace> {
+  const workspace = (await listWorkspaces()).find((item) => item.id === workspaceId);
+  if (!workspace) {
+    throw new Error(missingMessage);
+  }
+  return workspace;
+}
+
 function hardenWebContents(
   contents: Electron.WebContents,
   devServerUrl: string | undefined,
@@ -250,6 +266,26 @@ function registerIpcHandlers(): void {
   );
   ipcMain.handle('terminal:buffer', (event, request: TerminalBufferRequest) =>
     sessionServiceForWebContents(event.sender).readTerminalBuffer(request),
+  );
+  ipcMain.handle('workspaceContext:read', async (_event, request: WorkspaceContextReadRequest) => {
+    const workspace = await requireWorkspaceForContext(
+      request.workspaceId,
+      '所选工作区不存在，无法读取共享上下文',
+    );
+    return workspaceContextStore.readSharedContext(workspace);
+  });
+  ipcMain.handle(
+    'workspaceContext:openFolder',
+    async (_event, request: WorkspaceContextOpenRequest) => {
+      const workspace = await requireWorkspaceForContext(
+        request.workspaceId,
+        '所选工作区不存在，无法打开共享上下文目录',
+      );
+      const openError = await shell.openPath(path.join(workspace.path, '.agentdock/context'));
+      if (openError) {
+        throw new Error('无法打开共享上下文目录');
+      }
+    },
   );
   ipcMain.handle('sessions:launch', async (event, request: LaunchRequest) => {
     const profiles = await listProfiles();

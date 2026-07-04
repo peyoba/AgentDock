@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentSession, Workspace } from '../shared/agentdockTypes';
+import type { AgentSession, Workspace } from '../shared/agentdockTypes.js';
 
 const RECENT_OUTPUT_LIMIT = 40_000;
 const CONTEXT_DIR_PARTS = ['.agentdock', 'context'];

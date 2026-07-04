@@ -21,6 +21,8 @@ describe('preloadTypes', () => {
       'killTerminal',
       'readTerminalBuffer',
       'onTerminalOutput',
+      'readWorkspaceContext',
+      'openWorkspaceContextFolder',
       'openNewWindow',
       'onMetadataChanged',
     ] satisfies Array<keyof AgentDockApi | 'saveProfile'>;

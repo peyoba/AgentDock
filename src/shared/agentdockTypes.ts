@@ -93,3 +93,16 @@ export type TerminalOutputEvent = {
   sessionId: string;
   data: string;
 };
+
+export type WorkspaceContextReadRequest = {
+  workspaceId: string;
+};
+
+export type WorkspaceContextReadResult = {
+  filePath: string;
+  content: string;
+};
+
+export type WorkspaceContextOpenRequest = {
+  workspaceId: string;
+};
