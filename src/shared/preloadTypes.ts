@@ -30,6 +30,8 @@ export type AgentDockApi = {
   killTerminal(request: TerminalKillRequest): Promise<AgentSession>;
   readTerminalBuffer(request: TerminalBufferRequest): Promise<string>;
   onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void;
+  openNewWindow(): Promise<void>;
+  onMetadataChanged(listener: () => void): () => void;
 };
 
 export const AGENT_DOCK_API_METHODS = [
@@ -49,4 +51,6 @@ export const AGENT_DOCK_API_METHODS = [
   'killTerminal',
   'readTerminalBuffer',
   'onTerminalOutput',
+  'openNewWindow',
+  'onMetadataChanged',
 ] as const satisfies ReadonlyArray<keyof AgentDockApi>;

@@ -21,6 +21,8 @@ describe('preloadTypes', () => {
       'killTerminal',
       'readTerminalBuffer',
       'onTerminalOutput',
+      'openNewWindow',
+      'onMetadataChanged',
     ] satisfies Array<keyof AgentDockApi | 'saveProfile'>;
 
     expect(AGENT_DOCK_API_METHODS).toEqual(methodNames);

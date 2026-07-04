@@ -7,6 +7,7 @@ function createTerminalRuntime() {
   const writes: string[] = [];
   const resizes: Array<{ cols: number; rows: number }> = [];
   let killed = false;
+  const killedSessionIds: string[] = [];
   const dataListeners = new Set<(data: string) => void>();
 
   const keychain: KeychainAdapter = {
@@ -29,6 +30,7 @@ function createTerminalRuntime() {
         },
         kill() {
           killed = true;
+          killedSessionIds.push(request.sessionId);
         },
         onData(listener) {
           dataListeners.add(listener);
@@ -45,6 +47,9 @@ function createTerminalRuntime() {
     resizes,
     get killed() {
       return killed;
+    },
+    get killedSessionIds() {
+      return killedSessionIds;
     },
     emit(data: string) {
       for (const listener of dataListeners) {
@@ -121,6 +126,29 @@ describe('sessionService terminal controls', () => {
 
     expect(replayBuffer).toContain('BEGIN-CONTEXT');
     expect(replayBuffer).toContain('LATEST-CONTEXT');
+  });
+
+  it('disposes all running PTY sessions owned by the service', async () => {
+    const runtime = createTerminalRuntime();
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+    });
+    const first = await launchTestSession(service);
+    const second = await launchTestSession(service);
+
+    await service.dispose();
+    runtime.emit('ignored after dispose');
+
+    expect(runtime.killedSessionIds).toEqual([first.id, second.id]);
+    await expect(
+      service.writeTerminal({ sessionId: first.id, input: 'help\n' }),
+    ).rejects.toThrow('未找到指定的终端会话');
+    await expect(service.list()).resolves.toEqual([
+      { ...first, status: 'stopped' },
+      { ...second, status: 'stopped' },
+    ]);
   });
 
 

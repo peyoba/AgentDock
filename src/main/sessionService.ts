@@ -54,6 +54,7 @@ export type SessionService = {
   killTerminal(request: TerminalKillRequest): Promise<AgentSession>;
   readTerminalBuffer(request: TerminalBufferRequest): Promise<string>;
   onTerminalOutput(listener: TerminalOutputListener): () => void;
+  dispose(): Promise<void>;
 };
 
 const MAX_TERMINAL_BUFFER_LENGTH = 5_000_000;
@@ -354,6 +355,21 @@ export function createSessionService(
       return () => {
         terminalOutputListeners.delete(listener);
       };
+    },
+
+    async dispose(): Promise<void> {
+      for (const [sessionId, ptySession] of ptySessions.entries()) {
+        ptySession.kill();
+        ptyUnsubscribers.get(sessionId)?.();
+        const session = findSession(sessionId);
+        if (session) {
+          session.status = 'stopped';
+        }
+      }
+
+      ptySessions.clear();
+      ptyUnsubscribers.clear();
+      terminalOutputListeners.clear();
     },
   };
 }
