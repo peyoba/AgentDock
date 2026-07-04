@@ -55,10 +55,10 @@
 |--------|------|----------|------|
 | `VITE_DEV_SERVER_URL` | Electron 开发模式加载 Vite 地址 | 否 | npm script |
 | `ANTHROPIC_BASE_URL` | Claude 会话 endpoint；由 AgentDock 注入 PTY | 否 | Profile 配置 |
-| `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` | Claude API Key；由 AgentDock 从 Keychain 注入 PTY | 是 | macOS Keychain |
+| `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` | Claude API Key；由 AgentDock 从本机加密 vault 注入 PTY | 是 | 本机加密 `secrets.vault.json` |
 | `OPENAI_BASE_URL` | Codex/OpenAI 会话 endpoint；由 AgentDock 按 Profile 注入 PTY | 否 | Profile 配置 |
 | `CODEX_HOME` | Codex 每 Profile 独立配置目录 | 否 | AgentDock 生成 |
-| `OPENAI_API_KEY` | Codex/OpenAI API Key；由 AgentDock 从 Keychain 注入 PTY | 是 | macOS Keychain |
+| `OPENAI_API_KEY` | Codex/OpenAI API Key；由 AgentDock 从本机加密 vault 注入 PTY | 是 | 本机加密 `secrets.vault.json` |
 
 ## 6. 本地环境文件
 
@@ -67,6 +67,7 @@
 | `.env` | 本地开发变量/密钥 | 否 |
 | `.env.example` | 示例配置 | 是 |
 | `.agentdock-local/` | 本地实验数据 | 否 |
+| `secrets.vault.json` | 用户本机加密 API Key vault，位于 Electron userData | 否 |
 
 ## 7. 测试策略
 
@@ -75,8 +76,8 @@
 - 构建验证：`npm run build`
 - MVP UI 验证：`npm run dev` 手动打开 Electron 窗口
 - 后续真实验证：实际启动 Claude/Codex PTY 会话，确认 endpoint/API key/CODEX_HOME 隔离
-- 允许 mock：Profile/Workspace metadata、Keychain adapter 测试替身
-- 必须真实验证：node-pty 启动、键盘输入、Ctrl+C、中文输入、Codex 独立 CODEX_HOME、Keychain 读写
+- 允许 mock：Profile/Workspace metadata、secret adapter 测试替身
+- 必须真实验证：node-pty 启动、键盘输入、Ctrl+C、中文输入、Codex 独立 CODEX_HOME、本机加密 vault 读写
 
 ## 8. 部署信息
 
@@ -96,7 +97,7 @@
 - Claude 每个会话通过独立 PTY 环境变量隔离 endpoint/key。
 - Codex 每个会话必须隔离 endpoint/key；每个 Profile 使用独立 `CODEX_HOME`。
 - Renderer / preload / IPC 不得返回完整 secret，也不得返回完整环境变量对象；只能返回脱敏预览或最小必要 metadata。
-- API Key 不得明文写入代码、文档、测试 fixture、日志或前端状态持久化；只保存 Keychain 引用。
+- API Key 不得明文写入代码、文档、测试 fixture、日志或前端状态持久化；只进入本机加密 vault，配置中只保存脱敏状态和引用信息。
 - 不做全局 provider 切换，不修改正在运行的其他终端会话。
 - MVP 暂不做成本统计、请求日志、自动路由、fallback、复杂 Dashboard、分屏 IDE。
 
@@ -108,4 +109,4 @@
 2. 读取 `docs/PROJECT_REQUIREMENTS.md`。
 3. 读取 `DECISIONS.md`。
 4. 读取 `.agent-workflow/state.md`。
-5. 根据任务风险分级；涉及 Keychain、PTY、外部 CLI、环境变量、构建发布的任务至少 L3。
+5. 根据任务风险分级；涉及密钥存储、PTY、外部 CLI、环境变量、构建发布的任务至少 L3。

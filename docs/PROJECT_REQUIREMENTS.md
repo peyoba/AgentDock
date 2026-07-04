@@ -30,7 +30,7 @@ Codex D  -> Endpoint D -> Key D -> 项目 Y
 
 1. API Profile 管理：新增、编辑、删除、测试连接（测试连接可后置到第二小版本）。
 2. API 配置按工具类型分类：Claude / Codex / Gemini / OpenCode / 全部。
-3. API Key 安全保存：macOS Keychain，不明文落盘。
+3. API Key 安全保存：本机加密 vault，不明文落盘；旧 Keychain 数据仅用于迁移/适配。
 4. Workspace 管理：保存项目名称和本地目录。
 5. 启动器：选择 Profile + Workspace + 命令 + 启动模式。
 6. 内嵌终端标签页：每个会话一个标签页。
@@ -71,7 +71,7 @@ Codex D  -> Endpoint D -> Key D -> 项目 Y
 - 参考 CC Switch，顶部按工具类型分组：Claude / Codex / Gemini / OpenCode / 全部。
 - 左侧只显示当前工具类型下的配置。
 - 右侧表单根据工具类型显示不同字段。
-- Claude 类型展示：Base URL、模型、Anthropic 协议、API Key、Keychain 位置、环境变量预览。
+- Claude 类型展示：Base URL、模型、Anthropic 协议、API Key、本机密钥存储状态、环境变量预览。
 - Codex 类型展示：OpenAI base URL、model_provider、默认模型、独立 `CODEX_HOME`、Responses/Chat 适配方式、API Key。
 - API Key 默认脱敏，只能通过用户操作显示/替换。
 - Renderer / preload / IPC 不得返回完整 secret 或完整环境变量对象；环境变量只能以脱敏预览或最小必要字段展示。
@@ -90,14 +90,14 @@ Electron + React + TypeScript + xterm.js + node-pty
 - Workspace Manager
 - Session Manager
 - PTY Manager
-- Keychain Adapter
+- Secret Storage Adapter
 - Terminal Renderer
 - Config Generator
 
 ## 6. 安全要求
 
 - 不得在代码、文档、测试、日志、前端持久化中保存完整 API Key。
-- Key 必须进入 macOS Keychain。
+- Key 必须进入本机加密 vault；Renderer / preload / IPC 不得返回完整 secret。
 - UI 仅展示脱敏 key，例如 `sk-••••A7f`。
 - 复制环境变量时默认隐藏 key，除非用户明确选择显示。
 - 错误日志不得输出 secret。

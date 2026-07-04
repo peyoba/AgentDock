@@ -13,6 +13,7 @@
 | 2026-07-01 | API 配置按工具类型分类，参考 CC Switch | 用户明确要求按不同工具类型分类 | API 配置 UI |
 | 2026-07-01 | 创建 GitHub 仓库并推送项目 | 用户明确要求 | 项目交付准备 |
 | 2026-07-02 | Codex 会话也必须隔离 endpoint，Renderer/IPC 不得返回完整 secret 或完整 env | 用户确认 Phase 1 执行前补充安全约束 | 启动环境生成、IPC 契约、Renderer、测试验收 |
+| 2026-07-04 | 新保存 API Key 使用本机加密 `secrets.vault.json`，不再直接写 macOS Keychain | 避免本地/ad-hoc App 反复触发系统 Keychain 密码弹窗；仍保持不明文落盘和 IPC 不泄露 secret | 密钥存储、API 配置 UI、Session 启动、文档 |
 
 ## 已拒绝/避免方向
 
@@ -27,5 +28,5 @@
 | 日期 | 问题 | 选项 | 截止点 |
 |------|------|------|--------|
 | 2026-07-01 | 打包工具 | electron-builder / electron-forge | MVP 可运行后 |
-| 2026-07-01 | Keychain 库 | keytar / macOS security CLI wrapper / native addon | 实现 Keychain adapter 前 |
+| 2026-07-01 | Keychain 库 | keytar / macOS security CLI wrapper / native addon | 已后置为 legacy adapter；新保存 key 使用本机加密 vault |
 | 2026-07-01 | node-pty 兼容策略 | 直接依赖 node-pty / 自建 PTY adapter interface | 实现真实终端前 |

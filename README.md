@@ -8,7 +8,7 @@ AgentDock 是一个面向 Claude CLI / Codex CLI 的多配置内嵌终端工作�
 - 每个会话拥有独立 endpoint、API Key、环境变量和运行状态。
 - Codex 会话使用独立 `CODEX_HOME` 隔离配置和认证缓存。
 - API Profile 与 Workspace 解耦：不同端点可进入同一个项目，也可进入不同项目。
-- API Key 保存到 macOS Keychain，不明文落盘。
+- API Key 保存到本机加密 vault，不明文落盘；旧 Keychain 数据仅用于迁移/适配。
 
 ## 当前阶段
 
@@ -19,23 +19,26 @@ MVP 基础能力已进入可打包验证阶段。
 - 导入并配置 `agent-workflow-template` 工作流。
 - 导入 Obsidian 中的需求、UI 调研、效果图和技术架构文档。
 - 实现 Electron + React + TypeScript + xterm.js 的终端优先工作台。
-- 接入真实 `node-pty` 与 macOS Keychain adapter。
+- 接入真实 `node-pty`，密钥读取走本机加密 vault adapter。
 - 支持 Claude/Codex API Profile、Workspace、内嵌终端会话和独立启动环境。
 - 支持 Codex 每 Profile 独立 `CODEX_HOME`。
 - 支持 API 配置独立页面、多 Profile 新增/编辑和按工具类型分类。
 - 完成 Batch A：Claude 模型映射、多窗口 Session 隔离、时间戳 macOS 打包。
 - 完成 Claude 轻量/完整 MCP 启动模式；轻量模式隔离 user settings/plugin hook。
+- 完成 Batch B：Workspace Shared Context 写入 workspace 本地 `.agentdock/context/`。
+- 完成终端滚动体验小修：长输出时可拖动右侧滚动滑块快速定位。
 
 当前可复测包：
 
 ```text
-release/packages/20260704-142744/AgentDock-darwin-arm64/AgentDock.app
+release/packages/20260704-183345/AgentDock-darwin-arm64/AgentDock.app
 ```
 
 下一批计划：
 
-- Batch B Workspace Shared Context：把会话上下文写入所选 workspace 的 `.agentdock/context/`，并向 PTY 注入非敏感上下文路径。
-- 计划文件：`docs/plans/2026-07-04-agentdock-batch-b-workspace-shared-context.md`。
+- 手动 smoke 最新包：长输出滚动条拖动、Workspace Shared Context、Claude/Codex/zsh 启动。
+- 补真实终端体验验收：Ctrl+C、中文输入、粘贴长文本、resize、真实 Claude/Codex 请求。
+- 准备下一批前补一份真实终端体验验收记录。
 
 ## 开发命令
 

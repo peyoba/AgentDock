@@ -53,6 +53,8 @@ delivery
 | ⑦文档工程师 | PASS | 交付报告 `.agent-workflow/delivery/2026-07-04-agentdock-batch-b-workspace-shared-context-delivery-report.md` |
 | 主 Agent | PASS | 终端右侧新增可拖动 scroll thumb，支持鼠标点击拖动快速跳转长输出 |
 | ⑧集成工程师 | PASS | TerminalPane/layout tests、typecheck、workflow doctor、build、package、codesign strict verify 通过 |
+| ⑦文档工程师 | PASS | 终端滚动滑块交付报告 `.agent-workflow/delivery/2026-07-04-terminal-scrollbar-drag-delivery-report.md`，验证记录 `.agent-workflow/verification/2026-07-04-terminal-scrollbar-drag.md` |
+| 主 Agent | PASS | 同步 README、PROJECT_PROFILE、PROJECT_REQUIREMENTS、DECISIONS、AGENTS.md 的本机加密 vault 决策和最新 package 路径 |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -63,7 +65,7 @@ delivery
 无
 
 ## 下一步
-用户用 `release/packages/20260704-182834/AgentDock-darwin-arm64/AgentDock.app` 手动 smoke：启动长输出 session 后拖动终端右侧滚动滑块，确认可从顶部快速拖到底部；同时可继续检查 workspace shared context。
+用户用 `release/packages/20260704-183345/AgentDock-darwin-arm64/AgentDock.app` 手动 smoke：启动长输出 session 后拖动终端右侧滚动滑块，确认可从顶部快速拖到底部；同时继续检查 workspace shared context、Claude/Codex/zsh 启动。下一批开发前补真实终端体验验收记录。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -83,10 +85,19 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-04 | Claude lite 模式排除 user settings | `--strict-mcp-config` 不能阻止 user 级 `enabledPlugins.engram@engram` 的 `UserPromptSubmit` hook，需用 `--setting-sources project,local` 排除 user 来源 |
 | 2026-07-04 | Batch B 先落盘计划再开发 | 用户要求关闭窗口后也能从文件继续，计划文件为 `docs/plans/2026-07-04-agentdock-batch-b-workspace-shared-context.md` |
 | 2026-07-04 | Workspace Shared Context 只写 workspace 本地 `.agentdock/context/` | 本批次目标是跨 Agent CLI 可读的本地上下文，不做云同步、自动 LLM 总结或修改用户项目 Agent 配置 |
+| 2026-07-04 | 新保存 API Key 使用本机加密 `secrets.vault.json`，旧 Keychain 仅用于迁移/适配 | 减少本地/ad-hoc App 系统密码弹窗，同时保持不明文落盘和 IPC 不泄露 secret |
 
 ## 验证记录
 | 时间 | 命令 | 结果 |
 |------|------|------|
+| 2026-07-04 | Keychain hard-constraint wording scan | PASS：AGENTS、README、PROJECT_PROFILE、DECISIONS、PROJECT_REQUIREMENTS、state 无旧硬约束残留 |
+| 2026-07-04 | `npm run workflow:doctor` | PASS |
+| 2026-07-04 | `npm run typecheck` | PASS |
+| 2026-07-04 | `npm run build` | PASS：仅 Vite chunk size warning |
+| 2026-07-04 | `npm run test -- tests/app/TerminalPane.test.tsx` | PASS：1 file / 9 tests |
+| 2026-07-04 | `npm run test -- tests/app/layoutPolish.test.ts tests/app/TerminalPane.test.tsx` | PASS：2 files / 14 tests |
+| 2026-07-04 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-04 | `codesign --verify --deep --strict --verbose=2 release/packages/20260704-183345/AgentDock-darwin-arm64/AgentDock.app` | PASS |
 | 2026-07-04 | `npm run test` | PASS：30 files / 156 tests |
 | 2026-07-04 | `npm run workflow:doctor` | PASS |
 | 2026-07-04 | `npm run test:workflow` | PASS：8 passed |
@@ -263,6 +274,7 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | Batch A Claude Models / Multi-window / Timestamp Package | PASS | 分支内验证通过；交付报告 `.agent-workflow/delivery/2026-07-04-agentdock-batch-a-delivery-report.md`；合并并行 Claude lite/full MCP 改动后需二次验证 |
 | Batch A + Claude Lite MCP Integration | PASS | 主分支合并验证通过；验证记录 `.agent-workflow/verification/2026-07-04-batch-a-claude-lite-integration.md`；交付报告 `.agent-workflow/delivery/2026-07-04-batch-a-claude-lite-integration-delivery-report.md` |
 | Batch B Workspace Shared Context | PASS | workspace 本地 `.agentdock/context/`、PTY context env 注入、输出脱敏记录、renderer 查看入口；验证记录 `.agent-workflow/verification/2026-07-04-agentdock-batch-b-workspace-shared-context.md`；交付报告 `.agent-workflow/delivery/2026-07-04-agentdock-batch-b-workspace-shared-context-delivery-report.md` |
+| Terminal Scrollbar Drag | PASS | 终端右侧可拖动 scroll thumb；验证记录 `.agent-workflow/verification/2026-07-04-terminal-scrollbar-drag.md`；交付报告 `.agent-workflow/delivery/2026-07-04-terminal-scrollbar-drag-delivery-report.md` |
 | Phase 1 Batch 1 | PASS | 测试框架、共享类型、密钥脱敏、Claude/Codex 启动环境生成；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-1.md` |
 | Phase 1 Batch 2 | PASS | Keychain/PTY adapter contracts、Profile/Workspace metadata stores、preload IPC 安全边界；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-2.md` |
 | Phase 1 Batch 3 | PASS | 终端优先 Renderer、UI 行为测试、内存 session orchestration；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-3.md` |
@@ -281,7 +293,7 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | API Config Editing MVP | PASS | 接口配置编辑表单、`saveProfile` preload API、主进程 profileStore 保存、launch 读取保存后配置；验证记录 `.agent-workflow/verification/2026-07-02-macos-local-package.md` |
 | API Config Page Alignment | PASS | 按计划改为独立配置页面/视图；支持多 profile 新增与独立 Keychain Account；验证记录 `.agent-workflow/verification/2026-07-02-macos-local-package.md` |
 | Codex Home Launch Fix | PASS | `CODEX_HOME` 展开 `~` 并自动创建目录，避免 Codex CLI 启动前报路径不存在 |
-| API Key Input Clarity | PASS | 配置页明确显示 API Key 密码框，保存到 macOS Keychain，留空保留当前 Key |
+| API Key Input Clarity | PASS | 配置页明确显示 API Key 密码框，本机加密保存，留空保留当前 Key |
 | Packaged Codex PATH Fix | PASS | 打包 App 的 PTY 环境补齐用户 CLI PATH，解决 `zsh:1: command not found: codex` |
 | 2026-07-02 | Keychain prompt mitigation | PASS：主进程缓存同一 App 运行期间已读取/写入的 secret，减少重复 macOS 系统密码弹窗；不通过 renderer/IPC 暴露 secret/env |
 | 2026-07-02 | `npm run test` | PASS：17 files / 50 tests |

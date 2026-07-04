@@ -35,7 +35,7 @@ MVP 不做：
 ## 安全硬约束
 
 - 禁止把完整 API Key 写入代码、测试、文档、日志、截图或前端持久化状态。
-- API Key 只能进入 macOS Keychain；仓库中只保存 Keychain 引用或脱敏显示。
+- API Key 只能进入本机加密 vault；仓库中只保存引用信息或脱敏显示。旧 Keychain 数据仅用于迁移/适配。
 - 复制环境变量时默认隐藏 key。
 - 错误信息不得包含 secret。
 
@@ -45,7 +45,7 @@ MVP 不做：
 - 技术栈固定为 Electron + React + TypeScript。
 - 终端渲染使用 xterm.js。
 - PTY 层通过 adapter 封装，真实实现使用 node-pty。
-- Keychain 层通过 adapter 封装，具体实现进入实现阶段前确认。
+- 密钥存储层通过 adapter 封装，当前新保存 key 使用本机加密 vault，旧 Keychain adapter 仅用于迁移/适配。
 - 不得随意引入状态管理库、UI 组件库或打包工具；需要先说明理由并获得确认。
 
 ## 验证要求
@@ -64,7 +64,7 @@ npm run build
 npm run test:workflow
 ```
 
-涉及终端/Keychain/环境变量的功能，必须补充真实验证记录。
+涉及终端/密钥存储/环境变量的功能，必须补充真实验证记录。
 
 ---
 
@@ -382,4 +382,3 @@ L3 任务必须有真实验证记录，不能只看 mock 测试。
 - 报告格式：
 - 必须展示的来源、风险和验证状态：
 - 禁止出现的营销话术或伪确定表达：
-
