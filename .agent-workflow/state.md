@@ -1,7 +1,7 @@
 # Agent Workflow State
 
 ## 当前任务
-未提交改动审查后修复：AnyRouter Claude 默认模型更新为 `claude-fable-5`；内置默认 API 配置禁止假删除；`opus[1m]` 仍只作为历史迁移输入处理。
+Batch A 需求 SPEC：Claude 模型映射、多窗口支持与 macOS 打包安全输出。
 
 ## 风险等级
 L3
@@ -9,10 +9,10 @@ L3
 触发原因：Electron 桌面应用、内嵌终端 PTY、API Key/Keychain、环境变量注入、外部 CLI（Claude/Codex）、GitHub 仓库初始化。
 
 ## 当前 Hook
-delivery_hook
+plan_review_hook
 
 ## 当前阶段
-delivery-pass
+spec-review
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
@@ -39,10 +39,10 @@ delivery-pass
 无
 
 ## 用户待确认
-无。用户已确认进入 Phase 2 真实 Keychain 和真实 node-pty 集成；验证约束为不使用真实 API key，只做测试 service/account 和本地安全 PTY 命令验证。
+请用户 review `.agent-workflow/specs/2026-07-04-agentdock-batch-a-claude-models-multiwindow-package.md`，确认后再进入实施计划。
 
 ## 下一步
-本次修复已交付。新包路径：`/private/tmp/agentdock-package-20260704-000803/AgentDock-darwin-arm64/AgentDock.app`。若继续使用 `~/Desktop/...` 工作区，macOS 仍可能在 Claude/Codex 实际访问文件时弹系统权限；彻底规避需迁移工作区或给固定签名 App 授权。
+用户确认 SPEC 后，使用 writing-plans 生成 Batch A 实施计划；确认实施计划前不写代码。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
