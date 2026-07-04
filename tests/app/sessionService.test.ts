@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createSessionService } from '../../src/main/sessionService';
 import type { KeychainAdapter } from '../../src/main/adapters/keychainAdapter';
 import type { PtyAdapter, PtySpawnRequest } from '../../src/main/adapters/ptyAdapter';
+import type { WorkspaceContextStore } from '../../src/main/workspaceContextStore';
 
 function createFakeRuntime() {
   const spawnRequests: PtySpawnRequest[] = [];
@@ -79,6 +80,74 @@ describe('sessionService', () => {
         env: {
           ANTHROPIC_BASE_URL: 'https://example.invalid/v1',
           ANTHROPIC_AUTH_TOKEN: 'local-development-secret',
+        },
+      },
+    ]);
+  });
+
+  it('passes only non-secret session metadata to workspace context', async () => {
+    const runtime = createFakeRuntime();
+    const startSessionInputs: unknown[] = [];
+    const workspaceContext: WorkspaceContextStore = {
+      async startSession(input) {
+        startSessionInputs.push(JSON.parse(JSON.stringify(input)));
+        return {
+          contextDir: '/Users/example/Desktop/web/AgentDock/.agentdock/context',
+          sharedContextFile: '/Users/example/Desktop/web/AgentDock/.agentdock/context/shared-context.md',
+          sessionTranscriptFile:
+            '/Users/example/Desktop/web/AgentDock/.agentdock/context/sessions/session-1.md',
+        };
+      },
+      async appendOutput() {},
+      async readSharedContext() {
+        return { filePath: '', content: '' };
+      },
+      async ensureGitExcluded() {},
+    };
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      workspaceContext,
+    });
+
+    await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude',
+    });
+
+    const contextJson = JSON.stringify(startSessionInputs);
+    expect(contextJson).not.toContain('local-development-secret');
+    expect(contextJson).not.toContain('ANTHROPIC_AUTH_TOKEN');
+    expect(contextJson).not.toContain('OPENAI_API_KEY');
+    expect(startSessionInputs).toEqual([
+      {
+        workspace: {
+          id: 'workspace-a',
+          name: 'AgentDock',
+          path: '/Users/example/Desktop/web/AgentDock',
+        },
+        session: {
+          id: 'session-1',
+          title: 'Claude A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude',
+          status: 'starting',
+          startedAt: '2026-07-01T00:00:00.000Z',
         },
       },
     ]);

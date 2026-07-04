@@ -19,6 +19,10 @@ import {
   buildClaudeOptionalEnvironment,
   buildLaunchEnvironment,
 } from './launchEnvironment.js';
+import type {
+  WorkspaceContextFiles,
+  WorkspaceContextStore,
+} from './workspaceContextStore.js';
 
 type Clock = {
   now(): Date;
@@ -40,10 +44,14 @@ type CreateSessionServiceOptions = {
   ensureDirectory?: (directoryPath: string) => void | Promise<void>;
   writeTextFile?: (filePath: string, content: string) => void | Promise<void>;
   workspaceExists?: (workspacePath: string) => boolean;
+  workspaceContext?: WorkspaceContextStore;
 };
 
-type NormalizedSessionServiceOptions = Required<Omit<CreateSessionServiceOptions, 'workspaceExists'>> & {
+type NormalizedSessionServiceOptions = Required<
+  Omit<CreateSessionServiceOptions, 'workspaceExists' | 'workspaceContext'>
+> & {
   workspaceExists?: (workspacePath: string) => boolean;
+  workspaceContext?: WorkspaceContextStore;
 };
 
 type TerminalOutputListener = (event: TerminalOutputEvent) => void;
@@ -162,6 +170,18 @@ function appendClaudeMcpConfigCommand(command: string, mcpConfigPath: string): s
   return `${command} --mcp-config ${shellQuote(mcpConfigPath)} --strict-mcp-config`;
 }
 
+function contextEnvironment(files: WorkspaceContextFiles | undefined): Record<string, string> {
+  if (!files) {
+    return {};
+  }
+
+  return {
+    AGENTDOCK_CONTEXT_DIR: files.contextDir,
+    AGENTDOCK_SHARED_CONTEXT_FILE: files.sharedContextFile,
+    AGENTDOCK_SESSION_TRANSCRIPT_FILE: files.sessionTranscriptFile,
+  };
+}
+
 function normalizeOptions(
   optionsOrClock: Clock | CreateSessionServiceOptions = {},
 ): NormalizedSessionServiceOptions {
@@ -175,6 +195,7 @@ function normalizeOptions(
       ensureDirectory: defaultEnsureDirectory,
       writeTextFile: defaultWriteTextFile,
       workspaceExists: undefined,
+      workspaceContext: undefined,
     };
   }
 
@@ -189,6 +210,7 @@ function normalizeOptions(
     ensureDirectory: options.ensureDirectory ?? defaultEnsureDirectory,
     writeTextFile: options.writeTextFile ?? defaultWriteTextFile,
     workspaceExists: options.workspaceExists,
+    workspaceContext: options.workspaceContext,
   };
 }
 
@@ -220,8 +242,17 @@ function isSecretReadError(error: unknown): boolean {
 export function createSessionService(
   optionsOrClock?: Clock | CreateSessionServiceOptions,
 ): SessionService {
-  const { clock, keychain, pty, appDataPath, homeDir, ensureDirectory, writeTextFile, workspaceExists } =
-    normalizeOptions(optionsOrClock);
+  const {
+    clock,
+    keychain,
+    pty,
+    appDataPath,
+    homeDir,
+    ensureDirectory,
+    writeTextFile,
+    workspaceExists,
+    workspaceContext,
+  } = normalizeOptions(optionsOrClock);
   const sessions: AgentSession[] = [];
   const ptySessions = new Map<string, PtySession>();
   const ptyUnsubscribers = new Map<string, () => void>();
@@ -279,7 +310,8 @@ export function createSessionService(
       sessions.push(session);
 
       try {
-        const env = isLocalShellCommand(command)
+        const contextFiles = await workspaceContext?.startSession({ workspace, session });
+        const baseEnv = isLocalShellCommand(command)
           ? {}
           : buildLaunchEnvironment({
               profile,
@@ -290,6 +322,10 @@ export function createSessionService(
               appDataPath,
               homeDir,
             });
+        const env = {
+          ...baseEnv,
+          ...contextEnvironment(contextFiles),
+        };
         let spawnCommand = command;
 
         if (env.CODEX_HOME) {
@@ -329,7 +365,12 @@ export function createSessionService(
         ptySessions.set(session.id, ptySession);
         ptyUnsubscribers.set(
           session.id,
-          ptySession.onData((data) => publishTerminalOutput({ sessionId: session.id, data })),
+          ptySession.onData((data) => {
+            publishTerminalOutput({ sessionId: session.id, data });
+            void workspaceContext?.appendOutput({ workspace, sessionId: session.id, data }).catch(
+              () => undefined,
+            );
+          }),
         );
         session.status = 'running';
         return cloneSession(session);

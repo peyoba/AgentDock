@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createSessionService } from '../../src/main/sessionService';
 import type { KeychainAdapter } from '../../src/main/adapters/keychainAdapter';
 import type { PtyAdapter } from '../../src/main/adapters/ptyAdapter';
+import type { WorkspaceContextStore } from '../../src/main/workspaceContextStore';
 
 function createTerminalRuntime() {
   const writes: string[] = [];
@@ -81,11 +82,28 @@ async function launchTestSession(service: ReturnType<typeof createSessionService
 describe('sessionService terminal controls', () => {
   it('routes terminal input, resize, output, and kill through the stored PTY session', async () => {
     const runtime = createTerminalRuntime();
+    const contextOutput: Array<{ workspacePath: string; sessionId: string; data: string }> = [];
     const service = createSessionService({
       clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
       keychain: runtime.keychain,
       pty: runtime.pty,
       appDataPath: '/tmp/agentdock-test-data',
+      workspaceContext: {
+        async startSession() {
+          return {
+            contextDir: '/Users/example/Desktop/web/AgentDock/.agentdock/context',
+            sharedContextFile: '/Users/example/Desktop/web/AgentDock/.agentdock/context/shared-context.md',
+            sessionTranscriptFile: '/Users/example/Desktop/web/AgentDock/.agentdock/context/sessions/session-1.md',
+          };
+        },
+        async appendOutput({ workspace, sessionId, data }) {
+          contextOutput.push({ workspacePath: workspace.path, sessionId, data });
+        },
+        async readSharedContext() {
+          return { filePath: '', content: '' };
+        },
+        async ensureGitExcluded() {},
+      },
     });
     const outputEvents: Array<{ sessionId: string; data: string }> = [];
     const unsubscribe = service.onTerminalOutput((event) => outputEvents.push(event));
@@ -107,6 +125,13 @@ describe('sessionService terminal controls', () => {
     expect(await service.list()).toEqual([{ ...session, status: 'stopped' }]);
     expect(outputEvents).toEqual([
       { sessionId: session.id, data: 'hello from fake pty' },
+    ]);
+    expect(contextOutput).toEqual([
+      {
+        workspacePath: '/Users/example/Desktop/web/AgentDock',
+        sessionId: session.id,
+        data: 'hello from fake pty',
+      },
     ]);
   });
 
@@ -156,6 +181,7 @@ describe('sessionService terminal controls', () => {
   it('launches a local zsh shell without reading API secrets', async () => {
     let readSecretCalled = false;
     const spawnedCommands: string[] = [];
+    const spawnedEnvironments: Array<Record<string, string>> = [];
     const service = createSessionService({
       keychain: {
         async readSecret() {
@@ -168,6 +194,7 @@ describe('sessionService terminal controls', () => {
       pty: {
         async spawn(request) {
           spawnedCommands.push(request.command);
+          spawnedEnvironments.push(request.env);
           return {
             id: request.sessionId,
             write() {},
@@ -180,6 +207,7 @@ describe('sessionService terminal controls', () => {
         },
       },
       appDataPath: '/tmp/agentdock-test-data',
+      workspaceContext: fixedWorkspaceContext(),
     });
 
     const session = await service.launch({
@@ -201,6 +229,12 @@ describe('sessionService terminal controls', () => {
 
     expect(readSecretCalled).toBe(false);
     expect(spawnedCommands).toEqual(['zsh']);
+    expect(spawnedEnvironments[0]).toMatchObject({
+      AGENTDOCK_CONTEXT_DIR: '/Users/example/Desktop/web/AgentDock/.agentdock/context',
+      AGENTDOCK_SHARED_CONTEXT_FILE: '/Users/example/Desktop/web/AgentDock/.agentdock/context/shared-context.md',
+      AGENTDOCK_SESSION_TRANSCRIPT_FILE:
+        '/Users/example/Desktop/web/AgentDock/.agentdock/context/sessions/session-1.md',
+    });
     expect(session.status).toBe('running');
   });
 
@@ -303,3 +337,20 @@ describe('sessionService terminal controls', () => {
     ).rejects.toThrow('未找到指定的终端会话');
   });
 });
+
+function fixedWorkspaceContext(): WorkspaceContextStore {
+  return {
+    async startSession() {
+      return {
+        contextDir: '/Users/example/Desktop/web/AgentDock/.agentdock/context',
+        sharedContextFile: '/Users/example/Desktop/web/AgentDock/.agentdock/context/shared-context.md',
+        sessionTranscriptFile: '/Users/example/Desktop/web/AgentDock/.agentdock/context/sessions/session-1.md',
+      };
+    },
+    async appendOutput() {},
+    async readSharedContext() {
+      return { filePath: '', content: '' };
+    },
+    async ensureGitExcluded() {},
+  };
+}
