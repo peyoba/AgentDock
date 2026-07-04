@@ -55,13 +55,15 @@ function createSecretAdapter(dataPath: string): KeychainAdapter {
 
 const secretAdapter = createSecretAdapter(userDataPath);
 const workspaceContextStore = createWorkspaceContextStore();
-const sessionRegistry = createWindowSessionRegistry(() =>
+const sessionRegistry = createWindowSessionRegistry((windowId) =>
   createSessionService({
     keychain: secretAdapter,
     pty: createNodePtyAdapter(),
     appDataPath: userDataPath,
     workspaceExists: fs.existsSync,
     workspaceContext: workspaceContextStore,
+    // 每窗口唯一前缀，避免多窗口在同一 workspace 下 transcript 文件互相覆盖
+    sessionIdPrefix: `w${windowId}-`,
   }),
 );
 

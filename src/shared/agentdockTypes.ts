@@ -36,7 +36,7 @@ export type Workspace = {
   path: string;
 };
 
-export type SessionStatus = 'starting' | 'running' | 'stopped' | 'failed';
+export type SessionStatus = 'starting' | 'running' | 'stopped' | 'failed' | 'exited';
 
 export type AgentSession = {
   id: string;

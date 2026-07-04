@@ -13,12 +13,17 @@ export type PtySpawnRequest = {
 
 export type PtyDataHandler = (data: string) => void;
 
+export type PtyExitEvent = { exitCode: number; signal?: number };
+
+export type PtyExitHandler = (event: PtyExitEvent) => void;
+
 export type PtySession = {
   id: string;
   write(input: string): void;
   resize(cols: number, rows: number): void;
   kill(): void;
   onData(listener: PtyDataHandler): () => void;
+  onExit?(listener: PtyExitHandler): () => void;
 };
 
 export type PtyAdapter = {
@@ -30,6 +35,7 @@ type NodePtyProcess = {
   resize(cols: number, rows: number): void;
   kill(): void;
   onData(listener: PtyDataHandler): { dispose(): void };
+  onExit?(listener: PtyExitHandler): { dispose(): void };
 };
 
 export type NodePtyLike = {
@@ -227,6 +233,10 @@ export function createNodePtyAdapter({
         onData(listener: PtyDataHandler): () => void {
           const disposable = pty.onData(listener);
           return () => disposable.dispose();
+        },
+        onExit(listener: PtyExitHandler): () => void {
+          const disposable = pty.onExit?.(listener);
+          return () => disposable?.dispose();
         },
       };
     },

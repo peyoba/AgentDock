@@ -10,6 +10,7 @@ function createTerminalRuntime() {
   let killed = false;
   const killedSessionIds: string[] = [];
   const dataListeners = new Set<(data: string) => void>();
+  const exitListeners = new Set<(event: { exitCode: number; signal?: number }) => void>();
 
   const keychain: KeychainAdapter = {
     async readSecret() {
@@ -37,6 +38,10 @@ function createTerminalRuntime() {
           dataListeners.add(listener);
           return () => dataListeners.delete(listener);
         },
+        onExit(listener) {
+          exitListeners.add(listener);
+          return () => exitListeners.delete(listener);
+        },
       };
     },
   };
@@ -56,6 +61,14 @@ function createTerminalRuntime() {
       for (const listener of dataListeners) {
         listener(data);
       }
+    },
+    emitExit(event: { exitCode: number; signal?: number }) {
+      for (const listener of [...exitListeners]) {
+        listener(event);
+      }
+    },
+    get exitListenerCount() {
+      return exitListeners.size;
     },
   };
 }
@@ -405,3 +418,70 @@ function fixedWorkspaceContext(): WorkspaceContextStore {
     async ensureGitExcluded() {},
   };
 }
+
+describe('sessionService process exit handling', () => {
+  it('marks the session as exited, notifies the terminal, and still allows closing the tab', async () => {
+    const runtime = createTerminalRuntime();
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+    });
+    const outputEvents: Array<{ sessionId: string; data: string }> = [];
+    service.onTerminalOutput((event) => outputEvents.push(event));
+
+    const session = await launchTestSession(service);
+    expect(session.status).toBe('running');
+
+    runtime.emitExit({ exitCode: 0 });
+
+    const [listed] = await service.list();
+    expect(listed?.status).toBe('exited');
+    expect(
+      outputEvents.some(
+        (event) => event.sessionId === session.id && event.data.includes('进程已退出'),
+      ),
+    ).toBe(true);
+    await expect(service.readTerminalBuffer({ sessionId: session.id })).resolves.toContain(
+      '进程已退出',
+    );
+    await expect(
+      service.writeTerminal({ sessionId: session.id, input: 'ls\n' }),
+    ).rejects.toThrow('未找到指定的终端会话');
+
+    const closed = await service.killTerminal({ sessionId: session.id });
+    expect(closed.status).toBe('stopped');
+  });
+
+  it('does not report an exit after the user already killed the terminal', async () => {
+    const runtime = createTerminalRuntime();
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+    });
+    const outputEvents: Array<{ sessionId: string; data: string }> = [];
+    service.onTerminalOutput((event) => outputEvents.push(event));
+
+    const session = await launchTestSession(service);
+    await service.killTerminal({ sessionId: session.id });
+    runtime.emitExit({ exitCode: 0 });
+
+    const [listed] = await service.list();
+    expect(listed?.status).toBe('stopped');
+    expect(outputEvents.some((event) => event.data.includes('进程已退出'))).toBe(false);
+  });
+
+  it('prefixes session ids with the injected window scope for cross-window uniqueness', async () => {
+    const runtime = createTerminalRuntime();
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      sessionIdPrefix: 'w7-',
+    });
+
+    const session = await launchTestSession(service);
+    expect(session.id).toBe('session-w7-1');
+  });
+});

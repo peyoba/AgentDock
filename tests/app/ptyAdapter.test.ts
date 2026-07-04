@@ -325,3 +325,45 @@ describe('createNodePtyAdapter', () => {
 
     expect(fs.statSync(helperPath).mode & 0o111).not.toBe(0);
   });
+
+it('bridges process exit events from the node-pty module and supports unsubscribe', async () => {
+  const exitListeners = new Set<(event: { exitCode: number; signal?: number }) => void>();
+  const adapter = createNodePtyAdapter({
+    module: {
+      spawn() {
+        return {
+          write() {},
+          resize() {},
+          kill() {},
+          onData() {
+            return { dispose: () => undefined };
+          },
+          onExit(listener: (event: { exitCode: number; signal?: number }) => void) {
+            exitListeners.add(listener);
+            return { dispose: () => exitListeners.delete(listener) };
+          },
+        };
+      },
+    },
+    shell: '/bin/zsh',
+    baseEnv: { PATH: '/usr/bin', HOME: '/tmp/home' },
+    ensureHelper: false,
+  });
+
+  const session = await adapter.spawn({
+    sessionId: 'session-1',
+    command: 'claude --version',
+    cwd: '/tmp',
+    env: {},
+  });
+
+  const exits: Array<{ exitCode: number; signal?: number }> = [];
+  const unsubscribe = session.onExit?.((event) => exits.push(event));
+  for (const listener of exitListeners) {
+    listener({ exitCode: 3 });
+  }
+  expect(exits).toEqual([{ exitCode: 3 }]);
+
+  unsubscribe?.();
+  expect(exitListeners.size).toBe(0);
+});

@@ -45,6 +45,8 @@ type CreateSessionServiceOptions = {
   writeTextFile?: (filePath: string, content: string) => void | Promise<void>;
   workspaceExists?: (workspacePath: string) => boolean;
   workspaceContext?: WorkspaceContextStore;
+  /** 多窗口时注入每窗口唯一前缀，避免共享 workspace 上下文里的 session ID 冲突 */
+  sessionIdPrefix?: string;
 };
 
 type NormalizedSessionServiceOptions = Required<
@@ -196,6 +198,7 @@ function normalizeOptions(
       writeTextFile: defaultWriteTextFile,
       workspaceExists: undefined,
       workspaceContext: undefined,
+      sessionIdPrefix: '',
     };
   }
 
@@ -211,6 +214,7 @@ function normalizeOptions(
     writeTextFile: options.writeTextFile ?? defaultWriteTextFile,
     workspaceExists: options.workspaceExists,
     workspaceContext: options.workspaceContext,
+    sessionIdPrefix: options.sessionIdPrefix ?? '',
   };
 }
 
@@ -253,6 +257,7 @@ export function createSessionService(
     writeTextFile,
     workspaceExists,
     workspaceContext,
+    sessionIdPrefix,
   } = normalizeOptions(optionsOrClock);
   const sessions: AgentSession[] = [];
   const ptySessions = new Map<string, PtySession>();
@@ -299,7 +304,7 @@ export function createSessionService(
       }
 
       const session: AgentSession = {
-        id: `session-${sessions.length + 1}`,
+        id: `session-${sessionIdPrefix}${sessions.length + 1}`,
         title: `${profile.name} · ${workspace.name}`,
         profileId: profile.id,
         workspaceId: workspace.id,
@@ -364,15 +369,30 @@ export function createSessionService(
         });
 
         ptySessions.set(session.id, ptySession);
-        ptyUnsubscribers.set(
-          session.id,
-          ptySession.onData((data) => {
-            publishTerminalOutput({ sessionId: session.id, data });
-            void workspaceContext?.appendOutput({ workspace, sessionId: session.id, data }).catch(
-              () => undefined,
-            );
-          }),
-        );
+        const unsubscribeData = ptySession.onData((data) => {
+          publishTerminalOutput({ sessionId: session.id, data });
+          void workspaceContext?.appendOutput({ workspace, sessionId: session.id, data }).catch(
+            () => undefined,
+          );
+        });
+        const unsubscribeExit = ptySession.onExit?.((event) => {
+          // killTerminal/dispose 已经清理过的会话不再处理（kill 也会触发 onExit）
+          if (ptySessions.get(session.id) !== ptySession) {
+            return;
+          }
+          ptyUnsubscribers.get(session.id)?.();
+          ptyUnsubscribers.delete(session.id);
+          ptySessions.delete(session.id);
+          session.status = 'exited';
+          publishTerminalOutput({
+            sessionId: session.id,
+            data: `\r\n\u001b[2m[AgentDock] 进程已退出（exit code ${event.exitCode}），会话已结束，可关闭此标签页。\u001b[0m\r\n`,
+          });
+        });
+        ptyUnsubscribers.set(session.id, () => {
+          unsubscribeData();
+          unsubscribeExit?.();
+        });
         session.status = 'running';
         return cloneSession(session);
       } catch (error) {
@@ -397,17 +417,20 @@ export function createSessionService(
     },
 
     async killTerminal({ sessionId }: TerminalKillRequest): Promise<AgentSession> {
-      const ptySession = requirePtySession(sessionId);
-      ptySession.kill();
-      ptyUnsubscribers.get(sessionId)?.();
-      ptyUnsubscribers.delete(sessionId);
-      ptySessions.delete(sessionId);
-      terminalBuffers.delete(sessionId);
-
       const session = findSession(sessionId);
       if (!session) {
         throw new Error('未找到指定的终端会话');
       }
+
+      // 进程自行退出后 PTY 已被清理；关闭标签页时只需收尾状态和缓冲
+      const ptySession = ptySessions.get(sessionId);
+      if (ptySession) {
+        ptySession.kill();
+        ptyUnsubscribers.get(sessionId)?.();
+        ptyUnsubscribers.delete(sessionId);
+        ptySessions.delete(sessionId);
+      }
+      terminalBuffers.delete(sessionId);
       session.status = 'stopped';
       return cloneSession(session);
     },
