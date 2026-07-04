@@ -153,4 +153,103 @@ describe('sessionService', () => {
       "claude --dangerously-skip-permissions --settings '/tmp/agentdock-test-data/claude-settings/profile-a.json'",
     );
   });
+
+  it('launches Claude lite mode with an empty strict MCP config without changing model betas or retry settings', async () => {
+    const runtime = createFakeRuntime();
+    const ensuredDirectories: string[] = [];
+    const writtenFiles: Array<{ filePath: string; content: string }> = [];
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      ensureDirectory(directoryPath) {
+        ensuredDirectories.push(directoryPath);
+      },
+      writeTextFile(filePath, content) {
+        writtenFiles.push({ filePath, content });
+      },
+    });
+
+    await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://anyrouter.top',
+        defaultModel: 'claude-fable-5',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+        claudeCodeRetryWatchdog: true,
+        claudeCodeMaxRetries: 100,
+        anthropicBetas: 'context-1m-2025-08-07',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude --dangerously-skip-permissions',
+      claudeLaunchMode: 'lite',
+    });
+
+    expect(ensuredDirectories).toEqual([
+      '/tmp/agentdock-test-data/claude-settings',
+      '/tmp/agentdock-test-data/claude-mcp',
+    ]);
+    expect(writtenFiles).toEqual([
+      {
+        filePath: '/tmp/agentdock-test-data/claude-settings/profile-a.json',
+        content: `${JSON.stringify({
+          model: 'claude-fable-5',
+          env: {
+            CLAUDE_CODE_RETRY_WATCHDOG: '1',
+            CLAUDE_CODE_MAX_RETRIES: '100',
+            ANTHROPIC_BETAS: 'context-1m-2025-08-07',
+          },
+        }, null, 2)}\n`,
+      },
+      {
+        filePath: '/tmp/agentdock-test-data/claude-mcp/empty.json',
+        content: `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`,
+      },
+    ]);
+    expect(runtime.spawnRequests[0]?.command).toBe(
+      "claude --dangerously-skip-permissions --settings '/tmp/agentdock-test-data/claude-settings/profile-a.json' --mcp-config '/tmp/agentdock-test-data/claude-mcp/empty.json' --strict-mcp-config",
+    );
+  });
+
+  it('launches Claude full mode without strict MCP isolation', async () => {
+    const runtime = createFakeRuntime();
+    const writtenFiles: Array<{ filePath: string; content: string }> = [];
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      writeTextFile(filePath, content) {
+        writtenFiles.push({ filePath, content });
+      },
+    });
+
+    await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://anyrouter.top',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude --dangerously-skip-permissions',
+      claudeLaunchMode: 'full',
+    });
+
+    expect(writtenFiles).toEqual([]);
+    expect(runtime.spawnRequests[0]?.command).toBe('claude --dangerously-skip-permissions');
+  });
 });

@@ -1,4 +1,5 @@
 export type ToolType = 'claude' | 'codex' | 'gemini' | 'opencode';
+export type ClaudeLaunchMode = 'lite' | 'full';
 
 export type ApiProfile = {
   id: string;
@@ -45,6 +46,7 @@ export type LaunchRequest = {
   profileId: string;
   workspaceId: string;
   command: string;
+  claudeLaunchMode?: ClaudeLaunchMode;
 };
 
 export type ProfileSecretSaveRequest = {

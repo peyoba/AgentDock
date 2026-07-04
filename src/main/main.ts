@@ -235,6 +235,7 @@ function registerIpcHandlers(): void {
       profile,
       workspace,
       command: request.command,
+      claudeLaunchMode: request.claudeLaunchMode,
     });
   });
 }

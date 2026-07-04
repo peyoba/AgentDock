@@ -89,6 +89,8 @@ describe('AgentDock shell', () => {
     expect(screen.queryByLabelText('选择启动命令')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'zsh' })).toBeInTheDocument();
     expect(screen.getByLabelText('选择工作区')).toHaveTextContent('选择其他文件夹…');
+    expect(screen.getByLabelText('Claude 启动模式')).toHaveValue('lite');
+    expect(screen.getByText('轻量 · 空 MCP')).toBeInTheDocument();
   });
 
   it('uses the full terminal width until session details are opened', () => {
@@ -178,12 +180,31 @@ describe('AgentDock session launch flow', () => {
         profileId: 'profile-a',
         workspaceId: 'workspace-a',
         command: 'claude --dangerously-skip-permissions',
+        claudeLaunchMode: 'lite',
       });
     });
     expect(await screen.findByRole('button', { name: /^Claude A · AgentDock$/ })).toBeInTheDocument();
   });
 
+  it('can launch Claude with full MCP mode when explicitly selected', async () => {
+    const api = installAgentDockApi();
 
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('Claude 启动模式'), {
+      target: { value: 'full' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+
+    await waitFor(() => {
+      expect(api.launchSession).toHaveBeenCalledWith({
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude --dangerously-skip-permissions',
+        claudeLaunchMode: 'full',
+      });
+    });
+  });
 
   it('can launch a local zsh terminal command for manual terminal verification', async () => {
     const api = installAgentDockApi();
@@ -331,6 +352,7 @@ describe('AgentDock session launch flow', () => {
         profileId: 'profile-a',
         workspaceId: 'workspace-docs',
         command: 'claude --dangerously-skip-permissions',
+        claudeLaunchMode: 'lite',
       });
     });
   });
@@ -943,8 +965,9 @@ describe('AgentDock session launch flow', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('请选择一个配置后编辑。')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Claude A/ })).not.toBeInTheDocument();
     });
+    expect(screen.getByRole('button', { name: /Claude B/ })).toHaveClass('active');
   });
 
   it('does not delete a profile if user cancels confirmation', async () => {
@@ -1059,6 +1082,7 @@ describe('AgentDock session launch flow', () => {
         profileId: 'claude-a',
         workspaceId: 'workspace-a',
         command: 'claude --dangerously-skip-permissions',
+        claudeLaunchMode: 'lite',
       });
     });
   });
@@ -1214,6 +1238,7 @@ describe('AgentDock session launch flow', () => {
         profileId: 'claude-a',
         workspaceId: 'workspace-a',
         command: 'claude',
+        claudeLaunchMode: 'lite',
       });
     });
   });

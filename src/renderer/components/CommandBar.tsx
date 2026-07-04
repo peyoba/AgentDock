@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ApiProfile, Workspace } from '../../shared/agentdockTypes';
+import type { ApiProfile, ClaudeLaunchMode, Workspace } from '../../shared/agentdockTypes';
 
 type CommandBarProps = {
   profiles: ApiProfile[];
@@ -8,9 +8,11 @@ type CommandBarProps = {
   workspaces: Workspace[];
   workspace?: Workspace;
   workspaceId?: string;
+  claudeLaunchMode: ClaudeLaunchMode;
   launching?: boolean;
   onProfileChange(profileId: string): void;
   onWorkspaceChange(workspaceId: string): void;
+  onClaudeLaunchModeChange(mode: ClaudeLaunchMode): void;
   onChooseWorkspace?(): void;
   onLaunchLocalShell(): void;
   onLaunch(): void;
@@ -25,9 +27,11 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
   workspaces,
   workspace,
   workspaceId,
+  claudeLaunchMode,
   launching = false,
   onProfileChange,
   onWorkspaceChange,
+  onClaudeLaunchModeChange,
   onChooseWorkspace,
   onLaunchLocalShell,
   onLaunch,
@@ -40,10 +44,11 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
 
     onWorkspaceChange(workspaceValue);
   };
+  const showClaudeLaunchMode = profile?.toolType === 'claude';
 
   return (
     <section ref={ref} className="command-bar" aria-label="新建终端会话">
-      <div className="command-fields">
+      <div className={showClaudeLaunchMode ? 'command-fields with-claude-mode' : 'command-fields'}>
         <label>
           <span>API 配置</span>
           <select
@@ -77,6 +82,21 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
             <option value={chooseWorkspaceOptionValue}>选择其他文件夹…</option>
           </select>
         </label>
+        {showClaudeLaunchMode ? (
+          <label className="claude-launch-mode-field">
+            <span>启动模式</span>
+            <select
+              aria-label="Claude 启动模式"
+              value={claudeLaunchMode}
+              onChange={(event) =>
+                onClaudeLaunchModeChange(event.target.value as ClaudeLaunchMode)
+              }
+            >
+              <option value="lite">轻量 · 空 MCP</option>
+              <option value="full">完整 · Claude MCP</option>
+            </select>
+          </label>
+        ) : null}
         <button
           type="button"
           className="local-shell-button"

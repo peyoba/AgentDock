@@ -9,7 +9,13 @@ import { SessionDetailsDrawer } from './components/SessionDetailsDrawer';
 import { SessionTabs } from './components/SessionTabs';
 import { TerminalPane } from './components/TerminalPane';
 import { defaultApiProfiles } from '../shared/defaultApiProfiles';
-import type { AgentSession, ApiProfile, Workspace } from '../shared/agentdockTypes';
+import type {
+  AgentSession,
+  ApiProfile,
+  ClaudeLaunchMode,
+  LaunchRequest,
+  Workspace,
+} from '../shared/agentdockTypes';
 
 export type SessionTab = {
   id: string;
@@ -108,6 +114,7 @@ export default function App(): React.JSX.Element {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState<string | undefined>(
     api ? undefined : fallbackWorkspaces[0]?.id,
   );
+  const [claudeLaunchMode, setClaudeLaunchMode] = React.useState<ClaudeLaunchMode>('lite');
   const [apiConfigFilter, setApiConfigFilter] = React.useState<ApiConfigFilter>('all');
   const [activeSessionId, setActiveSessionId] = React.useState<string | undefined>(
     api ? undefined : fallbackSessions[0]?.id,
@@ -173,6 +180,14 @@ export default function App(): React.JSX.Element {
     }
 
     const command = commandOverride ?? defaultCommandFor(selectedProfile);
+    const launchRequest: LaunchRequest = {
+      profileId: selectedProfile.id,
+      workspaceId: selectedWorkspace.id,
+      command,
+    };
+    if (selectedProfile.toolType === 'claude' && !commandOverride) {
+      launchRequest.claudeLaunchMode = claudeLaunchMode;
+    }
 
     if (!api) {
       const session: AgentSession = {
@@ -192,11 +207,7 @@ export default function App(): React.JSX.Element {
     setLaunching(true);
     setLaunchError(null);
     try {
-      const session = await api.launchSession({
-        profileId: selectedProfile.id,
-        workspaceId: selectedWorkspace.id,
-        command,
-      });
+      const session = await api.launchSession(launchRequest);
       setSessions((current) => [...current.filter((item) => item.id !== session.id), session]);
       setActiveSessionId(session.id);
       return session;
@@ -323,9 +334,11 @@ export default function App(): React.JSX.Element {
             workspaces={workspaces}
             workspace={selectedWorkspace}
             workspaceId={selectedWorkspace?.id}
+            claudeLaunchMode={claudeLaunchMode}
             launching={launching}
             onProfileChange={selectProfile}
             onWorkspaceChange={setSelectedWorkspaceId}
+            onClaudeLaunchModeChange={setClaudeLaunchMode}
             onChooseWorkspace={api ? () => void chooseWorkspace() : undefined}
             onLaunchLocalShell={() => void launchSession('zsh')}
             onLaunch={() => void launchSession()}

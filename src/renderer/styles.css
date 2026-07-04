@@ -169,6 +169,15 @@ p {
   gap: 8px;
 }
 
+.command-fields.with-claude-mode {
+  grid-template-columns:
+    minmax(170px, 1fr)
+    minmax(220px, 1.1fr)
+    minmax(150px, 0.7fr)
+    auto
+    minmax(132px, auto);
+}
+
 .local-shell-button {
   border: 1px solid #d1d5db;
   min-width: 58px !important;

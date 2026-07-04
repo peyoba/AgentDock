@@ -3,6 +3,7 @@ import path from 'node:path';
 import type {
   AgentSession,
   ApiProfile,
+  ClaudeLaunchMode,
   TerminalBufferRequest,
   TerminalKillRequest,
   TerminalOutputEvent,
@@ -27,6 +28,7 @@ type LaunchSessionInput = {
   profile: ApiProfile;
   workspace: Workspace;
   command: string;
+  claudeLaunchMode?: ClaudeLaunchMode;
 };
 
 type CreateSessionServiceOptions = {
@@ -130,6 +132,14 @@ function appendClaudeSettingsCommand(command: string, settingsPath: string): str
   return `${command} --settings ${shellQuote(settingsPath)}`;
 }
 
+function buildEmptyClaudeMcpConfig(): string {
+  return `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`;
+}
+
+function appendClaudeMcpConfigCommand(command: string, mcpConfigPath: string): string {
+  return `${command} --mcp-config ${shellQuote(mcpConfigPath)} --strict-mcp-config`;
+}
+
 function normalizeOptions(
   optionsOrClock: Clock | CreateSessionServiceOptions = {},
 ): NormalizedSessionServiceOptions {
@@ -220,7 +230,12 @@ export function createSessionService(
   };
 
   return {
-    async launch({ profile, workspace, command }: LaunchSessionInput): Promise<AgentSession> {
+    async launch({
+      profile,
+      workspace,
+      command,
+      claudeLaunchMode,
+    }: LaunchSessionInput): Promise<AgentSession> {
       if (
         workspaceExists &&
         !isMacosProtectedUserFolderPath(workspace.path) &&
@@ -270,6 +285,14 @@ export function createSessionService(
             await ensureDirectory(settingsDirectory);
             await writeTextFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
             spawnCommand = appendClaudeSettingsCommand(command, settingsPath);
+          }
+
+          if (claudeLaunchMode === 'lite') {
+            const mcpConfigDirectory = path.join(appDataPath, 'claude-mcp');
+            const mcpConfigPath = path.join(mcpConfigDirectory, 'empty.json');
+            await ensureDirectory(mcpConfigDirectory);
+            await writeTextFile(mcpConfigPath, buildEmptyClaudeMcpConfig());
+            spawnCommand = appendClaudeMcpConfigCommand(spawnCommand, mcpConfigPath);
           }
         }
 
