@@ -238,6 +238,57 @@ describe('sessionService terminal controls', () => {
     expect(session.status).toBe('running');
   });
 
+  it('treats absolute shell paths like /bin/zsh as local shells without reading API secrets', async () => {
+    let readSecretCalled = false;
+    const spawnedEnvironments: Array<Record<string, string>> = [];
+    const service = createSessionService({
+      keychain: {
+        async readSecret() {
+          readSecretCalled = true;
+          throw new Error('Keychain should not be read for local shell');
+        },
+        async writeSecret() {},
+        async deleteSecret() {},
+      },
+      pty: {
+        async spawn(request) {
+          spawnedEnvironments.push(request.env);
+          return {
+            id: request.sessionId,
+            write() {},
+            resize() {},
+            kill() {},
+            onData() {
+              return () => undefined;
+            },
+          };
+        },
+      },
+      appDataPath: '/tmp/agentdock-test-data',
+    });
+
+    const session = await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://example.invalid',
+        keychainService: 'AgentDock',
+        keychainAccount: 'missing-secret',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: '/bin/zsh',
+    });
+
+    expect(readSecretCalled).toBe(false);
+    expect(spawnedEnvironments[0]?.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(session.status).toBe('running');
+  });
+
   it('creates an expanded Codex Home directory before spawning codex', async () => {
     const ensuredDirectories: string[] = [];
     const spawnedEnvironments: Array<Record<string, string>> = [];

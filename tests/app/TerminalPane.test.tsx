@@ -156,6 +156,54 @@ describe('TerminalPane xterm binding', () => {
     });
   });
 
+  it('does not duplicate live output that raced the buffer replay', async () => {
+    let resolveBuffer: ((value: string) => void) | undefined;
+    agentDock.readTerminalBuffer = vi.fn().mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveBuffer = resolve;
+        }),
+    );
+
+    render(<TerminalPane sessionId="session-1" />);
+    const terminal = FakeTerminal.instances[0];
+
+    act(() => outputListener?.({ sessionId: 'session-1', data: 'early chunk' }));
+    expect(terminal.write).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveBuffer?.('replayed early chunk');
+    });
+
+    expect(terminal.write).toHaveBeenCalledTimes(1);
+    expect(terminal.write).toHaveBeenCalledWith('replayed early chunk');
+
+    act(() => outputListener?.({ sessionId: 'session-1', data: ' later chunk' }));
+    expect(terminal.write).toHaveBeenLastCalledWith(' later chunk');
+  });
+
+  it('flushes queued live output when the buffer replay fails', async () => {
+    let rejectBuffer: ((error: Error) => void) | undefined;
+    agentDock.readTerminalBuffer = vi.fn().mockImplementation(
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectBuffer = reject;
+        }),
+    );
+
+    render(<TerminalPane sessionId="session-1" />);
+    const terminal = FakeTerminal.instances[0];
+
+    act(() => outputListener?.({ sessionId: 'session-1', data: 'queued chunk' }));
+    expect(terminal.write).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rejectBuffer?.(new Error('buffer unavailable'));
+    });
+
+    expect(terminal.write).toHaveBeenCalledWith('queued chunk');
+  });
+
   it('keeps a large terminal scrollback so previous context is not wiped by new output', () => {
     render(<TerminalPane sessionId="session-1" />);
 
@@ -164,9 +212,10 @@ describe('TerminalPane xterm binding', () => {
     });
   });
 
-  it('only strips alternate-screen and scrollback-clear output in history-preserving agent sessions', () => {
+  it('only strips alternate-screen and scrollback-clear output in history-preserving agent sessions', async () => {
     render(<TerminalPane sessionId="session-1" />);
     const terminal = FakeTerminal.instances[0];
+    await act(async () => {});
 
     act(() =>
       outputListener?.({
@@ -180,10 +229,11 @@ describe('TerminalPane xterm binding', () => {
     );
   });
 
-  it('keeps raw terminal control sequences for local shell sessions', () => {
+  it('keeps raw terminal control sequences for local shell sessions', async () => {
     render(<TerminalPane sessionId="session-1" preserveHistory={false} />);
     const terminal = FakeTerminal.instances[0];
-    const rawOutput = '\u001b[?1049h\u001b[2J\u001b[Hvim screen';
+    await act(async () => {});
+    const rawOutput ='\u001b[?1049h\u001b[2J\u001b[Hvim screen';
 
     act(() =>
       outputListener?.({
@@ -320,9 +370,10 @@ describe('TerminalPane xterm binding', () => {
     }
   });
 
-  it('creates an xterm instance and bridges input, resize, and scoped output through IPC', () => {
+  it('creates an xterm instance and bridges input, resize, and scoped output through IPC', async () => {
     const { unmount } = render(<TerminalPane sessionId="session-1" />);
     const terminal = FakeTerminal.instances[0];
+    await act(async () => {});
 
     expect(terminal.open).toHaveBeenCalledTimes(1);
     expect(agentDock.onTerminalOutput).toHaveBeenCalledTimes(1);

@@ -220,7 +220,8 @@ function cloneSession(session: AgentSession): AgentSession {
 
 function isLocalShellCommand(command: string): boolean {
   const normalizedCommand = command.trim().split(/\s+/)[0] ?? '';
-  return normalizedCommand === 'zsh' || normalizedCommand === 'bash';
+  const shellName = path.basename(normalizedCommand);
+  return shellName === 'zsh' || shellName === 'bash';
 }
 
 function isMacosProtectedUserFolderPath(workspacePath: string): boolean {
@@ -401,6 +402,7 @@ export function createSessionService(
       ptyUnsubscribers.get(sessionId)?.();
       ptyUnsubscribers.delete(sessionId);
       ptySessions.delete(sessionId);
+      terminalBuffers.delete(sessionId);
 
       const session = findSession(sessionId);
       if (!session) {
@@ -438,7 +440,9 @@ export function createSessionService(
 
       ptySessions.clear();
       ptyUnsubscribers.clear();
+      terminalBuffers.clear();
       terminalOutputListeners.clear();
+      await workspaceContext?.flush?.();
     },
   };
 }

@@ -3,7 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createNodePtyAdapter } from './adapters/ptyAdapter.js';
-import { createEncryptedVaultAdapter } from './adapters/secretVaultAdapter.js';
+import type { KeychainAdapter } from './adapters/keychainAdapter.js';
+import { createKeytarAdapter } from './adapters/keychainAdapter.js';
+import {
+  createEncryptedVaultAdapter,
+  createVaultBackedSecretAdapter,
+} from './adapters/secretVaultAdapter.js';
 import { fetchProfileModels } from './modelFetchService.js';
 import type { SessionService } from './sessionService.js';
 import { createSessionService } from './sessionService.js';
@@ -34,9 +39,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const userDataPath = app.getPath('userData');
 const profileStore = createProfileStore(userDataPath);
 const workspaceStore = createWorkspaceStore(userDataPath);
-const secretAdapter = createEncryptedVaultAdapter({
-  filePath: path.join(userDataPath, 'secrets.vault.json'),
-});
+// vault 永远是唯一写入与首选读取来源；仅当 vault 未命中时读一次 legacy Keychain
+// 并回写 vault（升级迁移，老 Key 至多触发一次系统弹窗）。keytar 原生模块缺失时降级纯 vault。
+function createSecretAdapter(dataPath: string): KeychainAdapter {
+  const vault = createEncryptedVaultAdapter({
+    filePath: path.join(dataPath, 'secrets.vault.json'),
+  });
+
+  try {
+    return createVaultBackedSecretAdapter({ vault, fallback: createKeytarAdapter() });
+  } catch {
+    return vault;
+  }
+}
+
+const secretAdapter = createSecretAdapter(userDataPath);
 const workspaceContextStore = createWorkspaceContextStore();
 const sessionRegistry = createWindowSessionRegistry(() =>
   createSessionService({
@@ -140,7 +157,13 @@ async function listProfiles(): Promise<ApiProfile[]> {
   return [...profilesById.values()];
 }
 
+const PROFILE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 async function saveProfile(profile: ApiProfile): Promise<ApiProfile> {
+  if (!PROFILE_ID_PATTERN.test(profile.id)) {
+    throw new Error('配置 ID 只能包含字母、数字、点、下划线和连字符');
+  }
+
   const safeProfile = sanitizeProfile(profile);
   await profileStore.save(safeProfile);
   return safeProfile;
@@ -239,11 +262,23 @@ function registerIpcHandlers(): void {
       throw new Error('无法删除内置默认配置；请新增自定义配置或编辑保存覆盖。');
     }
 
-    const profiles = await listProfiles();
-    if (profiles.length <= 1) {
-      throw new Error('无法删除最后一个配置，至少需要保留一个');
-    }
+    const deletedProfile = (await listProfiles()).find((profile) => profile.id === profileId);
     await profileStore.delete(profileId);
+
+    // 清理孤儿密钥：仅当没有其他配置共用同一密钥槽位时才删除
+    if (deletedProfile) {
+      const secretStillReferenced = (await listProfiles()).some(
+        (profile) =>
+          profile.keychainService === deletedProfile.keychainService &&
+          profile.keychainAccount === deletedProfile.keychainAccount,
+      );
+      if (!secretStillReferenced) {
+        await secretAdapter
+          .deleteSecret(deletedProfile.keychainService, deletedProfile.keychainAccount)
+          .catch(() => undefined);
+      }
+    }
+
     broadcastMetadataChanged();
   });
   ipcMain.handle('workspaces:list', () => listWorkspaces());

@@ -99,6 +99,65 @@ describe('workspaceContextStore', () => {
     expect(sharedContext).toContain('[REDACTED]');
   });
 
+  it('throttles shared context rebuilds while output streams and flushes the tail', async () => {
+    const store = createWorkspaceContextStore({
+      clock: { now: () => new Date('2026-07-04T00:00:00.000Z') },
+      rebuildThrottleMs: 60_000,
+    });
+    const files = await store.startSession({ workspace, session });
+
+    await store.appendOutput({ workspace, sessionId: 'session-1', data: 'chunk-one ' });
+    await store.appendOutput({ workspace, sessionId: 'session-1', data: 'chunk-two ' });
+    await store.appendOutput({ workspace, sessionId: 'session-1', data: 'chunk-three' });
+
+    const transcript = await readFile(files.sessionTranscriptFile, 'utf-8');
+    expect(transcript).toContain('chunk-one');
+    expect(transcript).toContain('chunk-two');
+    expect(transcript).toContain('chunk-three');
+
+    const beforeFlush = await readFile(files.sharedContextFile, 'utf-8');
+    expect(beforeFlush).toContain('chunk-one');
+    expect(beforeFlush).not.toContain('chunk-three');
+
+    await store.flush?.();
+
+    const afterFlush = await readFile(files.sharedContextFile, 'utf-8');
+    expect(afterFlush).toContain('chunk-three');
+  });
+
+  it('keeps the transcript complete when many chunks arrive concurrently', async () => {
+    const store = createWorkspaceContextStore({
+      clock: { now: () => new Date('2026-07-04T00:00:00.000Z') },
+      rebuildThrottleMs: 60_000,
+    });
+    const files = await store.startSession({ workspace, session });
+
+    await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        store.appendOutput({ workspace, sessionId: 'session-1', data: `chunk-${index};` }),
+      ),
+    );
+    await store.flush?.();
+
+    const transcript = await readFile(files.sessionTranscriptFile, 'utf-8');
+    for (let index = 0; index < 20; index += 1) {
+      expect(transcript).toContain(`chunk-${index};`);
+    }
+
+    const sharedContext = await readFile(files.sharedContextFile, 'utf-8');
+    expect(sharedContext).toContain('chunk-19;');
+  });
+
+  it('creates git info exclude when the workspace is a git repository without one', async () => {
+    await mkdir(path.join(tempDir, '.git'), { recursive: true });
+    const store = createWorkspaceContextStore();
+
+    await store.ensureGitExcluded(workspace);
+
+    const exclude = await readFile(path.join(tempDir, '.git/info/exclude'), 'utf-8');
+    expect(exclude).toContain('.agentdock/');
+  });
+
   it('adds .agentdock to git info exclude exactly once', async () => {
     await mkdir(path.join(tempDir, '.git/info'), { recursive: true });
     const excludePath = path.join(tempDir, '.git/info/exclude');

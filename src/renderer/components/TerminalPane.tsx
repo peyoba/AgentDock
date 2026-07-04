@@ -287,14 +287,33 @@ export function TerminalPane({
     const writeOutput = (data: string): void => {
       terminal.write(preserveHistory ? preserveTerminalHistoryOutput(data) : data);
     };
+
+    // 回放完成前先暂存实时输出：主进程先写入快照缓冲再推送事件（同一 IPC 管道按序到达），
+    // 因此快照响应之前收到的实时事件必然已包含在快照里，回放成功后直接丢弃即可避免重复；
+    // 仅当快照读取失败时才补写暂存事件，保证不丢实时数据
+    let bufferReplayed = false;
+    const pendingLiveOutput: string[] = [];
     void window.agentDock
       .readTerminalBuffer({ sessionId })
       .then((buffer) => {
-        if (!disposed && buffer) {
+        if (disposed) {
+          return;
+        }
+        if (buffer) {
           writeOutput(buffer);
         }
+        bufferReplayed = true;
+        pendingLiveOutput.length = 0;
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (disposed) {
+          return;
+        }
+        bufferReplayed = true;
+        for (const data of pendingLiveOutput.splice(0)) {
+          writeOutput(data);
+        }
+      });
 
     const dataSubscription = terminal.onData((input) => {
       void window.agentDock.writeTerminal({ sessionId, input }).catch(() => undefined);
@@ -305,9 +324,14 @@ export function TerminalPane({
         .catch(() => undefined);
     });
     const unsubscribeOutput = window.agentDock.onTerminalOutput((event) => {
-      if (event.sessionId === sessionId) {
-        writeOutput(event.data);
+      if (event.sessionId !== sessionId) {
+        return;
       }
+      if (!bufferReplayed) {
+        pendingLiveOutput.push(event.data);
+        return;
+      }
+      writeOutput(event.data);
     });
 
     return () => {
