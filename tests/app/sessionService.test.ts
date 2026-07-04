@@ -107,7 +107,12 @@ describe('sessionService', () => {
         name: 'Claude A',
         toolType: 'claude',
         baseUrl: 'https://anyrouter.top',
-        defaultModel: 'claude-opus-4-7',
+        defaultModel: 'claude-opus-4-8',
+        claudeHaikuModel: 'claude-haiku-4-5-20251001',
+        claudeSonnetModel: 'claude-fable-5',
+        claudeOpusModel: 'claude-opus-4-8',
+        claudeDefaultLaunchMode: 'opus',
+        claudeAlwaysThinkingEnabled: true,
         keychainService: 'AgentDock',
         keychainAccount: 'profile-a',
         claudeCodeRetryWatchdog: true,
@@ -133,8 +138,13 @@ describe('sessionService', () => {
       {
         filePath: '/tmp/agentdock-test-data/claude-settings/profile-a.json',
         content: `${JSON.stringify({
-          model: 'claude-opus-4-7',
+          model: 'opus',
+          alwaysThinkingEnabled: true,
           env: {
+            ANTHROPIC_MODEL: 'claude-opus-4-8',
+            ANTHROPIC_DEFAULT_HAIKU_MODEL: 'claude-haiku-4-5-20251001',
+            ANTHROPIC_DEFAULT_SONNET_MODEL: 'claude-fable-5',
+            ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-4-8',
             CLAUDE_CODE_RETRY_WATCHDOG: '1',
             CLAUDE_CODE_MAX_RETRIES: '100',
             ANTHROPIC_BETAS: 'context-1m-2025-08-07',
@@ -152,6 +162,41 @@ describe('sessionService', () => {
     expect(runtime.spawnRequests[0]?.command).toBe(
       "claude --dangerously-skip-permissions --settings '/tmp/agentdock-test-data/claude-settings/profile-a.json'",
     );
+  });
+
+  it('writes the full primary model when Claude launch mode is custom', async () => {
+    const runtime = createFakeRuntime();
+    const writtenFiles: Array<{ filePath: string; content: string }> = [];
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      writeTextFile(filePath, content) {
+        writtenFiles.push({ filePath, content });
+      },
+    });
+
+    await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://anyrouter.top',
+        defaultModel: 'claude-opus-4-8',
+        claudeDefaultLaunchMode: 'custom',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude',
+    });
+
+    expect(JSON.parse(writtenFiles[0].content).model).toBe('claude-opus-4-8');
   });
 
   it('launches Claude lite mode with an empty strict MCP config without changing model betas or retry settings', async () => {
@@ -203,6 +248,7 @@ describe('sessionService', () => {
         content: `${JSON.stringify({
           model: 'claude-fable-5',
           env: {
+            ANTHROPIC_MODEL: 'claude-fable-5',
             CLAUDE_CODE_RETRY_WATCHDOG: '1',
             CLAUDE_CODE_MAX_RETRIES: '100',
             ANTHROPIC_BETAS: 'context-1m-2025-08-07',

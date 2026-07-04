@@ -37,6 +37,12 @@ const api: AgentDockApi = {
     ipcRenderer.on('terminal:output', handler);
     return () => ipcRenderer.off('terminal:output', handler);
   },
+  openNewWindow: () => ipcRenderer.invoke('windows:new'),
+  onMetadataChanged: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on('metadata:changed', handler);
+    return () => ipcRenderer.off('metadata:changed', handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('agentDock', api);

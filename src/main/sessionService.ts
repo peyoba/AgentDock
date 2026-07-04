@@ -56,6 +56,7 @@ export type SessionService = {
   killTerminal(request: TerminalKillRequest): Promise<AgentSession>;
   readTerminalBuffer(request: TerminalBufferRequest): Promise<string>;
   onTerminalOutput(listener: TerminalOutputListener): () => void;
+  dispose(): Promise<void>;
 };
 
 const MAX_TERMINAL_BUFFER_LENGTH = 5_000_000;
@@ -105,16 +106,33 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+function claudeSettingsModel(profile: ApiProfile): string | undefined {
+  const launchMode = profile.claudeDefaultLaunchMode ?? 'custom';
+  if (launchMode === 'default') {
+    return undefined;
+  }
+
+  if (launchMode === 'custom') {
+    return optionalTrimmedString(profile.defaultModel);
+  }
+
+  return launchMode;
+}
+
 function buildClaudeSettings(
   profile: ApiProfile,
-): Record<string, string | number | Record<string, string>> | undefined {
-  const settings: Record<string, string | number | Record<string, string>> = {};
-  const model = optionalTrimmedString(profile.defaultModel);
+): Record<string, string | number | boolean | Record<string, string>> | undefined {
+  const settings: Record<string, string | number | boolean | Record<string, string>> = {};
+  const model = claudeSettingsModel(profile);
   const cleanupPeriodDays = positiveInteger(profile.claudeCleanupPeriodDays);
   const env = buildClaudeOptionalEnvironment(profile);
 
   if (model) {
     settings.model = model;
+  }
+
+  if (profile.claudeAlwaysThinkingEnabled === true) {
+    settings.alwaysThinkingEnabled = true;
   }
 
   if (Object.keys(env).length > 0) {
@@ -360,6 +378,21 @@ export function createSessionService(
       return () => {
         terminalOutputListeners.delete(listener);
       };
+    },
+
+    async dispose(): Promise<void> {
+      for (const [sessionId, ptySession] of ptySessions.entries()) {
+        ptySession.kill();
+        ptyUnsubscribers.get(sessionId)?.();
+        const session = findSession(sessionId);
+        if (session) {
+          session.status = 'stopped';
+        }
+      }
+
+      ptySessions.clear();
+      ptyUnsubscribers.clear();
+      terminalOutputListeners.clear();
     },
   };
 }

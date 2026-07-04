@@ -31,6 +31,7 @@
 | 工作流测试 | `npm run test:workflow` | Python 工作流 CLI 测试 |
 | Typecheck | `npm run typecheck` | TypeScript 类型检查 |
 | Build | `npm run build` | 构建 renderer 和 main/preload |
+| macOS 打包 | `npm run package:mac` | 输出到 `release/packages/<timestamp>/...`，默认不覆盖固定 App |
 | Lint | 无 | 后续引入 ESLint 前需用户确认 |
 | Format | 无 | 后续引入 Prettier 前需用户确认 |
 
@@ -81,7 +82,7 @@
 
 | 项目 | 内容 |
 |------|------|
-| 打包方式 | 后续评估 electron-builder / electron-forge |
+| 打包方式 | `npm run package:mac`，当前使用 electron-packager 输出本地时间戳目录 |
 | CI/CD | 暂无；GitHub repo 创建后可增加 GitHub Actions |
 | 生产环境入口 | macOS Desktop App |
 | 回滚方式 | Git tag / GitHub release 回滚 |

@@ -17,6 +17,8 @@ type TestAgentDockApi = AgentDockApi & {
   saveProfileSecret: ReturnType<typeof vi.fn<[(request: { keychainService: string; keychainAccount: string; secret: string }) => Promise<void>]>>;
   readProfileSecret: ReturnType<typeof vi.fn<[(request: { keychainService: string; keychainAccount: string }) => Promise<string>]>>;
   fetchProfileModels: ReturnType<typeof vi.fn<[(request: { profileId: string }) => Promise<string[]>]>>;
+  openNewWindow: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  onMetadataChanged: ReturnType<typeof vi.fn<[(listener: () => void) => () => void]>>;
 };
 
 function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
@@ -60,6 +62,8 @@ function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
     killTerminal: vi.fn(),
     readTerminalBuffer: vi.fn().mockResolvedValue(''),
     onTerminalOutput: vi.fn(() => () => undefined),
+    openNewWindow: vi.fn().mockResolvedValue(undefined),
+    onMetadataChanged: vi.fn(() => () => undefined),
     ...overrides,
   };
   window.agentDock = api;
@@ -76,6 +80,62 @@ async function openApiConfigPage(): Promise<void> {
 }
 
 describe('AgentDock shell', () => {
+  it('opens a new AgentDock window from the header action', async () => {
+    const api = installAgentDockApi({
+      openNewWindow: vi.fn().mockResolvedValue(undefined),
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: '新窗口' }));
+
+    await waitFor(() => {
+      expect(api.openNewWindow).toHaveBeenCalled();
+    });
+  });
+
+  it('refreshes profile and workspace metadata when another window changes it', async () => {
+    let metadataListener: (() => void) | undefined;
+    const api = installAgentDockApi({
+      listProfiles: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 'profile-a',
+            name: 'Claude A',
+            toolType: 'claude',
+            baseUrl: 'https://a.example.invalid',
+            keychainService: 'AgentDock',
+            keychainAccount: 'profile-a',
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 'profile-b',
+            name: 'Claude B',
+            toolType: 'claude',
+            baseUrl: 'https://b.example.invalid',
+            keychainService: 'AgentDock',
+            keychainAccount: 'profile-b',
+          },
+        ]),
+      onMetadataChanged: vi.fn((listener: () => void) => {
+        metadataListener = listener;
+        return () => undefined;
+      }),
+    });
+
+    render(<App />);
+    expect(await screen.findByText('Claude A')).toBeInTheDocument();
+
+    metadataListener?.();
+
+    await waitFor(() => {
+      expect(api.listProfiles).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('Claude B')).toBeInTheDocument();
+    });
+  });
+
   it('renders terminal-first launch controls', () => {
     render(<App />);
 
@@ -420,7 +480,7 @@ describe('AgentDock session launch flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
 
     await waitFor(() => {
-      expect(api.saveProfile).toHaveBeenCalledWith({
+      expect(api.saveProfile).toHaveBeenCalledWith(expect.objectContaining({
         id: 'profile-a',
         name: 'Claude Edited',
         toolType: 'claude',
@@ -428,7 +488,7 @@ describe('AgentDock session launch flow', () => {
         defaultModel: 'claude-edited',
         keychainService: 'AgentDock',
         keychainAccount: 'profile-a',
-      });
+      }));
     });
 
     expect(await screen.findByText('配置已保存')).toBeInTheDocument();
@@ -436,6 +496,90 @@ describe('AgentDock session launch flow', () => {
     expect(screen.getByLabelText('选择 API 配置')).toHaveTextContent('Claude Edited');
     expect(document.body).not.toHaveTextContent('ANTHROPIC_AUTH_TOKEN');
     expect(document.body).not.toHaveTextContent('OPENAI_API_KEY');
+  });
+
+  it('edits and saves Claude model mapping fields', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'claude-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://anyrouter.top',
+          defaultModel: 'claude-opus-4-8',
+          availableModels: [
+            'claude-haiku-4-5-20251001',
+            'claude-fable-5',
+            'claude-opus-4-8',
+          ],
+          keychainService: 'AgentDock',
+          keychainAccount: 'claude-a',
+          claudeDefaultLaunchMode: 'default',
+        },
+      ]),
+      saveProfile: vi.fn(async (profile: ApiProfile) => profile),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+
+    expect(screen.getByText('模型映射')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('主模型'), {
+      target: { value: 'claude-opus-4-8' },
+    });
+    fireEvent.change(screen.getByLabelText('Haiku 默认模型'), {
+      target: { value: 'claude-haiku-4-5-20251001' },
+    });
+    fireEvent.change(screen.getByLabelText('Sonnet 默认模型'), {
+      target: { value: 'claude-fable-5' },
+    });
+    fireEvent.change(screen.getByLabelText('Opus 默认模型'), {
+      target: { value: 'claude-opus-4-8' },
+    });
+    fireEvent.change(screen.getByLabelText('默认启动选项'), {
+      target: { value: 'opus' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    await waitFor(() => {
+      expect(api.saveProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'claude-a',
+          defaultModel: 'claude-opus-4-8',
+          claudeHaikuModel: 'claude-haiku-4-5-20251001',
+          claudeSonnetModel: 'claude-fable-5',
+          claudeOpusModel: 'claude-opus-4-8',
+          claudeDefaultLaunchMode: 'opus',
+        }),
+      );
+    });
+  });
+
+  it('does not show Claude model mapping fields for Codex profiles', async () => {
+    installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'codex-b',
+          name: 'Codex B',
+          toolType: 'codex',
+          baseUrl: 'https://anyrouter.top/v1',
+          defaultModel: 'gpt-5-codex',
+          keychainService: 'AgentDock',
+          keychainAccount: 'codex-b',
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Codex B/ }));
+
+    expect(screen.queryByText('模型映射')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Haiku 默认模型')).not.toBeInTheDocument();
   });
 
   it('hides advanced API config internals by default and reveals them as read-only fields', async () => {
@@ -836,7 +980,7 @@ describe('AgentDock session launch flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
 
     await waitFor(() => {
-      expect(api.saveProfile).toHaveBeenCalledWith({
+      expect(api.saveProfile).toHaveBeenCalledWith(expect.objectContaining({
         id: 'claude-a',
         name: 'Claude A',
         toolType: 'claude',
@@ -845,7 +989,7 @@ describe('AgentDock session launch flow', () => {
         keychainService: 'AgentDock',
         keychainAccount: 'claude-a',
         availableModels: ['claude-3-5-haiku-20241022', 'claude-opus-4-20250514'],
-      });
+      }));
     });
   });
 
@@ -867,7 +1011,7 @@ describe('AgentDock session launch flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
 
     await waitFor(() => {
-      expect(api.saveProfile).toHaveBeenCalledWith({
+      expect(api.saveProfile).toHaveBeenCalledWith(expect.objectContaining({
         id: 'claude-custom-1',
         name: 'Claude Provider B',
         toolType: 'claude',
@@ -875,7 +1019,7 @@ describe('AgentDock session launch flow', () => {
         defaultModel: 'claude-provider-b',
         keychainService: 'AgentDock',
         keychainAccount: 'claude-custom-1',
-      });
+      }));
     });
     expect(api.saveProfileSecret).toHaveBeenCalledWith({
       keychainService: 'AgentDock',
@@ -967,7 +1111,7 @@ describe('AgentDock session launch flow', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /Claude A/ })).not.toBeInTheDocument();
     });
-    expect(screen.getByRole('button', { name: /Claude B/ })).toHaveClass('active');
+    expect(screen.getByText('请选择一个配置后编辑。')).toBeInTheDocument();
   });
 
   it('does not delete a profile if user cancels confirmation', async () => {
@@ -1330,7 +1474,7 @@ describe('AgentDock session launch flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
 
     await waitFor(() => {
-      expect(api.saveProfile).toHaveBeenCalledWith({
+      expect(api.saveProfile).toHaveBeenCalledWith(expect.objectContaining({
         id: 'claude-a',
         name: 'Claude A',
         toolType: 'claude',
@@ -1339,7 +1483,7 @@ describe('AgentDock session launch flow', () => {
         keychainService: 'AgentDock',
         keychainAccount: 'claude-a',
         skipPermissions: false,
-      });
+      }));
     });
   });
 

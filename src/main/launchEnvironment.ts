@@ -45,8 +45,33 @@ function optionalTrimmedString(value: string | undefined): string | undefined {
   return trimmedValue ? trimmedValue : undefined;
 }
 
-export function buildClaudeOptionalEnvironment(profile: ApiProfile): Record<string, string> {
+function buildClaudeModelEnvironment(profile: ApiProfile): Record<string, string> {
   const env: Record<string, string> = {};
+  const primaryModel = optionalTrimmedString(profile.defaultModel);
+  const haikuModel = optionalTrimmedString(profile.claudeHaikuModel);
+  const sonnetModel = optionalTrimmedString(profile.claudeSonnetModel);
+  const opusModel = optionalTrimmedString(profile.claudeOpusModel);
+
+  if (primaryModel) {
+    env.ANTHROPIC_MODEL = primaryModel;
+  }
+  if (haikuModel) {
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = haikuModel;
+  }
+  if (sonnetModel) {
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnetModel;
+  }
+  if (opusModel) {
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL = opusModel;
+  }
+
+  return env;
+}
+
+export function buildClaudeOptionalEnvironment(profile: ApiProfile): Record<string, string> {
+  const env: Record<string, string> = {
+    ...buildClaudeModelEnvironment(profile),
+  };
 
   if (profile.claudeCodeRetryWatchdog === true) {
     env.CLAUDE_CODE_RETRY_WATCHDOG = '1';

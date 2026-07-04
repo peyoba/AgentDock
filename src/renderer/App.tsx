@@ -122,6 +122,29 @@ export default function App(): React.JSX.Element {
   const [launching, setLaunching] = React.useState(false);
   const [launchError, setLaunchError] = React.useState<string | null>(null);
 
+  const refreshMetadata = React.useCallback(async (): Promise<void> => {
+    if (!api) {
+      return;
+    }
+
+    const [nextProfiles, nextWorkspaces] = await Promise.all([
+      api.listProfiles(),
+      api.listWorkspaces(),
+    ]);
+    setProfiles(nextProfiles);
+    setWorkspaces(nextWorkspaces);
+    setSelectedProfileId((current) =>
+      current && nextProfiles.some((profile) => profile.id === current)
+        ? current
+        : nextProfiles[0]?.id,
+    );
+    setSelectedWorkspaceId((current) =>
+      current && nextWorkspaces.some((workspace) => workspace.id === current)
+        ? current
+        : nextWorkspaces[0]?.id,
+    );
+  }, [api]);
+
   React.useEffect(() => {
     if (!api) {
       return undefined;
@@ -150,6 +173,18 @@ export default function App(): React.JSX.Element {
       cancelled = true;
     };
   }, [api]);
+
+  React.useEffect(() => {
+    if (!api?.onMetadataChanged) {
+      return undefined;
+    }
+
+    return api.onMetadataChanged(() => {
+      void refreshMetadata().catch((error: unknown) => {
+        setLaunchError(safeLaunchError(error));
+      });
+    });
+  }, [api, refreshMetadata]);
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0];
   const selectedWorkspace =
@@ -321,9 +356,22 @@ export default function App(): React.JSX.Element {
     setApiConfigFilter('all');
   };
 
+  const openNewWindow = (): void => {
+    if (!api) {
+      return;
+    }
+
+    void api.openNewWindow().catch((error: unknown) => {
+      setLaunchError(safeLaunchError(error));
+    });
+  };
+
   return (
     <main className="app-shell">
-      <AppHeader onShowApiConfig={showApiConfig} />
+      <AppHeader
+        onShowApiConfig={showApiConfig}
+        onOpenNewWindow={api ? openNewWindow : undefined}
+      />
       {activePage === 'workbench' ? (
         <>
           <CommandBar
@@ -373,7 +421,7 @@ export default function App(): React.JSX.Element {
         <section className="settings-page" aria-label="接口配置页面">
         <ApiConfigPanel
           profiles={profiles}
-          selectedProfileId={selectedProfile?.id}
+          selectedProfileId={selectedProfileId}
           filter={apiConfigFilter}
           onFilterChange={setApiConfigFilter}
           onSelectProfile={selectProfile}

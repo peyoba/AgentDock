@@ -1,5 +1,6 @@
 export type ToolType = 'claude' | 'codex' | 'gemini' | 'opencode';
 export type ClaudeLaunchMode = 'lite' | 'full';
+export type ClaudeDefaultLaunchMode = 'default' | 'opus' | 'sonnet' | 'haiku' | 'custom';
 
 export type ApiProfile = {
   id: string;
@@ -22,6 +23,11 @@ export type ApiProfile = {
   claudeCodeAttributionHeader?: string;
   disableInstallationChecks?: boolean;
   claudeCleanupPeriodDays?: number;
+  claudeDefaultLaunchMode?: ClaudeDefaultLaunchMode;
+  claudeHaikuModel?: string;
+  claudeSonnetModel?: string;
+  claudeOpusModel?: string;
+  claudeAlwaysThinkingEnabled?: boolean;
 };
 
 export type Workspace = {

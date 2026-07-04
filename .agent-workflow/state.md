@@ -1,7 +1,7 @@
 # Agent Workflow State
 
 ## 当前任务
-Claude 轻量启动模式：默认空 MCP，完整模式按需加载 Claude MCP。
+Batch A + Claude 轻量 MCP 启动模式集成验证。
 
 ## 风险等级
 L3
@@ -12,7 +12,7 @@ L3
 delivery_hook
 
 ## 当前阶段
-delivered
+delivery
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
@@ -34,6 +34,11 @@ delivered
 | 主 Agent | PASS | Claude 默认模型选择修复：移除 `opus[1m]` 伪模型并迁移历史配置；交付报告 `.agent-workflow/delivery/2026-07-04-claude-model-selector-fix-delivery-report.md` |
 | 主 Agent | PASS | Batch A SPEC 已确认；实施计划 `docs/plans/2026-07-04-agentdock-batch-a-claude-models-multiwindow-package.md` 已生成并完成自审 |
 | 主 Agent | PASS | Claude 轻量/完整 MCP 启动模式；默认轻量空 MCP；交付报告 `.agent-workflow/delivery/2026-07-04-claude-lite-mcp-launch-mode-delivery-report.md` |
+| 主 Agent | PASS | Batch A 实现：Claude 模型映射、多窗口 Session 隔离、时间戳 macOS 打包；验证记录 `.agent-workflow/verification/2026-07-04-agentdock-batch-a-claude-models-multiwindow-package.md` |
+| ⑧集成工程师 | PASS | 全量测试、build、package、packaged 双窗口 zsh smoke |
+| ⑨部署工程师 | PASS | 新产物 `release/packages/20260704-120943/AgentDock-darwin-arm64/AgentDock.app`，codesign strict verify 通过 |
+| ⑧集成工程师 | PASS | Batch A + Claude lite/full MCP 主分支集成验证；验证记录 `.agent-workflow/verification/2026-07-04-batch-a-claude-lite-integration.md` |
+| ⑨部署工程师 | PASS | 新产物 `release/packages/20260704-134324/AgentDock-darwin-arm64/AgentDock.app`，codesign strict verify 与 packaged 双窗口 smoke 通过 |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -44,7 +49,7 @@ delivered
 无
 
 ## 下一步
-用户试用 Claude 默认轻量启动；如需要 MCP 工具，在启动栏手动切换为“完整 · Claude MCP”。
+提交 merge commit 后交付用户测试 `release/packages/20260704-134324/AgentDock-darwin-arm64/AgentDock.app`，然后进入下一批计划。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -59,10 +64,25 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-02 | Phase 1 执行确认并补充安全/UI 测试约束 | 用户确认计划并要求 Codex endpoint 隔离、Renderer/IPC 不返回完整 secret/env、UI 测试覆盖关键 UI 行为 |
 | 2026-07-04 | Batch A SPEC 已确认并进入实施计划 | 用户确认 Claude 5 个配置项、多窗口、安全打包为当前批次范围 |
 | 2026-07-04 | Claude 默认启动采用轻量 MCP 隔离，完整模式可手动选择 | 用户要求启动前请求重量降到最低，同时明确禁止修改默认模型、`context-1m` beta 和重试配置 |
+| 2026-07-04 | Batch A worktree 内有条件交付 | 分支内全量验证通过；合并主工作区前需保留并行 Claude lite/full MCP 行为 |
+| 2026-07-04 | Batch A 与 Claude lite/full MCP 主分支集成通过 | 主分支验证保留模型映射、多窗口、时间戳打包和默认轻量 MCP 行为 |
 
 ## 验证记录
 | 时间 | 命令 | 结果 |
 |------|------|------|
+| 2026-07-04 | `rg -n "<<<<<<<\|=======\|>>>>>>>" . src tests \|\| true` | PASS：无冲突标记 |
+| 2026-07-04 | `npm run test -- tests/app/sessionService.test.ts tests/app/App.test.tsx tests/app/preloadTypes.test.ts tests/app/windowSessionRegistry.test.ts tests/app/packageMacScript.test.ts` | PASS：5 files / 54 tests |
+| 2026-07-04 | `npm run typecheck` | PASS |
+| 2026-07-04 | `npm run test` | PASS：29 files / 149 tests |
+| 2026-07-04 | `npm run workflow:doctor` | PASS |
+| 2026-07-04 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-04 | `npm run build` | PASS：仅 Vite chunk size warning |
+| 2026-07-04 | `npm run package:mac` | PASS：`release/packages/20260704-134324/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-04 | `codesign --verify --deep --strict --verbose=2 release/packages/20260704-134324/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-04 | `command -v claude` / `claude --help` MCP 参数检查 | PASS：本机 Claude CLI 存在，且支持 `--mcp-config`、`--strict-mcp-config` |
+| 2026-07-04 | packaged multi-window zsh smoke via CDP | PASS：两个窗口各 1 个 session，输出不串窗 |
+| 2026-07-04 | `git diff --check` | PASS |
+| 2026-07-04 | key/token 模式扫描 | PASS：当前变更和未跟踪文件无命中 |
 | 2026-07-04 | `npm run test` | PASS：27 files / 138 tests |
 | 2026-07-04 | `npm run workflow:doctor` | PASS |
 | 2026-07-04 | `npm run test:workflow` | PASS：8 passed |
@@ -71,6 +91,17 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-04 | `command -v claude` / `claude --help` MCP 参数检查 | PASS：本机 Claude CLI 存在，且支持 `--mcp-config`、`--strict-mcp-config` |
 | 2026-07-04 | `git diff --check` | PASS |
 | 2026-07-04 | key-like secret scan | PASS：本次变更文件无真实 key 命中 |
+| 2026-07-04 | `npm run test` | PASS：29 files / 146 tests |
+| 2026-07-04 | `npm run workflow:doctor` | PASS |
+| 2026-07-04 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-04 | `npm run typecheck` | PASS |
+| 2026-07-04 | `npm run build` | PASS：仅 Vite chunk size warning |
+| 2026-07-04 | `npm run package:mac` | PASS：`release/packages/20260704-120943/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-04 | `codesign --verify --deep --strict --verbose=2 release/packages/20260704-120943/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-04 | packaged multi-window zsh smoke via CDP | PASS：两个窗口各 1 个 session，输出不串窗 |
+| 2026-07-04 | compiled SessionService Claude settings smoke | PASS：模型映射与 Thinking 存在，fake secret 未进入 settings |
+| 2026-07-04 | `git diff --check` | PASS |
+| 2026-07-04 | key/token 模式扫描 | PASS：当前变更和未跟踪文件无命中 |
 | 2026-07-04 | `npm run test && npm run workflow:doctor && npm run test:workflow && npm run typecheck && npm run build` | PASS：27 files / 135 tests；workflow 8 passed；build 仅 Vite chunk size warning |
 | 2026-07-04 | `git diff --check` | PASS |
 | 2026-07-04 | key-like secret scan | PASS：当前变更和未跟踪文件无命中 |
@@ -185,6 +216,8 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 批次 | 状态 | 产出 |
 |------|------|------|
 | Claude Lite MCP Launch Mode | PASS | 默认轻量空 MCP 启动、完整 MCP 模式可选；验证记录 `.agent-workflow/verification/2026-07-04-claude-lite-mcp-launch-mode.md`；交付报告 `.agent-workflow/delivery/2026-07-04-claude-lite-mcp-launch-mode-delivery-report.md` |
+| Batch A Claude Models / Multi-window / Timestamp Package | PASS | 分支内验证通过；交付报告 `.agent-workflow/delivery/2026-07-04-agentdock-batch-a-delivery-report.md`；合并并行 Claude lite/full MCP 改动后需二次验证 |
+| Batch A + Claude Lite MCP Integration | PASS | 主分支合并验证通过；验证记录 `.agent-workflow/verification/2026-07-04-batch-a-claude-lite-integration.md`；交付报告 `.agent-workflow/delivery/2026-07-04-batch-a-claude-lite-integration-delivery-report.md` |
 | Phase 1 Batch 1 | PASS | 测试框架、共享类型、密钥脱敏、Claude/Codex 启动环境生成；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-1.md` |
 | Phase 1 Batch 2 | PASS | Keychain/PTY adapter contracts、Profile/Workspace metadata stores、preload IPC 安全边界；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-2.md` |
 | Phase 1 Batch 3 | PASS | 终端优先 Renderer、UI 行为测试、内存 session orchestration；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-3.md` |

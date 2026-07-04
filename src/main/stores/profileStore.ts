@@ -77,6 +77,21 @@ function sanitizeProfile(profile: ApiProfile): ApiProfile {
   if (claudeCleanupPeriodDays) {
     sanitized.claudeCleanupPeriodDays = claudeCleanupPeriodDays;
   }
+  if (normalizedProfile.claudeDefaultLaunchMode) {
+    sanitized.claudeDefaultLaunchMode = normalizedProfile.claudeDefaultLaunchMode;
+  }
+  if (normalizedProfile.claudeHaikuModel) {
+    sanitized.claudeHaikuModel = normalizedProfile.claudeHaikuModel;
+  }
+  if (normalizedProfile.claudeSonnetModel) {
+    sanitized.claudeSonnetModel = normalizedProfile.claudeSonnetModel;
+  }
+  if (normalizedProfile.claudeOpusModel) {
+    sanitized.claudeOpusModel = normalizedProfile.claudeOpusModel;
+  }
+  if (typeof normalizedProfile.claudeAlwaysThinkingEnabled === 'boolean') {
+    sanitized.claudeAlwaysThinkingEnabled = normalizedProfile.claudeAlwaysThinkingEnabled;
+  }
 
   return sanitized;
 }

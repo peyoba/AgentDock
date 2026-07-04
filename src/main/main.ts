@@ -1,13 +1,15 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createNodePtyAdapter } from './adapters/ptyAdapter.js';
 import { createEncryptedVaultAdapter } from './adapters/secretVaultAdapter.js';
 import { fetchProfileModels } from './modelFetchService.js';
+import type { SessionService } from './sessionService.js';
 import { createSessionService } from './sessionService.js';
 import { createProfileStore } from './stores/profileStore.js';
 import { createWorkspaceStore } from './stores/workspaceStore.js';
+import { createWindowSessionRegistry } from './windowSessionRegistry.js';
 import { createWorkspaceFromPath, mergeWorkspaces } from './workspaceService.js';
 import { normalizeClaudeProfileDefaults } from '../shared/claudeProfileDefaults.js';
 import { defaultApiProfiles, isDefaultApiProfileId } from '../shared/defaultApiProfiles.js';
@@ -32,14 +34,28 @@ const workspaceStore = createWorkspaceStore(userDataPath);
 const secretAdapter = createEncryptedVaultAdapter({
   filePath: path.join(userDataPath, 'secrets.vault.json'),
 });
-const sessionService = createSessionService({
-  keychain: secretAdapter,
-  pty: createNodePtyAdapter(),
-  appDataPath: userDataPath,
-  workspaceExists: fs.existsSync,
-});
+const sessionRegistry = createWindowSessionRegistry(() =>
+  createSessionService({
+    keychain: secretAdapter,
+    pty: createNodePtyAdapter(),
+    appDataPath: userDataPath,
+    workspaceExists: fs.existsSync,
+  }),
+);
 
 const defaultProfiles: ApiProfile[] = defaultApiProfiles;
+
+function sessionServiceForWebContents(contents: Electron.WebContents): SessionService {
+  return sessionRegistry.getOrCreate(contents.id);
+}
+
+function broadcastMetadataChanged(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send('metadata:changed');
+    }
+  }
+}
 
 function sanitizeProfile(profile: ApiProfile): ApiProfile {
   const normalizedProfile = normalizeClaudeProfileDefaults(profile);
@@ -71,6 +87,11 @@ function sanitizeProfile(profile: ApiProfile): ApiProfile {
     ),
     disableInstallationChecks: normalizedProfile.disableInstallationChecks,
     claudeCleanupPeriodDays,
+    claudeDefaultLaunchMode: normalizedProfile.claudeDefaultLaunchMode,
+    claudeHaikuModel: optionalTrimmedString(normalizedProfile.claudeHaikuModel),
+    claudeSonnetModel: optionalTrimmedString(normalizedProfile.claudeSonnetModel),
+    claudeOpusModel: optionalTrimmedString(normalizedProfile.claudeOpusModel),
+    claudeAlwaysThinkingEnabled: normalizedProfile.claudeAlwaysThinkingEnabled,
   };
 }
 
@@ -174,7 +195,11 @@ function hardenWebContents(
 
 function registerIpcHandlers(): void {
   ipcMain.handle('profiles:list', () => listProfiles());
-  ipcMain.handle('profiles:save', (_event, profile: ApiProfile) => saveProfile(profile));
+  ipcMain.handle('profiles:save', async (_event, profile: ApiProfile) => {
+    const savedProfile = await saveProfile(profile);
+    broadcastMetadataChanged();
+    return savedProfile;
+  });
   ipcMain.handle('profiles:saveSecret', async (_event, request: ProfileSecretSaveRequest) => {
     await secretAdapter.writeSecret(
       request.keychainService,
@@ -203,25 +228,30 @@ function registerIpcHandlers(): void {
       throw new Error('无法删除最后一个配置，至少需要保留一个');
     }
     await profileStore.delete(profileId);
+    broadcastMetadataChanged();
   });
   ipcMain.handle('workspaces:list', () => listWorkspaces());
-  ipcMain.handle('workspaces:choose', (event) =>
-    chooseWorkspace(BrowserWindow.fromWebContents(event.sender)),
+  ipcMain.handle('workspaces:choose', async (event) => {
+    const workspace = await chooseWorkspace(BrowserWindow.fromWebContents(event.sender));
+    if (workspace) {
+      broadcastMetadataChanged();
+    }
+    return workspace;
+  });
+  ipcMain.handle('sessions:list', (event) => sessionServiceForWebContents(event.sender).list());
+  ipcMain.handle('terminal:write', (event, request: TerminalWriteRequest) =>
+    sessionServiceForWebContents(event.sender).writeTerminal(request),
   );
-  ipcMain.handle('sessions:list', () => sessionService.list());
-  ipcMain.handle('terminal:write', (_event, request: TerminalWriteRequest) =>
-    sessionService.writeTerminal(request),
+  ipcMain.handle('terminal:resize', (event, request: TerminalResizeRequest) =>
+    sessionServiceForWebContents(event.sender).resizeTerminal(request),
   );
-  ipcMain.handle('terminal:resize', (_event, request: TerminalResizeRequest) =>
-    sessionService.resizeTerminal(request),
+  ipcMain.handle('terminal:kill', (event, request: TerminalKillRequest) =>
+    sessionServiceForWebContents(event.sender).killTerminal(request),
   );
-  ipcMain.handle('terminal:kill', (_event, request: TerminalKillRequest) =>
-    sessionService.killTerminal(request),
+  ipcMain.handle('terminal:buffer', (event, request: TerminalBufferRequest) =>
+    sessionServiceForWebContents(event.sender).readTerminalBuffer(request),
   );
-  ipcMain.handle('terminal:buffer', (_event, request: TerminalBufferRequest) =>
-    sessionService.readTerminalBuffer(request),
-  );
-  ipcMain.handle('sessions:launch', async (_event, request: LaunchRequest) => {
+  ipcMain.handle('sessions:launch', async (event, request: LaunchRequest) => {
     const profiles = await listProfiles();
     const profile = profiles.find((item) => item.id === request.profileId);
     const workspaces = await listWorkspaces();
@@ -231,16 +261,19 @@ function registerIpcHandlers(): void {
       throw new Error('所选配置或工作区不存在，无法启动会话');
     }
 
-    return sessionService.launch({
+    return sessionServiceForWebContents(event.sender).launch({
       profile,
       workspace,
       command: request.command,
       claudeLaunchMode: request.claudeLaunchMode,
     });
   });
+  ipcMain.handle('windows:new', () => {
+    createMainWindow();
+  });
 }
 
-function createMainWindow(): void {
+function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -257,24 +290,67 @@ function createMainWindow(): void {
     },
   });
 
-  const unsubscribeTerminalOutput = sessionService.onTerminalOutput((event) => {
-    window.webContents.send('terminal:output', event);
+  const windowSessionService = sessionRegistry.getOrCreate(window.webContents.id);
+  const webContentsId = window.webContents.id;
+  const unsubscribeTerminalOutput = windowSessionService.onTerminalOutput((event) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('terminal:output', event);
+    }
   });
-  window.on('closed', unsubscribeTerminalOutput);
+  window.on('closed', () => {
+    unsubscribeTerminalOutput();
+    void sessionRegistry.delete(webContentsId);
+  });
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
   hardenWebContents(window.webContents, devServerUrl);
   if (devServerUrl) {
     void window.loadURL(devServerUrl);
     window.webContents.openDevTools({ mode: 'detach' });
-    return;
+    return window;
   }
 
   void window.loadFile(path.join(__dirname, '../renderer/index.html'));
+  return window;
+}
+
+function installApplicationMenu(): void {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: app.name,
+      submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }],
+    },
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: '新窗口',
+          accelerator: 'CommandOrControl+N',
+          click: () => {
+            createMainWindow();
+          },
+        },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 app.whenReady().then(() => {
   registerIpcHandlers();
+  installApplicationMenu();
   createMainWindow();
 
   app.on('activate', () => {
