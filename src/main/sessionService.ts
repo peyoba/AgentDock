@@ -57,6 +57,7 @@ type NormalizedSessionServiceOptions = Required<
 };
 
 type TerminalOutputListener = (event: TerminalOutputEvent) => void;
+type ClaudeSettings = Record<string, unknown>;
 
 export type SessionService = {
   launch(input: LaunchSessionInput): Promise<AgentSession>;
@@ -129,10 +130,8 @@ function claudeSettingsModel(profile: ApiProfile): string | undefined {
   return launchMode;
 }
 
-function buildClaudeSettings(
-  profile: ApiProfile,
-): Record<string, string | number | boolean | Record<string, string>> | undefined {
-  const settings: Record<string, string | number | boolean | Record<string, string>> = {};
+function buildClaudeSettings(profile: ApiProfile): ClaudeSettings | undefined {
+  const settings: ClaudeSettings = {};
   const model = claudeSettingsModel(profile);
   const cleanupPeriodDays = positiveInteger(profile.claudeCleanupPeriodDays);
   const env = buildClaudeOptionalEnvironment(profile);
@@ -151,6 +150,14 @@ function buildClaudeSettings(
 
   if (cleanupPeriodDays) {
     settings.cleanupPeriodDays = cleanupPeriodDays;
+  }
+
+  if (profile.claudeCclineStatusLineEnabled === true) {
+    settings.statusLine = {
+      type: 'command',
+      command: 'ccline',
+      padding: 0,
+    };
   }
 
   return Object.keys(settings).length > 0 ? settings : undefined;

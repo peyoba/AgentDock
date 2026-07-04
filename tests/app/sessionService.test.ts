@@ -233,6 +233,55 @@ describe('sessionService', () => {
     );
   });
 
+  it('writes CCometixLine statusLine settings only when the Claude profile enables it', async () => {
+    const runtime = createFakeRuntime();
+    const writtenFiles: Array<{ filePath: string; content: string }> = [];
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      writeTextFile(filePath, content) {
+        writtenFiles.push({ filePath, content });
+      },
+    });
+
+    await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://anyrouter.top',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+        claudeCclineStatusLineEnabled: true,
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude',
+    });
+
+    expect(writtenFiles).toEqual([
+      {
+        filePath: '/tmp/agentdock-test-data/claude-settings/profile-a.json',
+        content: `${JSON.stringify({
+          statusLine: {
+            type: 'command',
+            command: 'ccline',
+            padding: 0,
+          },
+        }, null, 2)}\n`,
+      },
+    ]);
+    expect(writtenFiles[0]?.content).not.toContain('local-development-secret');
+    expect(runtime.spawnRequests[0]?.command).toBe(
+      "claude --settings '/tmp/agentdock-test-data/claude-settings/profile-a.json'",
+    );
+  });
+
   it('writes the full primary model when Claude launch mode is custom', async () => {
     const runtime = createFakeRuntime();
     const writtenFiles: Array<{ filePath: string; content: string }> = [];

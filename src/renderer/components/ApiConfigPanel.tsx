@@ -479,6 +479,8 @@ export function ApiConfigPanel({
           draft.toolType === 'claude' ? normalizeOptionalString(draft.claudeOpusModel) : undefined,
         claudeAlwaysThinkingEnabled:
           draft.toolType === 'claude' ? draft.claudeAlwaysThinkingEnabled : undefined,
+        claudeCclineStatusLineEnabled:
+          draft.toolType === 'claude' ? draft.claudeCclineStatusLineEnabled : undefined,
       });
       if (secretDraft.trim() && secretDirty) {
         await onSaveProfileSecret({
@@ -765,7 +767,7 @@ export function ApiConfigPanel({
                   {advancedOpen ? '隐藏高级设置' : '显示高级设置'}
                 </button>
                 <small className="field-help">
-                  权限和隔离目录配置。
+                  权限、状态栏和隔离目录配置。
                 </small>
               </div>
               {advancedOpen ? (
@@ -930,6 +932,21 @@ export function ApiConfigPanel({
                             />
                             <small className="field-help">
                               写入 Claude settings 的 cleanupPeriodDays。
+                            </small>
+                          </label>
+                        </div>
+                        <div className="advanced-option-list">
+                          <label className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={draft.claudeCclineStatusLineEnabled ?? false}
+                              onChange={(event) =>
+                                updateDraft('claudeCclineStatusLineEnabled', event.target.checked)
+                              }
+                            />
+                            <span>启用 CCometixLine 状态栏</span>
+                            <small className="field-help">
+                              写入 Claude statusLine.command=ccline；需要本机已安装 @cometix/ccline。
                             </small>
                           </label>
                         </div>

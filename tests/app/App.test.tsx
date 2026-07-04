@@ -1580,6 +1580,48 @@ describe('AgentDock session launch flow', () => {
     });
   });
 
+  it('toggles the CCometixLine statusline setting for Claude profiles and persists it on save', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'claude-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://claude.example.invalid/v1',
+          defaultModel: 'claude-3-5-haiku-20241022',
+          keychainService: 'AgentDock',
+          keychainAccount: 'claude-a',
+          claudeCclineStatusLineEnabled: false,
+        },
+      ]),
+      saveProfile: vi.fn(async (profile: ApiProfile) => profile),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    const checkbox = screen
+      .getByText('启用 CCometixLine 状态栏')
+      .closest('label')
+      ?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox).not.toBeChecked();
+
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    await waitFor(() => {
+      expect(api.saveProfile).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'claude-a',
+        claudeCclineStatusLineEnabled: true,
+      }));
+    });
+  });
+
   it('does not show permission controls for non-Claude/Codex profiles', async () => {
     installAgentDockApi({
       listProfiles: vi.fn().mockResolvedValue([

@@ -28,6 +28,7 @@ export type ApiProfile = {
   claudeSonnetModel?: string;
   claudeOpusModel?: string;
   claudeAlwaysThinkingEnabled?: boolean;
+  claudeCclineStatusLineEnabled?: boolean;
 };
 
 export type Workspace = {
