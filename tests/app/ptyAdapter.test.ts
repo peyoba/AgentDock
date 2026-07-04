@@ -73,7 +73,8 @@ describe('createNodePtyAdapter', () => {
     expect(spawnCalls).toHaveLength(1);
     const [spawnCall] = spawnCalls as [SpawnCall];
     expect(spawnCall.file).toBe('/bin/zsh');
-    expect(spawnCall.args).toEqual(['-lc', 'printf safe-output']);
+    expect(spawnCall.args[0]).toBe('-lc');
+    expect(spawnCall.args[1]).toContain('; printf safe-output');
     expect(spawnCall.options.name).toBe('xterm-256color');
     expect(spawnCall.options.cwd).toBe('/tmp');
     expect(spawnCall.options.env.HOME).toBe('/tmp/home');
@@ -161,6 +162,82 @@ describe('createNodePtyAdapter', () => {
         '/usr/local/bin',
       ]),
     );
+  });
+
+  it('prioritizes user CLI directories before inherited Homebrew paths', async () => {
+    let spawnedPath = '';
+    const adapter = createNodePtyAdapter({
+      module: {
+        spawn(_file, _args, options) {
+          spawnedPath = options.env.PATH ?? '';
+          return {
+            write() {},
+            resize() {},
+            kill() {},
+            onData() {
+              return { dispose() {} };
+            },
+          };
+        },
+      },
+      shell: '/bin/zsh',
+      baseEnv: {
+        PATH: '/opt/homebrew/bin:/usr/bin:/bin:/Users/example/.local/bin',
+        HOME: '/Users/example',
+      },
+      ensureHelper: false,
+    });
+
+    await adapter.spawn({
+      sessionId: 'session-claude',
+      command: 'claude',
+      cwd: '/tmp',
+      env: {},
+    });
+
+    const pathEntries = spawnedPath.split(path.delimiter);
+    expect(pathEntries.indexOf('/Users/example/.local/bin')).toBeLessThan(
+      pathEntries.indexOf('/opt/homebrew/bin'),
+    );
+  });
+
+  it('re-exports the merged PATH inside login shell commands', async () => {
+    const spawnCalls: unknown[] = [];
+    const adapter = createNodePtyAdapter({
+      module: {
+        spawn(file, args, options) {
+          spawnCalls.push({ file, args, options });
+          return {
+            write() {},
+            resize() {},
+            kill() {},
+            onData() {
+              return { dispose() {} };
+            },
+          };
+        },
+      },
+      shell: '/bin/zsh',
+      baseEnv: {
+        PATH: '/opt/homebrew/bin:/usr/bin:/bin',
+        HOME: '/Users/example',
+      },
+      ensureHelper: false,
+    });
+
+    await adapter.spawn({
+      sessionId: 'session-claude',
+      command: 'claude --version',
+      cwd: '/tmp',
+      env: {},
+    });
+
+    const [spawnCall] = spawnCalls as [SpawnCall];
+    expect(spawnCall.args[0]).toBe('-lc');
+    expect(spawnCall.args[1]).toContain(
+      "export PATH='/Users/example/.local/bin:/Users/example/.npm-global/bin",
+    );
+    expect(spawnCall.args[1]).toContain('\':"$PATH"; claude --version');
   });
 
   it('drops inherited agent API credentials before injecting the selected profile environment', async () => {

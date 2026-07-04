@@ -137,16 +137,20 @@ function uniquePathEntries(entries: Array<string | undefined>): string[] {
   return uniqueEntries;
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 function userCliPaths(homeDir: string | undefined): string[] {
   if (!homeDir) {
     return [];
   }
 
   return [
-    path.join(homeDir, '.npm-global', 'bin'),
     path.join(homeDir, '.local', 'bin'),
-    path.join(homeDir, '.codex', 'bin'),
+    path.join(homeDir, '.npm-global', 'bin'),
     path.join(homeDir, '.claude', 'bin'),
+    path.join(homeDir, '.codex', 'bin'),
     path.join(homeDir, '.opencode', 'bin'),
   ];
 }
@@ -167,12 +171,25 @@ function buildPtyEnvironment(
   const originalPath = mergedEnv.PATH ?? '';
   const homeDir = mergedEnv.HOME;
   mergedEnv.PATH = uniquePathEntries([
-    ...originalPath.split(path.delimiter),
     ...userCliPaths(homeDir),
+    ...originalPath.split(path.delimiter),
     ...COMMON_CLI_PATHS,
   ]).join(path.delimiter);
 
   return mergedEnv;
+}
+
+function commandWithPathExport(
+  command: string,
+  env: Record<string, string | undefined>,
+): string {
+  if (!env.PATH) {
+    return command;
+  }
+
+  // 合成 PATH 放在最前保证用户级 CLI 优先，同时把登录 shell 初始化后的
+  // "$PATH" 追加在尾部，避免丢失 .zprofile/path_helper 里追加的目录（如 nvm/fnm）
+  return `export PATH=${shellQuote(env.PATH)}:"$PATH"; ${command}`;
 }
 
 export function createNodePtyAdapter({
@@ -188,10 +205,12 @@ export function createNodePtyAdapter({
   return {
     async spawn({ sessionId, command, cwd, env }: PtySpawnRequest): Promise<PtySession> {
       const interactiveShell = interactiveShellSpawn(command);
-      const pty = module.spawn(interactiveShell?.file ?? shell, interactiveShell?.args ?? ['-lc', command], {
+      const ptyEnv = buildPtyEnvironment(baseEnv, env);
+      const ptyArgs = interactiveShell?.args ?? ['-lc', commandWithPathExport(command, ptyEnv)];
+      const pty = module.spawn(interactiveShell?.file ?? shell, ptyArgs, {
         name: 'xterm-256color',
         cwd,
-        env: buildPtyEnvironment(baseEnv, env),
+        env: ptyEnv,
       });
 
       return {

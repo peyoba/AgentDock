@@ -1,12 +1,12 @@
 # Agent Workflow State
 
 ## 当前任务
-终端右侧滚动滑块拖动交互小修。
+Agent CLI PATH 版本同步修复。
 
 ## 风险等级
 L3
 
-触发原因：Electron 桌面应用、内嵌终端 xterm.js 交互、终端历史滚动体验、macOS 打包验证。
+触发原因：Electron 桌面应用、真实 node-pty、外部 Claude/Codex CLI PATH 解析、环境变量/PATH 行为、macOS 打包验证。
 
 ## 当前 Hook
 delivery_hook
@@ -55,6 +55,9 @@ delivery
 | ⑧集成工程师 | PASS | TerminalPane/layout tests、typecheck、workflow doctor、build、package、codesign strict verify 通过 |
 | ⑦文档工程师 | PASS | 终端滚动滑块交付报告 `.agent-workflow/delivery/2026-07-04-terminal-scrollbar-drag-delivery-report.md`，验证记录 `.agent-workflow/verification/2026-07-04-terminal-scrollbar-drag.md` |
 | 主 Agent | PASS | 同步 README、PROJECT_PROFILE、PROJECT_REQUIREMENTS、DECISIONS、AGENTS.md 的本机加密 vault 决策和最新 package 路径 |
+| 主 Agent | PASS | Agent CLI PATH 同步修复：用户级 CLI 目录优先，并在 login shell 命令前重新 `export PATH` |
+| ⑧集成工程师 | PASS | 全量测试、workflow doctor、typecheck、build、真实 node-pty Claude PATH smoke、package、codesign strict verify 通过 |
+| ⑦文档工程师 | PASS | 交付报告 `.agent-workflow/delivery/2026-07-04-agent-cli-path-sync-delivery-report.md`，验证记录 `.agent-workflow/verification/2026-07-04-agent-cli-path-sync.md` |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -65,7 +68,7 @@ delivery
 无
 
 ## 下一步
-用户用 `release/packages/20260704-183345/AgentDock-darwin-arm64/AgentDock.app` 手动 smoke：启动长输出 session 后拖动终端右侧滚动滑块，确认可从顶部快速拖到底部；同时继续检查 workspace shared context、Claude/Codex/zsh 启动。下一批开发前补真实终端体验验收记录。
+用户用 `release/packages/20260704-193715/AgentDock-darwin-arm64/AgentDock.app` 手动 smoke：启动 Claude profile，确认 Agent 会话使用新版 Claude CLI；同时继续检查 workspace shared context、Claude/Codex/zsh 启动。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -86,10 +89,21 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-04 | Batch B 先落盘计划再开发 | 用户要求关闭窗口后也能从文件继续，计划文件为 `docs/plans/2026-07-04-agentdock-batch-b-workspace-shared-context.md` |
 | 2026-07-04 | Workspace Shared Context 只写 workspace 本地 `.agentdock/context/` | 本批次目标是跨 Agent CLI 可读的本地上下文，不做云同步、自动 LLM 总结或修改用户项目 Agent 配置 |
 | 2026-07-04 | 新保存 API Key 使用本机加密 `secrets.vault.json`，旧 Keychain 仅用于迁移/适配 | 减少本地/ad-hoc App 系统密码弹窗，同时保持不明文落盘和 IPC 不泄露 secret |
+| 2026-07-04 | Agent CLI PATH 优先用户级安装目录 | 用户要求 AgentDock 内 Agent 会话跟随已更新 CLI；`~/.local/bin` 等用户级路径应先于 Homebrew，并在 `zsh -lc` 命令前重新导出 PATH |
 
 ## 验证记录
 | 时间 | 命令 | 结果 |
 |------|------|------|
+| 2026-07-04 | `npm run test -- tests/app/ptyAdapter.test.ts` RED | PASS：新增 PATH 测试先失败，证明旧实现命中 Homebrew 优先顺序 |
+| 2026-07-04 | `npm run test -- tests/app/ptyAdapter.test.ts` | PASS：1 file / 8 tests |
+| 2026-07-04 | `npm run test` | PASS：30 files / 159 tests |
+| 2026-07-04 | `npm run workflow:doctor` | PASS |
+| 2026-07-04 | `npm run typecheck` | PASS |
+| 2026-07-04 | `npm run build` | PASS：仅 Vite chunk size warning |
+| 2026-07-04 | real `node-pty` Claude PATH smoke | PASS：`command -v claude` 输出 `/Users/peyoba/.local/bin/claude`，版本 `2.1.201 (Claude Code)` |
+| 2026-07-04 | `npm run package:mac` | PASS：`release/packages/20260704-193715/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-04 | `codesign --verify --deep --strict --verbose=2 release/packages/20260704-193715/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-04 | packaged app.asar PATH logic scan | PASS：包内 `dist/main/adapters/ptyAdapter.js` 包含 `.local`、`.npm-global` 和 `export PATH` |
 | 2026-07-04 | Keychain hard-constraint wording scan | PASS：AGENTS、README、PROJECT_PROFILE、DECISIONS、PROJECT_REQUIREMENTS、state 无旧硬约束残留 |
 | 2026-07-04 | `npm run workflow:doctor` | PASS |
 | 2026-07-04 | `npm run typecheck` | PASS |
