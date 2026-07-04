@@ -1,18 +1,18 @@
 # Agent Workflow State
 
 ## 当前任务
-Claude 轻量模式隔离 user settings/plugin hook。
+Batch B Workspace Shared Context 交付验证。
 
 ## 风险等级
 L3
 
-触发原因：Electron 桌面应用、内嵌终端 PTY、环境变量注入、外部 Claude CLI 启动参数、AI API 启动前行为。
+触发原因：Electron 桌面应用、内嵌终端 PTY、环境变量注入、终端输出落盘、preload IPC、安全脱敏边界、macOS 打包。
 
 ## 当前 Hook
 delivery_hook
 
 ## 当前阶段
-delivered
+delivery
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
@@ -42,6 +42,15 @@ delivered
 | 主 Agent | PASS | Claude lite 模式追加 `--setting-sources project,local`，排除 user 级插件 hook |
 | ⑨部署工程师 | PASS | 新产物 `release/packages/20260704-142744/AgentDock-darwin-arm64/AgentDock.app`，包内包含 `--setting-sources project,local`，codesign strict verify 通过 |
 | 主 Agent | PASS | Batch B Workspace Shared Context 正式实施计划：`docs/plans/2026-07-04-agentdock-batch-b-workspace-shared-context.md` |
+| ①测试工程师 | PASS | Batch B RED 测试：context store、SessionService context env/输出记录、preload whitelist、renderer shared context UI |
+| ②开发工程师 | PASS | Batch B 实现：workspace context store、SessionService context 注入/记录、IPC/preload、renderer 查看入口 |
+| ③验收工程师 | PASS | 对照 Batch B 计划核验 included scope，未加入 LLM summarization/cloud sync/API gateway |
+| ④质量工程师 | PASS | `npm run typecheck`、`git diff --check` 通过；模块职责保持 main/preload/renderer 边界 |
+| ⑤安全工程师 | PASS | context 输出脱敏、IPC 不返回 secret/env、key/token scan 无输出 |
+| ⑩风险审查官 | PASS | L3 风险真实验证：node-pty zsh smoke、package、codesign |
+| ⑧集成工程师 | PASS | 全量测试、workflow、typecheck、build 通过；验证记录 `.agent-workflow/verification/2026-07-04-agentdock-batch-b-workspace-shared-context.md` |
+| ⑨部署工程师 | PASS | 新产物 `release/packages/20260704-173315/AgentDock-darwin-arm64/AgentDock.app`，codesign strict verify 通过 |
+| ⑦文档工程师 | PASS | 交付报告 `.agent-workflow/delivery/2026-07-04-agentdock-batch-b-workspace-shared-context-delivery-report.md` |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -52,7 +61,7 @@ delivered
 无
 
 ## 下一步
-用户关闭旧 AgentDock/Claude 测试进程后，用 `release/packages/20260704-142744/AgentDock-darwin-arm64/AgentDock.app` 复测 Claude 轻量模式；该修复收尾后，按 `docs/plans/2026-07-04-agentdock-batch-b-workspace-shared-context.md` 启动 Batch B。
+用户用 `release/packages/20260704-173315/AgentDock-darwin-arm64/AgentDock.app` 手动 smoke：启动 zsh/Claude/Codex session，检查所选 workspace 下 `.agentdock/context/shared-context.md` 更新，并确认 `.agentdock/` 未进入项目 Git 提交。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -71,10 +80,20 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-04 | Batch A 与 Claude lite/full MCP 主分支集成通过 | 主分支验证保留模型映射、多窗口、时间戳打包和默认轻量 MCP 行为 |
 | 2026-07-04 | Claude lite 模式排除 user settings | `--strict-mcp-config` 不能阻止 user 级 `enabledPlugins.engram@engram` 的 `UserPromptSubmit` hook，需用 `--setting-sources project,local` 排除 user 来源 |
 | 2026-07-04 | Batch B 先落盘计划再开发 | 用户要求关闭窗口后也能从文件继续，计划文件为 `docs/plans/2026-07-04-agentdock-batch-b-workspace-shared-context.md` |
+| 2026-07-04 | Workspace Shared Context 只写 workspace 本地 `.agentdock/context/` | 本批次目标是跨 Agent CLI 可读的本地上下文，不做云同步、自动 LLM 总结或修改用户项目 Agent 配置 |
 
 ## 验证记录
 | 时间 | 命令 | 结果 |
 |------|------|------|
+| 2026-07-04 | `npm run test` | PASS：30 files / 156 tests |
+| 2026-07-04 | `npm run workflow:doctor` | PASS |
+| 2026-07-04 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-04 | `npm run typecheck` | PASS |
+| 2026-07-04 | `npm run build` | PASS：仅 Vite chunk size warning |
+| 2026-07-04 | real `node-pty` + `zsh` workspace context smoke | PASS：`agentdock-context-smoke` 写入 `.agentdock/context/shared-context.md`，无 key/token/env secret 标记 |
+| 2026-07-04 | `npm run package:mac` | PASS：`release/packages/20260704-173315/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-04 | `codesign --verify --deep --strict --verbose=2 release/packages/20260704-173315/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-04 | key/token 模式扫描 | PASS：当前 diff 和未跟踪文件无输出 |
 | 2026-07-04 | `npm run test -- tests/app/sessionService.test.ts` | PASS：5 tests |
 | 2026-07-04 | `npm run test -- tests/app/App.test.tsx` | PASS：44 tests |
 | 2026-07-04 | `npm run test` | PASS：29 files / 149 tests |
@@ -234,7 +253,7 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | Claude Lite MCP Launch Mode | PASS | 默认轻量空 MCP 启动、完整 MCP 模式可选；验证记录 `.agent-workflow/verification/2026-07-04-claude-lite-mcp-launch-mode.md`；交付报告 `.agent-workflow/delivery/2026-07-04-claude-lite-mcp-launch-mode-delivery-report.md` |
 | Batch A Claude Models / Multi-window / Timestamp Package | PASS | 分支内验证通过；交付报告 `.agent-workflow/delivery/2026-07-04-agentdock-batch-a-delivery-report.md`；合并并行 Claude lite/full MCP 改动后需二次验证 |
 | Batch A + Claude Lite MCP Integration | PASS | 主分支合并验证通过；验证记录 `.agent-workflow/verification/2026-07-04-batch-a-claude-lite-integration.md`；交付报告 `.agent-workflow/delivery/2026-07-04-batch-a-claude-lite-integration-delivery-report.md` |
-| Batch B Workspace Shared Context | PLAN | 正式计划 `docs/plans/2026-07-04-agentdock-batch-b-workspace-shared-context.md`；等待开始执行 |
+| Batch B Workspace Shared Context | PASS | workspace 本地 `.agentdock/context/`、PTY context env 注入、输出脱敏记录、renderer 查看入口；验证记录 `.agent-workflow/verification/2026-07-04-agentdock-batch-b-workspace-shared-context.md`；交付报告 `.agent-workflow/delivery/2026-07-04-agentdock-batch-b-workspace-shared-context-delivery-report.md` |
 | Phase 1 Batch 1 | PASS | 测试框架、共享类型、密钥脱敏、Claude/Codex 启动环境生成；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-1.md` |
 | Phase 1 Batch 2 | PASS | Keychain/PTY adapter contracts、Profile/Workspace metadata stores、preload IPC 安全边界；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-2.md` |
 | Phase 1 Batch 3 | PASS | 终端优先 Renderer、UI 行为测试、内存 session orchestration；验证记录 `.agent-workflow/verification/2026-07-02-phase-1-batch-3.md` |
