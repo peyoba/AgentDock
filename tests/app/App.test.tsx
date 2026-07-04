@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/renderer/App';
 import type { ApiProfile, Workspace } from '../../src/shared/agentdockTypes';
@@ -13,6 +13,7 @@ vi.mock('../../src/renderer/components/TerminalPane', () => ({
 type TestAgentDockApi = AgentDockApi & {
   chooseWorkspace: ReturnType<typeof vi.fn<() => Promise<Workspace | undefined>>>;
   saveProfile: ReturnType<typeof vi.fn<[(profile: ApiProfile) => Promise<ApiProfile>]>>;
+  deleteProfile: ReturnType<typeof vi.fn<[(profileId: string) => Promise<void>]>>;
   saveProfileSecret: ReturnType<typeof vi.fn<[(request: { keychainService: string; keychainAccount: string; secret: string }) => Promise<void>]>>;
   readProfileSecret: ReturnType<typeof vi.fn<[(request: { keychainService: string; keychainAccount: string }) => Promise<string>]>>;
   fetchProfileModels: ReturnType<typeof vi.fn<[(request: { profileId: string }) => Promise<string[]>]>>;
@@ -40,6 +41,7 @@ function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
     ]),
     chooseWorkspace: vi.fn().mockResolvedValue(undefined),
     saveProfile: vi.fn(async (profile: ApiProfile) => profile),
+    deleteProfile: vi.fn().mockResolvedValue(undefined),
     saveProfileSecret: vi.fn().mockResolvedValue(undefined),
     readProfileSecret: vi.fn().mockResolvedValue(''),
     fetchProfileModels: vi.fn().mockResolvedValue([]),
@@ -175,7 +177,7 @@ describe('AgentDock session launch flow', () => {
       expect(api.launchSession).toHaveBeenCalledWith({
         profileId: 'profile-a',
         workspaceId: 'workspace-a',
-        command: 'claude',
+        command: 'claude --dangerously-skip-permissions',
       });
     });
     expect(await screen.findByRole('button', { name: /^Claude A · AgentDock$/ })).toBeInTheDocument();
@@ -251,7 +253,7 @@ describe('AgentDock session launch flow', () => {
       expect(api.launchSession).toHaveBeenCalledWith({
         profileId: 'codex-b',
         workspaceId: 'workspace-b',
-        command: 'codex',
+        command: 'codex --dangerously-bypass-approvals-and-sandbox',
       });
     });
   });
@@ -328,7 +330,7 @@ describe('AgentDock session launch flow', () => {
       expect(api.launchSession).toHaveBeenCalledWith({
         profileId: 'profile-a',
         workspaceId: 'workspace-docs',
-        command: 'claude',
+        command: 'claude --dangerously-skip-permissions',
       });
     });
   });
@@ -517,6 +519,52 @@ describe('AgentDock session launch flow', () => {
     expect(document.body).not.toHaveTextContent(secret);
   });
 
+
+
+  it('shows an eye toggle and reveals the saved API key in the same input field', async () => {
+    const secret = 'test-agentdock-eye-toggle-secret';
+    installAgentDockApi({
+      readProfileSecret: vi.fn().mockResolvedValue(secret),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+
+    const secretInput = screen.getByLabelText('API Key（本机加密保存）');
+    const toggle = screen.getByRole('button', { name: '显示 API Key' });
+    expect(secretInput).toHaveAttribute('type', 'password');
+    expect(secretInput).toHaveValue('');
+
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(secretInput).toHaveValue(secret);
+    });
+    expect(secretInput).toHaveAttribute('type', 'text');
+    expect(screen.getByRole('button', { name: '隐藏 API Key' })).toBeInTheDocument();
+  });
+
+  it('shows a recoverable API key read error without a remote-method stack message', async () => {
+    installAgentDockApi({
+      readProfileSecret: vi.fn().mockRejectedValue(
+        new Error('无法读取已保存的 API Key，请重新粘贴并保存一次以修复本机加密记录。'),
+      ),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示 API Key' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('无法读取已保存的 API Key，请重新粘贴并保存一次以修复本机加密记录。');
+    expect(alert).not.toHaveTextContent('Error invoking remote method');
+    expect(screen.getByLabelText('API Key（本机加密保存）')).toHaveValue('');
+  });
+
   it('reveals a saved API key only after an explicit show action and can hide it again', async () => {
     const secret = 'test-agentdock-explicit-display-only';
     const api = installAgentDockApi({
@@ -545,7 +593,7 @@ describe('AgentDock session launch flow', () => {
     expect(secretInput).toHaveValue('');
     expect(document.body).not.toHaveTextContent(secret);
 
-    fireEvent.click(screen.getByRole('button', { name: '显示已保存 API Key' }));
+    fireEvent.click(screen.getByRole('button', { name: '显示 API Key' }));
 
     await waitFor(() => {
       expect(api.readProfileSecret).toHaveBeenCalledWith({
@@ -560,6 +608,129 @@ describe('AgentDock session launch flow', () => {
 
     expect(secretInput).toHaveAttribute('type', 'password');
     expect(secretInput).toHaveValue(secret);
+  });
+
+
+
+
+
+  it('keeps common models empty until users choose them from fetched models', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'codex-b',
+          name: 'Codex B',
+          toolType: 'codex',
+          baseUrl: 'https://codex.example.invalid/v1',
+          defaultModel: 'gpt-5-codex',
+          keychainService: 'AgentDock',
+          keychainAccount: 'codex-b',
+        },
+      ]),
+      fetchProfileModels: vi.fn().mockResolvedValue(['gpt-5-codex', 'gpt-4o', 'o3']),
+      saveProfile: vi.fn(async (profile: ApiProfile) => profile),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Codex B/ }));
+
+    expect(screen.queryByRole('group', { name: '拉取到的模型' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('常用模型列表')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /gpt-5.5/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '拉取模型' }));
+
+    await waitFor(() => {
+      expect(api.fetchProfileModels).toHaveBeenCalledWith({ profileId: 'codex-b' });
+    });
+    expect(screen.getByRole('group', { name: '拉取到的模型' })).toHaveTextContent('gpt-4o');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'gpt-4o' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'o3' }));
+    expect(screen.getByLabelText('常用模型列表')).toHaveTextContent('gpt-4o');
+    expect(screen.getByLabelText('常用模型列表')).toHaveTextContent('o3');
+
+    fireEvent.change(screen.getByLabelText('默认模型'), { target: { value: 'gpt-4o' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    await waitFor(() => {
+      expect(api.saveProfile).toHaveBeenCalledWith({
+        id: 'codex-b',
+        name: 'Codex B',
+        toolType: 'codex',
+        baseUrl: 'https://codex.example.invalid/v1',
+        defaultModel: 'gpt-4o',
+        keychainService: 'AgentDock',
+        keychainAccount: 'codex-b',
+        availableModels: ['gpt-4o', 'o3'],
+      });
+    });
+  });
+
+  it('lets users remove fetched models from their common model choices', async () => {
+    installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'codex-b',
+          name: 'Codex B',
+          toolType: 'codex',
+          baseUrl: 'https://codex.example.invalid/v1',
+          defaultModel: 'gpt-5-codex',
+          keychainService: 'AgentDock',
+          keychainAccount: 'codex-b',
+          availableModels: ['gpt-4o'],
+        },
+      ]),
+      fetchProfileModels: vi.fn().mockResolvedValue(['gpt-5-codex', 'gpt-4o', 'o3']),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Codex B/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: '拉取模型' }));
+
+    expect(await screen.findByRole('checkbox', { name: 'gpt-4o' })).toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'gpt-4o' }));
+
+    expect(screen.queryByLabelText('常用模型列表')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('默认模型')).toHaveValue('gpt-5-codex');
+  });
+
+  it('shows a recoverable message when model fetch hits an unreadable local API key record', async () => {
+    installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'codex-b',
+          name: 'Codex B',
+          toolType: 'codex',
+          baseUrl: 'https://anyrouter.top/v1',
+          defaultModel: 'gpt-5-codex',
+          keychainService: 'AgentDock',
+          keychainAccount: 'codex-custom-1',
+        },
+      ]),
+      fetchProfileModels: vi.fn().mockRejectedValue(
+        new Error(
+          `Error invoking remote method 'profiles:fetchModels': Error: Unable to decrypt local API key vault entry for account "codex-custom-1"`,
+        ),
+      ),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Codex B/ }));
+    fireEvent.click(screen.getByRole('button', { name: '拉取模型' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('无法读取已保存的 API Key，请重新粘贴并保存一次以修复本机加密记录。');
+    expect(alert).not.toHaveTextContent('Error invoking remote method');
+    expect(alert).not.toHaveTextContent('Unable to decrypt local API key vault entry');
   });
 
   it('fetches model IDs for the selected profile and saves the selected default model list', async () => {
@@ -592,6 +763,7 @@ describe('AgentDock session launch flow', () => {
     });
     expect(screen.getByText('已拉取 2 个模型')).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'gpt-4o' }));
     fireEvent.change(screen.getByLabelText('默认模型'), { target: { value: 'gpt-4o' } });
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
 
@@ -729,6 +901,451 @@ describe('AgentDock session launch flow', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /^Claude A · AgentDock$/ })).not.toBeInTheDocument();
     });
+  });
+
+  it('can delete a profile after confirmation', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'profile-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://example.invalid/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'profile-a',
+        },
+        {
+          id: 'profile-b',
+          name: 'Claude B',
+          toolType: 'claude',
+          baseUrl: 'https://example.invalid/v2',
+          keychainService: 'AgentDock',
+          keychainAccount: 'profile-b',
+        },
+      ]),
+      deleteProfile: vi.fn().mockResolvedValue(undefined),
+    });
+    global.confirm = vi.fn().mockReturnValue(true);
+
+    render(<App />);
+    await openApiConfigPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+    expect(screen.getByRole('button', { name: '删除配置' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '删除配置' }));
+
+    await waitFor(() => {
+      expect(global.confirm).toHaveBeenCalledWith(
+        expect.stringContaining('确定要删除配置 "Claude A" 吗'),
+      );
+      expect(api.deleteProfile).toHaveBeenCalledWith('profile-a');
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('请选择一个配置后编辑。')).toBeInTheDocument();
+    });
+  });
+
+  it('does not delete a profile if user cancels confirmation', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'profile-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://example.invalid/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'profile-a',
+        },
+      ]),
+      deleteProfile: vi.fn().mockResolvedValue(undefined),
+    });
+    global.confirm = vi.fn().mockReturnValue(false);
+
+    render(<App />);
+    await openApiConfigPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '删除配置' }));
+
+    await waitFor(() => {
+      expect(global.confirm).toHaveBeenCalled();
+      expect(api.deleteProfile).not.toHaveBeenCalled();
+    });
+
+    expect(screen.getByRole('button', { name: /Claude A/ })).toBeInTheDocument();
+  });
+
+  it('keeps dangerous permission controls enabled by default', async () => {
+    installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'claude-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://claude.example.invalid/v1',
+          defaultModel: 'claude-3-5-haiku-20241022',
+          keychainService: 'AgentDock',
+          keychainAccount: 'claude-a',
+        },
+        {
+          id: 'codex-b',
+          name: 'Codex B',
+          toolType: 'codex',
+          baseUrl: 'https://codex.example.invalid/v1',
+          defaultModel: 'gpt-5-codex',
+          keychainService: 'AgentDock',
+          keychainAccount: 'codex-b',
+          codexHome: '~/.agentdock/codex-profiles/codex-b',
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    const claudeCheckbox = screen
+      .getByText('启动时跳过权限检查')
+      .closest('label')
+      ?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(claudeCheckbox).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Codex' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Codex B/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    const codexCheckbox = screen
+      .getByText('启动时跳过批准和沙箱')
+      .closest('label')
+      ?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(codexCheckbox).toBeChecked();
+  });
+
+  it('shows permission control for Claude profiles and includes flag when enabled', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'claude-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://claude.example.invalid/v1',
+          defaultModel: 'claude-3-5-haiku-20241022',
+          keychainService: 'AgentDock',
+          keychainAccount: 'claude-a',
+          skipPermissions: true,
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    expect(screen.getByText('启动时跳过权限检查')).toBeInTheDocument();
+    const checkbox = screen.getByText('启动时跳过权限检查').closest('label')?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox).toBeChecked();
+
+    fireEvent.click(await screen.findByRole('button', { name: '返回终端工作台' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+
+    await waitFor(() => {
+      expect(api.launchSession).toHaveBeenCalledWith({
+        profileId: 'claude-a',
+        workspaceId: 'workspace-a',
+        command: 'claude --dangerously-skip-permissions',
+      });
+    });
+  });
+
+  it('shows Claude Code retry controls as optional Claude profile settings', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'claude-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://claude.example.invalid/v1',
+          defaultModel: 'claude-3-5-haiku-20241022',
+          keychainService: 'AgentDock',
+          keychainAccount: 'claude-a',
+        },
+      ]),
+      saveProfile: vi.fn(async (profile: ApiProfile) => profile),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    const watchdogCheckbox = screen
+      .getByText('启用 Claude Code Retry Watchdog')
+      .closest('label')
+      ?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const maxRetriesInput = screen.getByLabelText('Claude Code 最大重试次数');
+    const betasInput = screen.getByLabelText('ANTHROPIC_BETAS');
+    const httpsProxyInput = screen.getByLabelText('HTTPS_PROXY');
+    const httpProxyInput = screen.getByLabelText('HTTP_PROXY');
+    const disableTrafficCheckbox = screen
+      .getByText('禁用非必要流量')
+      .closest('label')
+      ?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const attributionHeaderInput = screen.getByLabelText('CLAUDE_CODE_ATTRIBUTION_HEADER');
+    const disableInstallChecksCheckbox = screen
+      .getByText('禁用安装检查')
+      .closest('label')
+      ?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const cleanupDaysInput = screen.getByLabelText('Claude 配置清理保留天数');
+
+    expect(watchdogCheckbox).not.toBeChecked();
+    expect(maxRetriesInput).toHaveValue(null);
+    expect(betasInput).toHaveValue('');
+    expect(httpsProxyInput).toHaveValue('');
+    expect(httpProxyInput).toHaveValue('');
+    expect(disableTrafficCheckbox).not.toBeChecked();
+    expect(attributionHeaderInput).toHaveValue('');
+    expect(disableInstallChecksCheckbox).not.toBeChecked();
+    expect(cleanupDaysInput).toHaveValue(null);
+
+    fireEvent.click(watchdogCheckbox);
+    fireEvent.change(maxRetriesInput, { target: { value: '100' } });
+    fireEvent.change(betasInput, { target: { value: 'context-1m-2025-08-07' } });
+    fireEvent.change(httpsProxyInput, { target: { value: 'http://127.0.0.1:7890' } });
+    fireEvent.change(httpProxyInput, { target: { value: 'http://127.0.0.1:7890' } });
+    fireEvent.click(disableTrafficCheckbox);
+    fireEvent.change(attributionHeaderInput, { target: { value: '0' } });
+    fireEvent.click(disableInstallChecksCheckbox);
+    fireEvent.change(cleanupDaysInput, { target: { value: '720' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    await waitFor(() => {
+      expect(api.saveProfile).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'claude-a',
+        claudeCodeRetryWatchdog: true,
+        claudeCodeMaxRetries: 100,
+        anthropicBetas: 'context-1m-2025-08-07',
+        httpsProxy: 'http://127.0.0.1:7890',
+        httpProxy: 'http://127.0.0.1:7890',
+        claudeCodeDisableNonessentialTraffic: true,
+        claudeCodeAttributionHeader: '0',
+        disableInstallationChecks: true,
+        claudeCleanupPeriodDays: 720,
+      }));
+    });
+  });
+
+  it('groups Claude advanced settings into launch, network, and local sections', async () => {
+    installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'claude-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://claude.example.invalid/v1',
+          defaultModel: 'claude-3-5-haiku-20241022',
+          keychainService: 'AgentDock',
+          keychainAccount: 'claude-a',
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    const launchSection = screen.getByRole('group', { name: '启动参数' });
+    const networkSection = screen.getByRole('group', { name: '网络与请求' });
+    const localSection = screen.getByRole('group', { name: '本地配置' });
+
+    expect(within(launchSection).getByText('启动时跳过权限检查')).toBeInTheDocument();
+    expect(within(launchSection).getByText('启用 Claude Code Retry Watchdog')).toBeInTheDocument();
+    expect(within(launchSection).getByLabelText('Claude Code 最大重试次数')).toBeInTheDocument();
+    expect(within(networkSection).getByLabelText('ANTHROPIC_BETAS')).toBeInTheDocument();
+    expect(within(networkSection).getByLabelText('HTTPS_PROXY')).toBeInTheDocument();
+    expect(within(networkSection).getByLabelText('HTTP_PROXY')).toBeInTheDocument();
+    expect(within(networkSection).getByText('禁用非必要流量')).toBeInTheDocument();
+    expect(within(networkSection).getByLabelText('CLAUDE_CODE_ATTRIBUTION_HEADER')).toBeInTheDocument();
+    expect(within(networkSection).getByText('禁用安装检查')).toBeInTheDocument();
+    expect(within(localSection).getByLabelText('Claude 配置清理保留天数')).toBeInTheDocument();
+    expect(within(localSection).getByText('配置 ID')).toBeInTheDocument();
+    expect(within(localSection).getByText('Keychain Account')).toBeInTheDocument();
+  });
+
+  it('excludes permission flag for Claude when skipPermissions is disabled', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'claude-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://claude.example.invalid/v1',
+          defaultModel: 'claude-3-5-haiku-20241022',
+          keychainService: 'AgentDock',
+          keychainAccount: 'claude-a',
+          skipPermissions: false,
+        },
+      ]),
+      saveProfile: vi.fn(async (profile: ApiProfile) => profile),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    const checkbox = screen.getByText('启动时跳过权限检查').closest('label')?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox).not.toBeChecked();
+
+    fireEvent.click(await screen.findByRole('button', { name: '返回终端工作台' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+
+    await waitFor(() => {
+      expect(api.launchSession).toHaveBeenCalledWith({
+        profileId: 'claude-a',
+        workspaceId: 'workspace-a',
+        command: 'claude',
+      });
+    });
+  });
+
+  it('shows permission control for Codex profiles and includes flag when enabled', async () => {
+    installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'codex-b',
+          name: 'Codex B',
+          toolType: 'codex',
+          baseUrl: 'https://codex.example.invalid/v1',
+          defaultModel: 'gpt-5-codex',
+          keychainService: 'AgentDock',
+          keychainAccount: 'codex-b',
+          codexHome: '~/.agentdock/codex-profiles/codex-b',
+          bypassApprovals: true,
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Codex B/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    expect(screen.getByText('启动时跳过批准和沙箱')).toBeInTheDocument();
+    const checkbox = screen.getByText('启动时跳过批准和沙箱').closest('label')?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox).toBeChecked();
+  });
+
+  it('excludes approval bypass flag for Codex when bypassApprovals is disabled', async () => {
+    installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'codex-b',
+          name: 'Codex B',
+          toolType: 'codex',
+          baseUrl: 'https://codex.example.invalid/v1',
+          defaultModel: 'gpt-5-codex',
+          keychainService: 'AgentDock',
+          keychainAccount: 'codex-b',
+          codexHome: '~/.agentdock/codex-profiles/codex-b',
+          bypassApprovals: false,
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Codex B/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    const checkbox = screen.getByText('启动时跳过批准和沙箱').closest('label')?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox).not.toBeChecked();
+  });
+
+  it('toggles permission settings in the UI and persists them on save', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'claude-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://claude.example.invalid/v1',
+          defaultModel: 'claude-3-5-haiku-20241022',
+          keychainService: 'AgentDock',
+          keychainAccount: 'claude-a',
+          skipPermissions: true,
+        },
+      ]),
+      saveProfile: vi.fn(async (profile: ApiProfile) => profile),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    const checkbox = screen.getByText('启动时跳过权限检查').closest('label')?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox).toBeChecked();
+
+    fireEvent.click(checkbox);
+    expect(checkbox).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    await waitFor(() => {
+      expect(api.saveProfile).toHaveBeenCalledWith({
+        id: 'claude-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://claude.example.invalid/v1',
+        defaultModel: 'claude-3-5-haiku-20241022',
+        keychainService: 'AgentDock',
+        keychainAccount: 'claude-a',
+        skipPermissions: false,
+      });
+    });
+  });
+
+  it('does not show permission controls for non-Claude/Codex profiles', async () => {
+    installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'gemini-a',
+          name: 'Gemini A',
+          toolType: 'gemini',
+          baseUrl: 'https://gemini.example.invalid/v1',
+          defaultModel: 'gemini-pro',
+          keychainService: 'AgentDock',
+          keychainAccount: 'gemini-a',
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Gemini A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    expect(screen.queryByText(/启动时跳过权限检查/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/启动时跳过批准和沙箱/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Claude Code Retry Watchdog/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Claude Code 最大重试次数')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('ANTHROPIC_BETAS')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('HTTPS_PROXY')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('HTTP_PROXY')).not.toBeInTheDocument();
   });
 
 });

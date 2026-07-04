@@ -8,6 +8,7 @@ import { CommandBar } from './components/CommandBar';
 import { SessionDetailsDrawer } from './components/SessionDetailsDrawer';
 import { SessionTabs } from './components/SessionTabs';
 import { TerminalPane } from './components/TerminalPane';
+import { defaultApiProfiles } from '../shared/defaultApiProfiles';
 import type { AgentSession, ApiProfile, Workspace } from '../shared/agentdockTypes';
 
 export type SessionTab = {
@@ -18,33 +19,13 @@ export type SessionTab = {
 
 type ActivePage = 'workbench' | 'apiConfig';
 
-const fallbackProfiles: ApiProfile[] = [
-  {
-    id: 'claude-anyrouter',
-    name: 'Claude · AnyRouter A',
-    toolType: 'claude',
-    baseUrl: 'https://anyrouter.top',
-    defaultModel: 'claude-3-5-haiku-20241022',
-    keychainService: 'AgentDock',
-    keychainAccount: 'claude-anyrouter',
-  },
-  {
-    id: 'codex-openai',
-    name: 'Codex · AnyRouter',
-    toolType: 'codex',
-    baseUrl: 'https://anyrouter.top/v1',
-    defaultModel: 'gpt-5-codex',
-    keychainService: 'AgentDock',
-    keychainAccount: 'codex-openai',
-    codexHome: '~/.agentdock/codex-profiles/codex-openai',
-  },
-];
+const fallbackProfiles: ApiProfile[] = defaultApiProfiles;
 
 const fallbackWorkspaces: Workspace[] = [
   {
     id: 'agentdock',
-    name: 'AgentDock 项目',
-    path: '/Users/peyoba/Desktop/web/AgentDock',
+    name: 'AgentDock 预览',
+    path: '/tmp/agentdock-preview',
   },
 ];
 
@@ -79,7 +60,17 @@ const fallbackSessions: AgentSession[] = [
 ];
 
 function defaultCommandFor(profile?: ApiProfile): string {
-  return profile?.toolType ?? 'claude';
+  if (profile?.toolType === 'codex') {
+    const bypass = profile.bypassApprovals ?? true;
+    return bypass ? 'codex --dangerously-bypass-approvals-and-sandbox' : 'codex';
+  }
+
+  if (profile?.toolType === 'claude') {
+    const skip = profile.skipPermissions ?? true;
+    return skip ? 'claude --dangerously-skip-permissions' : 'claude';
+  }
+
+  return profile?.toolType ?? 'claude --dangerously-skip-permissions';
 }
 
 function safeLaunchError(error: unknown): string {
@@ -283,6 +274,18 @@ export default function App(): React.JSX.Element {
     return api.fetchProfileModels(request);
   };
 
+  const deleteProfile = async (profileId: string): Promise<void> => {
+    if (!api) {
+      return;
+    }
+
+    await api.deleteProfile(profileId);
+    setProfiles((current) => current.filter((item) => item.id !== profileId));
+    if (selectedProfileId === profileId) {
+      setSelectedProfileId(undefined);
+    }
+  };
+
   const chooseWorkspace = async (): Promise<void> => {
     if (!api) {
       return;
@@ -362,6 +365,7 @@ export default function App(): React.JSX.Element {
           onFilterChange={setApiConfigFilter}
           onSelectProfile={selectProfile}
           onSaveProfile={saveProfile}
+          onDeleteProfile={deleteProfile}
           onSaveProfileSecret={saveProfileSecret}
           onReadProfileSecret={readProfileSecret}
           onFetchProfileModels={fetchProfileModels}

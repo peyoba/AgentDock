@@ -10,6 +10,7 @@ describe('preloadTypes', () => {
       'listWorkspaces',
       'chooseWorkspace',
       'saveProfile',
+      'deleteProfile',
       'saveProfileSecret',
       'readProfileSecret',
       'fetchProfileModels',

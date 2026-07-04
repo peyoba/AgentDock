@@ -10,6 +10,17 @@ export type ApiProfile = {
   keychainService: string;
   keychainAccount: string;
   codexHome?: string;
+  skipPermissions?: boolean;
+  bypassApprovals?: boolean;
+  claudeCodeRetryWatchdog?: boolean;
+  claudeCodeMaxRetries?: number;
+  anthropicBetas?: string;
+  httpProxy?: string;
+  httpsProxy?: string;
+  claudeCodeDisableNonessentialTraffic?: boolean;
+  claudeCodeAttributionHeader?: string;
+  disableInstallationChecks?: boolean;
+  claudeCleanupPeriodDays?: number;
 };
 
 export type Workspace = {

@@ -95,7 +95,7 @@ function encryptSecret(secret: string, keyMaterial: string): VaultRecord {
   };
 }
 
-function decryptSecret(record: VaultRecord, keyMaterial: string, account: string): string {
+function decryptSecret(record: VaultRecord, keyMaterial: string, _account: string): string {
   try {
     const salt = Buffer.from(record.salt, 'base64');
     const iv = Buffer.from(record.iv, 'base64');
@@ -107,7 +107,9 @@ function decryptSecret(record: VaultRecord, keyMaterial: string, account: string
 
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
   } catch {
-    throw new Error(`Unable to decrypt local API key vault entry for account "${account}"`);
+    throw new Error(
+      `无法读取已保存的 API Key，请重新粘贴并保存一次以修复本机加密记录。`,
+    );
   }
 }
 

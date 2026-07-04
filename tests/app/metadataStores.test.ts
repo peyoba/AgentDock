@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -52,6 +52,78 @@ describe('metadata stores', () => {
     ]);
     expect(JSON.stringify(profiles)).not.toContain('local-development-secret');
     expect(JSON.stringify(profiles)).not.toContain('ANTHROPIC_AUTH_TOKEN');
+  });
+
+  it('deletes profile metadata from the persisted profile store', async () => {
+    const store = createProfileStore(tempDir);
+
+    await store.save({
+      id: 'profile-a',
+      name: 'Claude A',
+      toolType: 'claude',
+      baseUrl: 'https://claude.example.invalid',
+      keychainService: 'AgentDock',
+      keychainAccount: 'profile-a',
+    });
+    await store.save({
+      id: 'profile-b',
+      name: 'Codex B',
+      toolType: 'codex',
+      baseUrl: 'https://codex.example.invalid/v1',
+      keychainService: 'AgentDock',
+      keychainAccount: 'profile-b',
+      codexHome: '~/.agentdock/codex-profiles/profile-b',
+    });
+
+    await store.delete('profile-a');
+
+    await expect(store.list()).resolves.toEqual([
+      {
+        id: 'profile-b',
+        name: 'Codex B',
+        toolType: 'codex',
+        baseUrl: 'https://codex.example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-b',
+        codexHome: '~/.agentdock/codex-profiles/profile-b',
+      },
+    ]);
+
+    const rawProfiles = await readFile(path.join(tempDir, 'profiles.json'), 'utf-8');
+    expect(rawProfiles).not.toContain('profile-a');
+    expect(rawProfiles).toContain('profile-b');
+  });
+
+  it('sanitizes stored AnyRouter Claude metadata before returning profiles', async () => {
+    const store = createProfileStore(tempDir);
+
+    await store.save({
+      id: 'claude-anyrouter',
+      name: 'Claude · AnyRouter',
+      toolType: 'claude',
+      baseUrl: 'https://anyrouter.top',
+      defaultModel: 'opus[1m]',
+      availableModels: ['opus[1m]', 'claude-fable-5', 'claude-opus-4-7'],
+      keychainService: 'AgentDock',
+      keychainAccount: 'claude-anyrouter',
+      anthropicBetas: 'http://127.0.0.1:7897',
+      httpProxy: 'context-1m-2025-08-07',
+      httpsProxy: 'not-a-url',
+    });
+
+    await expect(store.list()).resolves.toEqual([
+      {
+        id: 'claude-anyrouter',
+        name: 'Claude · AnyRouter',
+        toolType: 'claude',
+        baseUrl: 'https://anyrouter.top',
+        defaultModel: 'claude-fable-5',
+        availableModels: ['claude-fable-5', 'claude-opus-4-7'],
+        keychainService: 'AgentDock',
+        keychainAccount: 'claude-anyrouter',
+        anthropicBetas: 'context-1m-2025-08-07',
+      },
+    ]);
   });
 
   it('saves workspace metadata by local path', async () => {

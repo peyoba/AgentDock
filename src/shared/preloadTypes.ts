@@ -19,6 +19,7 @@ export type AgentDockApi = {
   listWorkspaces(): Promise<Workspace[]>;
   chooseWorkspace(): Promise<Workspace | undefined>;
   saveProfile(profile: ApiProfile): Promise<ApiProfile>;
+  deleteProfile(profileId: string): Promise<void>;
   saveProfileSecret(request: ProfileSecretSaveRequest): Promise<void>;
   readProfileSecret(request: ProfileSecretReadRequest): Promise<string>;
   fetchProfileModels(request: ProfileModelsFetchRequest): Promise<string[]>;
@@ -37,6 +38,7 @@ export const AGENT_DOCK_API_METHODS = [
   'listWorkspaces',
   'chooseWorkspace',
   'saveProfile',
+  'deleteProfile',
   'saveProfileSecret',
   'readProfileSecret',
   'fetchProfileModels',

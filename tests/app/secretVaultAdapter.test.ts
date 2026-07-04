@@ -63,6 +63,31 @@ describe('encrypted local secret vault', () => {
     );
   });
 
+  it('reports a recoverable message when an existing vault entry cannot be decrypted', async () => {
+    const memory = createMemoryFiles();
+    const filePath = '/tmp/agentdock-test/secrets.vault.json';
+    const writer = createEncryptedVaultAdapter({
+      filePath,
+      keyMaterial: 'old-key-material',
+      ensureDirectory: async () => undefined,
+      readTextFile: memory.readTextFile,
+      writeTextFile: memory.writeTextFile,
+    });
+    const reader = createEncryptedVaultAdapter({
+      filePath,
+      keyMaterial: 'new-key-material',
+      ensureDirectory: async () => undefined,
+      readTextFile: memory.readTextFile,
+      writeTextFile: memory.writeTextFile,
+    });
+
+    await writer.writeSecret('AgentDock', 'codex-custom-1', 'test-old-secret');
+
+    await expect(reader.readSecret('AgentDock', 'codex-custom-1')).rejects.toThrow(
+      '无法读取已保存的 API Key，请重新粘贴并保存一次以修复本机加密记录。',
+    );
+  });
+
   it('migrates a legacy Keychain secret into the local vault on first read only', async () => {
     const { adapter: vault, files, filePath } = createMemoryVault();
     const fallbackCalls: string[] = [];

@@ -266,12 +266,12 @@ describe('sessionService terminal controls', () => {
 
     await expect(
       service.writeTerminal({ sessionId: 'missing-session', input: 'help\n' }),
-    ).rejects.toThrow('Terminal session was not found');
+    ).rejects.toThrow('未找到指定的终端会话');
     await expect(
       service.resizeTerminal({ sessionId: 'missing-session', cols: 80, rows: 24 }),
-    ).rejects.toThrow('Terminal session was not found');
+    ).rejects.toThrow('未找到指定的终端会话');
     await expect(
       service.killTerminal({ sessionId: 'missing-session' }),
-    ).rejects.toThrow('Terminal session was not found');
+    ).rejects.toThrow('未找到指定的终端会话');
   });
 });

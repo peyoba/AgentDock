@@ -556,6 +556,98 @@ p {
   padding: 8px 12px;
 }
 
+.advanced-config-panel {
+  display: grid;
+  gap: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+}
+
+.advanced-config-section {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 16px;
+  border: 0;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.advanced-config-section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.advanced-config-section legend {
+  padding: 0;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.advanced-field-grid,
+.advanced-option-list,
+.advanced-readonly-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.advanced-field-grid-compact {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.advanced-readonly-fields {
+  min-width: 0;
+  margin: 2px 0 0;
+  padding: 12px;
+  border: 1px solid #edf0f5;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.advanced-readonly-fields legend {
+  padding: 0 6px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.profile-editor .checkbox-label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "check title"
+    ". help";
+  align-items: center;
+  gap: 3px 10px;
+  min-width: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fbfcfe;
+  padding: 10px 12px;
+}
+
+.profile-editor .checkbox-label input {
+  grid-area: check;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.profile-editor .checkbox-label span {
+  grid-area: title;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.profile-editor .checkbox-label .field-help {
+  grid-area: help;
+}
+
 .profile-editor input,
 .profile-editor select {
   border: 1px solid #e5e7eb;
@@ -571,15 +663,81 @@ p {
   color: #6b7280;
 }
 
-.model-config,
-.api-key-editor {
+.model-config {
   display: grid;
   gap: 10px;
 }
 
+.fetched-model-group {
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  padding: 12px;
+}
+
+.model-preset-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+
+.model-preset-title span {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.model-preset-title small {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.fetched-model-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.fetched-model-option {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  color: #111827;
+  padding: 9px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.fetched-model-option span {
+  color: #2563eb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fetched-model-option:has(input:checked) {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.fetched-model-option input {
+  flex: 0 0 auto;
+}
+
 .model-config-header,
-.model-add-row,
-.api-key-editor {
+.model-add-row {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
 }
@@ -591,8 +749,7 @@ p {
 }
 
 .model-fetch-button,
-.model-add-row button,
-.secret-visibility-button {
+.model-add-row button {
   border: 1px solid #d1d5db;
   border-radius: 12px;
   background: #fff;
@@ -600,6 +757,49 @@ p {
   font-weight: 900;
   padding: 10px 12px;
   white-space: nowrap;
+}
+
+.api-key-editor {
+  display: block;
+}
+
+.secret-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.secret-input-wrap input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 46px;
+}
+
+.secret-eye-button {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.secret-eye-button:hover:not(:disabled) {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.secret-eye-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .model-chip-list {
@@ -673,6 +873,13 @@ p {
   .command-fields,
   .api-config-layout,
   .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .advanced-field-grid,
+  .advanced-field-grid-compact,
+  .advanced-option-list,
+  .advanced-readonly-fields {
     grid-template-columns: 1fr;
   }
 }

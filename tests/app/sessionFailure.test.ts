@@ -38,10 +38,46 @@ describe('sessionService launch failure safety', () => {
 
     await expect(
       service.launch({ profile, workspace, command: 'claude' }),
-    ).rejects.toThrow('Workspace path is not available');
+    ).rejects.toThrow('工作区路径不可用');
 
     expect(readSecret).not.toHaveBeenCalled();
     expect(await service.list()).toEqual([]);
+  });
+
+  it('does not preflight protected macOS Desktop paths before spawning the PTY', async () => {
+    const readSecret = vi.fn().mockResolvedValue('local-development-secret');
+    const workspaceExists = vi.fn().mockReturnValue(false);
+    const spawn = vi.fn().mockResolvedValue({
+      id: 'session-1',
+      write() {},
+      resize() {},
+      kill() {},
+      onData() {
+        return () => {};
+      },
+    });
+    const service = createSessionService({
+      keychain: {
+        readSecret,
+        async writeSecret() {},
+        async deleteSecret() {},
+      } as KeychainAdapter,
+      pty: { spawn } as unknown as PtyAdapter,
+      appDataPath: '/tmp/agentdock-test-data',
+      workspaceExists,
+    });
+
+    await expect(
+      service.launch({
+        profile,
+        workspace: { ...workspace, path: '/Users/example/Desktop/web/AgentDock' },
+        command: 'claude',
+      }),
+    ).resolves.toMatchObject({ status: 'running' });
+
+    expect(workspaceExists).not.toHaveBeenCalled();
+    expect(readSecret).toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalled();
   });
 
   it('marks the session failed and throws a safe error when PTY spawn fails', async () => {
@@ -66,7 +102,7 @@ describe('sessionService launch failure safety', () => {
 
     await expect(
       service.launch({ profile, workspace: { ...workspace, path: '/tmp' }, command: 'claude' }),
-    ).rejects.toThrow('Failed to launch terminal command "claude"');
+    ).rejects.toThrow('终端命令启动失败: "claude"');
 
     const sessions = await service.list();
     expect(sessions).toEqual([
@@ -83,7 +119,7 @@ describe('sessionService launch failure safety', () => {
     expect(JSON.stringify(sessions)).not.toContain(secret);
     await expect(
       service.writeTerminal({ sessionId: 'session-1', input: 'help\n' }),
-    ).rejects.toThrow('Terminal session was not found');
+    ).rejects.toThrow('未找到指定的终端会话');
   });
 
   it('rethrows missing local API key errors so the UI can tell users to save a key', async () => {

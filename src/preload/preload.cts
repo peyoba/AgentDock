@@ -17,6 +17,7 @@ const api: AgentDockApi = {
   listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
   chooseWorkspace: () => ipcRenderer.invoke('workspaces:choose'),
   saveProfile: (profile) => ipcRenderer.invoke('profiles:save', profile),
+  deleteProfile: (profileId) => ipcRenderer.invoke('profiles:delete', { profileId }),
   saveProfileSecret: (request) => ipcRenderer.invoke('profiles:saveSecret', request),
   readProfileSecret: (request) => ipcRenderer.invoke('profiles:readSecret', request),
   fetchProfileModels: (request) => ipcRenderer.invoke('profiles:fetchModels', request),

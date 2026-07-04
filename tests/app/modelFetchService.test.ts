@@ -98,7 +98,7 @@ describe('modelFetchService', () => {
     }
 
     expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toBe('Unable to fetch model list: 401 Unauthorized');
+    expect((thrown as Error).message).toBe('无法拉取模型列表: 401 Unauthorized');
     expect((thrown as Error).message).not.toContain(secret);
     expect((thrown as Error).message).not.toContain('Authorization');
     expect((thrown as Error).message).not.toContain('Incorrect API key');

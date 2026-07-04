@@ -56,7 +56,7 @@ function buildHeaders(profile: ApiProfile, secret: string): Record<string, strin
 
 function safeHttpError(status: number, statusText: string): Error {
   const suffix = statusText ? ` ${statusText}` : '';
-  return new Error(`Unable to fetch model list: ${status}${suffix}`);
+  return new Error(`无法拉取模型列表: ${status}${suffix}`);
 }
 
 function readModelId(item: unknown): string | undefined {
@@ -119,11 +119,11 @@ export async function fetchProfileModels({
     const payload = (await response.json().catch(() => undefined)) as unknown;
     const models = extractModelIds(payload);
     if (models.length === 0) {
-      throw new Error('Model list response did not include model IDs');
+      throw new Error('模型列表为空，无法获取有效的模型标识符');
     }
 
     return models;
   }
 
-  throw new Error('Unable to fetch model list');
+  throw new Error('无法拉取模型列表');
 }

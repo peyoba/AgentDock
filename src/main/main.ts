@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,9 @@ import { createSessionService } from './sessionService.js';
 import { createProfileStore } from './stores/profileStore.js';
 import { createWorkspaceStore } from './stores/workspaceStore.js';
 import { createWorkspaceFromPath, mergeWorkspaces } from './workspaceService.js';
+import { normalizeClaudeProfileDefaults } from '../shared/claudeProfileDefaults.js';
+import { defaultApiProfiles, isDefaultApiProfileId } from '../shared/defaultApiProfiles.js';
+import { defaultWorkspaces } from '../shared/defaultWorkspaces.js';
 import type {
   ApiProfile,
   LaunchRequest,
@@ -36,56 +39,38 @@ const sessionService = createSessionService({
   workspaceExists: fs.existsSync,
 });
 
-const defaultProfiles: ApiProfile[] = [
-  {
-    id: 'claude-anyrouter',
-    name: 'Claude · AnyRouter A',
-    toolType: 'claude',
-    baseUrl: 'https://anyrouter.top',
-    defaultModel: 'claude-3-5-haiku-20241022',
-    availableModels: [
-      'claude-3-5-haiku-20241022',
-      'claude-3-7-sonnet-20250219',
-      'claude-sonnet-4-20250514',
-      'claude-opus-4-20250514',
-    ],
-    keychainService: 'AgentDock',
-    keychainAccount: 'claude-anyrouter',
-  },
-  {
-    id: 'codex-openai',
-    name: 'Codex · AnyRouter',
-    toolType: 'codex',
-    baseUrl: 'https://anyrouter.top/v1',
-    defaultModel: 'gpt-5-codex',
-    availableModels: ['gpt-5-codex', 'gpt-4o', 'gpt-4.1', 'o3'],
-    keychainService: 'AgentDock',
-    keychainAccount: 'codex-openai',
-    codexHome: '~/.agentdock/codex-profiles/codex-openai',
-  },
-];
-
-const defaultWorkspaces: Workspace[] = [
-  {
-    id: 'agentdock',
-    name: 'AgentDock',
-    path: '/Users/peyoba/Desktop/web/AgentDock',
-  },
-];
+const defaultProfiles: ApiProfile[] = defaultApiProfiles;
 
 function sanitizeProfile(profile: ApiProfile): ApiProfile {
-  const availableModels = normalizeModelList(profile.availableModels);
+  const normalizedProfile = normalizeClaudeProfileDefaults(profile);
+  const availableModels = normalizeModelList(normalizedProfile.availableModels);
+  const claudeCodeMaxRetries = positiveInteger(normalizedProfile.claudeCodeMaxRetries);
+  const claudeCleanupPeriodDays = positiveInteger(normalizedProfile.claudeCleanupPeriodDays);
 
   return {
-    id: profile.id,
-    name: profile.name,
-    toolType: profile.toolType,
-    baseUrl: profile.baseUrl,
-    defaultModel: profile.defaultModel || undefined,
+    id: normalizedProfile.id,
+    name: normalizedProfile.name,
+    toolType: normalizedProfile.toolType,
+    baseUrl: normalizedProfile.baseUrl,
+    defaultModel: normalizedProfile.defaultModel || undefined,
     availableModels: availableModels.length > 0 ? availableModels : undefined,
-    keychainService: profile.keychainService,
-    keychainAccount: profile.keychainAccount,
-    codexHome: profile.codexHome || undefined,
+    keychainService: normalizedProfile.keychainService,
+    keychainAccount: normalizedProfile.keychainAccount,
+    codexHome: normalizedProfile.codexHome || undefined,
+    skipPermissions: normalizedProfile.skipPermissions,
+    bypassApprovals: normalizedProfile.bypassApprovals,
+    claudeCodeRetryWatchdog: normalizedProfile.claudeCodeRetryWatchdog,
+    claudeCodeMaxRetries,
+    anthropicBetas: optionalTrimmedString(normalizedProfile.anthropicBetas),
+    httpProxy: optionalTrimmedString(normalizedProfile.httpProxy),
+    httpsProxy: optionalTrimmedString(normalizedProfile.httpsProxy),
+    claudeCodeDisableNonessentialTraffic:
+      normalizedProfile.claudeCodeDisableNonessentialTraffic,
+    claudeCodeAttributionHeader: optionalTrimmedString(
+      normalizedProfile.claudeCodeAttributionHeader,
+    ),
+    disableInstallationChecks: normalizedProfile.disableInstallationChecks,
+    claudeCleanupPeriodDays,
   };
 }
 
@@ -103,6 +88,19 @@ function normalizeModelList(models: string[] | undefined): string[] {
   }
 
   return result;
+}
+
+function optionalTrimmedString(value: string | undefined): string | undefined {
+  const trimmedValue = value?.trim();
+  return trimmedValue ? trimmedValue : undefined;
+}
+
+function positiveInteger(value: number | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+
+  return Math.trunc(value);
 }
 
 async function listProfiles(): Promise<ApiProfile[]> {
@@ -152,6 +150,28 @@ async function chooseWorkspace(parentWindow: BrowserWindow | null): Promise<Work
   return workspace;
 }
 
+function hardenWebContents(
+  contents: Electron.WebContents,
+  devServerUrl: string | undefined,
+): void {
+  // 拒绝渲染层打开新窗口；仅把 https 链接交给系统浏览器，其余一律拦截
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//i.test(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  // 锁定导航：生产只允许本地 file://，开发额外允许 Vite dev server，
+  // 避免注入内容把渲染进程导航到外部页面窃取已展示的密钥
+  contents.on('will-navigate', (event, url) => {
+    const isDevNavigation = Boolean(devServerUrl) && url.startsWith(devServerUrl as string);
+    if (!isDevNavigation && !url.startsWith('file://')) {
+      event.preventDefault();
+    }
+  });
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle('profiles:list', () => listProfiles());
   ipcMain.handle('profiles:save', (_event, profile: ApiProfile) => saveProfile(profile));
@@ -168,10 +188,21 @@ function registerIpcHandlers(): void {
   ipcMain.handle('profiles:fetchModels', async (_event, request: ProfileModelsFetchRequest) => {
     const profile = (await listProfiles()).find((item) => item.id === request.profileId);
     if (!profile) {
-      throw new Error('Cannot fetch models because profile was not found');
+      throw new Error('所选配置不存在，无法拉取模型列表');
     }
 
     return fetchProfileModels({ profile, secretAdapter });
+  });
+  ipcMain.handle('profiles:delete', async (_event, { profileId }: { profileId: string }) => {
+    if (isDefaultApiProfileId(profileId)) {
+      throw new Error('无法删除内置默认配置；请新增自定义配置或编辑保存覆盖。');
+    }
+
+    const profiles = await listProfiles();
+    if (profiles.length <= 1) {
+      throw new Error('无法删除最后一个配置，至少需要保留一个');
+    }
+    await profileStore.delete(profileId);
   });
   ipcMain.handle('workspaces:list', () => listWorkspaces());
   ipcMain.handle('workspaces:choose', (event) =>
@@ -197,7 +228,7 @@ function registerIpcHandlers(): void {
     const workspace = workspaces.find((item) => item.id === request.workspaceId);
 
     if (!profile || !workspace) {
-      throw new Error('Cannot launch session because profile or workspace was not found');
+      throw new Error('所选配置或工作区不存在，无法启动会话');
     }
 
     return sessionService.launch({
@@ -231,6 +262,7 @@ function createMainWindow(): void {
   window.on('closed', unsubscribeTerminalOutput);
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  hardenWebContents(window.webContents, devServerUrl);
   if (devServerUrl) {
     void window.loadURL(devServerUrl);
     window.webContents.openDevTools({ mode: 'detach' });

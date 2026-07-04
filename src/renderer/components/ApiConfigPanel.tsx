@@ -25,6 +25,7 @@ type ApiConfigPanelProps = {
   onFilterChange(filter: ApiConfigFilter): void;
   onSelectProfile(profileId: string): void;
   onSaveProfile(profile: ApiProfile): Promise<ApiProfile>;
+  onDeleteProfile?(profileId: string): Promise<void>;
   onSaveProfileSecret(request: {
     keychainService: string;
     keychainAccount: string;
@@ -66,8 +67,30 @@ function normalizeModelList(models: string[] | undefined): string[] {
   return normalizedModels;
 }
 
+function normalizePositiveInteger(value: number | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+
+  return Math.trunc(value);
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  const trimmedValue = value?.trim();
+  return trimmedValue ? trimmedValue : undefined;
+}
+
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const message = error.message.replace(/^Error invoking remote method '[^']+': Error:\s*/, '');
+  if (/Unable to decrypt local API key vault entry/.test(message)) {
+    return '无法读取已保存的 API Key，请重新粘贴并保存一次以修复本机加密记录。';
+  }
+
+  return message;
 }
 
 function createUniqueProfileId(toolType: ToolType, profiles: ApiProfile[]): string {
@@ -127,6 +150,7 @@ export function ApiConfigPanel({
   onFilterChange,
   onSelectProfile,
   onSaveProfile,
+  onDeleteProfile,
   onSaveProfileSecret,
   onReadProfileSecret,
   onFetchProfileModels,
@@ -139,12 +163,15 @@ export function ApiConfigPanel({
   const [secretDirty, setSecretDirty] = React.useState(false);
   const [secretLoading, setSecretLoading] = React.useState(false);
   const [newModelDraft, setNewModelDraft] = React.useState('');
+  const [fetchedModels, setFetchedModels] = React.useState<string[]>([]);
   const [modelFetching, setModelFetching] = React.useState(false);
   const [modelMessage, setModelMessage] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [saveMessage, setSaveMessage] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     setDraft(createDraft(selectedProfile));
@@ -153,11 +180,13 @@ export function ApiConfigPanel({
     setSecretDirty(false);
     setSecretLoading(false);
     setNewModelDraft('');
+    setFetchedModels([]);
     setModelFetching(false);
     setModelMessage(null);
     setSaveMessage(null);
     setSaveError(null);
     setAdvancedOpen(false);
+    setDeleteError(null);
   }, [selectedProfile?.id]);
 
   const visibleProfiles =
@@ -173,7 +202,39 @@ export function ApiConfigPanel({
     setSecretDirty(true);
   };
 
+  const updateClaudeCodeMaxRetries = (value: string): void => {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) {
+      updateDraft('claudeCodeMaxRetries', undefined);
+      return;
+    }
+
+    const parsedValue = Number(trimmedValue);
+    updateDraft(
+      'claudeCodeMaxRetries',
+      Number.isFinite(parsedValue) ? parsedValue : undefined,
+    );
+  };
+
+  const updateClaudeCleanupPeriodDays = (value: string): void => {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) {
+      updateDraft('claudeCleanupPeriodDays', undefined);
+      return;
+    }
+
+    const parsedValue = Number(trimmedValue);
+    updateDraft(
+      'claudeCleanupPeriodDays',
+      Number.isFinite(parsedValue) ? parsedValue : undefined,
+    );
+  };
+
   const modelOptions = normalizeModelList(draft?.availableModels);
+  const defaultModelOptions = normalizeModelList([
+    draft?.defaultModel ?? '',
+    ...modelOptions,
+  ]);
 
   const setModelOptions = (models: string[], defaultModel?: string): void => {
     setDraft((current) => {
@@ -187,10 +248,7 @@ export function ApiConfigPanel({
       return {
         ...current,
         availableModels: nextModels.length > 0 ? nextModels : undefined,
-        defaultModel:
-          nextDefault && (nextModels.length === 0 || nextModels.includes(nextDefault))
-            ? nextDefault
-            : nextModels[0],
+        defaultModel: nextDefault || nextModels[0],
       };
     });
   };
@@ -202,6 +260,7 @@ export function ApiConfigPanel({
     setSecretVisible(false);
     setSecretDirty(false);
     setNewModelDraft('');
+    setFetchedModels([]);
     setModelMessage(null);
     setSaveMessage(null);
     setSaveError(null);
@@ -250,7 +309,10 @@ export function ApiConfigPanel({
     setSaveError(null);
     try {
       const models = normalizeModelList(await onFetchProfileModels({ profileId: draft.id }));
-      setModelOptions(models, models.includes(draft.defaultModel ?? '') ? draft.defaultModel : models[0]);
+      setFetchedModels(models);
+      if (!draft.defaultModel && models[0]) {
+        updateDraft('defaultModel', models[0]);
+      }
       setModelMessage(`已拉取 ${models.length} 个模型`);
     } catch (error) {
       setSaveError(errorMessage(error, '模型拉取失败'));
@@ -271,6 +333,19 @@ export function ApiConfigPanel({
 
     setModelOptions([...modelOptions, nextModel], draft.defaultModel || nextModel);
     setNewModelDraft('');
+  };
+
+  const toggleFetchedModel = (model: string): void => {
+    if (!draft) {
+      return;
+    }
+
+    if (modelOptions.includes(model)) {
+      removeModel(model);
+      return;
+    }
+
+    setModelOptions([...modelOptions, model], draft.defaultModel || model);
   };
 
   const removeModel = (model: string): void => {
@@ -302,6 +377,32 @@ export function ApiConfigPanel({
         keychainService: draft.keychainService.trim(),
         keychainAccount: draft.keychainAccount.trim(),
         codexHome: draft.codexHome?.trim() || undefined,
+        claudeCodeRetryWatchdog:
+          draft.toolType === 'claude' ? draft.claudeCodeRetryWatchdog : undefined,
+        claudeCodeMaxRetries:
+          draft.toolType === 'claude'
+            ? normalizePositiveInteger(draft.claudeCodeMaxRetries)
+            : undefined,
+        anthropicBetas:
+          draft.toolType === 'claude' ? normalizeOptionalString(draft.anthropicBetas) : undefined,
+        httpProxy:
+          draft.toolType === 'claude' ? normalizeOptionalString(draft.httpProxy) : undefined,
+        httpsProxy:
+          draft.toolType === 'claude' ? normalizeOptionalString(draft.httpsProxy) : undefined,
+        claudeCodeDisableNonessentialTraffic:
+          draft.toolType === 'claude'
+            ? draft.claudeCodeDisableNonessentialTraffic
+            : undefined,
+        claudeCodeAttributionHeader:
+          draft.toolType === 'claude'
+            ? normalizeOptionalString(draft.claudeCodeAttributionHeader)
+            : undefined,
+        disableInstallationChecks:
+          draft.toolType === 'claude' ? draft.disableInstallationChecks : undefined,
+        claudeCleanupPeriodDays:
+          draft.toolType === 'claude'
+            ? normalizePositiveInteger(draft.claudeCleanupPeriodDays)
+            : undefined,
       });
       if (secretDraft.trim() && secretDirty) {
         await onSaveProfileSecret({
@@ -322,6 +423,37 @@ export function ApiConfigPanel({
       setSaveError(error instanceof Error ? error.message : '配置保存失败');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (): Promise<void> => {
+    if (!draft || !onDeleteProfile) {
+      return;
+    }
+
+    const confirmed = window.confirm(`确定要删除配置 "${draft.name}" 吗？此操作无法撤销。`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDeleteProfile(draft.id);
+      // 删除成功后清空当前选择和编辑状态
+      setDraft(undefined);
+      setSecretDraft('');
+      setSecretVisible(false);
+      setSecretDirty(false);
+      setNewModelDraft('');
+      setFetchedModels([]);
+      setModelMessage(null);
+      setSaveMessage(null);
+      setSaveError(null);
+    } catch (error) {
+      setDeleteError(errorMessage(error, '删除配置失败'));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -418,10 +550,10 @@ export function ApiConfigPanel({
                     <span>默认模型</span>
                     {modelOptions.length > 0 ? (
                       <select
-                        value={draft.defaultModel ?? modelOptions[0] ?? ''}
+                        value={draft.defaultModel ?? defaultModelOptions[0] ?? ''}
                         onChange={(event) => updateDraft('defaultModel', event.target.value)}
                       >
-                        {modelOptions.map((model) => (
+                        {defaultModelOptions.map((model) => (
                           <option key={model} value={model}>{model}</option>
                         ))}
                       </select>
@@ -442,6 +574,26 @@ export function ApiConfigPanel({
                   </button>
                 </div>
                 {modelMessage ? <small className="field-help">{modelMessage}</small> : null}
+                {fetchedModels.length > 0 ? (
+                  <div className="fetched-model-group" role="group" aria-label="拉取到的模型">
+                    <div className="model-preset-title">
+                      <span>拉取到的模型</span>
+                      <small>勾选后加入常用模型；默认模型可以从常用模型中选择。</small>
+                    </div>
+                    <div className="fetched-model-list">
+                      {fetchedModels.map((model) => (
+                        <label key={model} className="fetched-model-option">
+                          <input
+                            type="checkbox"
+                            checked={modelOptions.includes(model)}
+                            onChange={() => toggleFetchedModel(model)}
+                          />
+                          <span>{model}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="model-add-row">
                   <label>
                     <span>自定义模型 ID</span>
@@ -461,7 +613,7 @@ export function ApiConfigPanel({
                   </button>
                 </div>
                 {modelOptions.length > 0 ? (
-                  <div className="model-chip-list" aria-label="可选模型列表">
+                  <div className="model-chip-list" aria-label="常用模型列表">
                     {modelOptions.map((model) => (
                       <span key={model} className="model-chip">
                         {model}
@@ -487,30 +639,225 @@ export function ApiConfigPanel({
                   {advancedOpen ? '隐藏高级设置' : '显示高级设置'}
                 </button>
                 <small className="field-help">
-                  内部标识、密钥存储位置和 Codex 隔离目录由 AgentDock 自动管理。
+                  权限和隔离目录配置。
                 </small>
               </div>
               {advancedOpen ? (
-                <>
-                  <label>
-                    <span>配置 ID</span>
-                    <input value={draft.id} readOnly />
-                  </label>
-                  <label>
-                    <span>Keychain Service</span>
-                    <input value={draft.keychainService} readOnly />
-                  </label>
-                  <label>
-                    <span>Keychain Account</span>
-                    <input value={draft.keychainAccount} readOnly />
-                  </label>
-                  {draft.toolType === 'codex' ? (
-                    <label>
-                      <span>Codex Home</span>
-                      <input value={draft.codexHome ?? ''} readOnly />
-                    </label>
-                  ) : null}
-                </>
+                <div className="advanced-config-panel wide-field">
+                  {draft.toolType === 'claude' ? (
+                    <>
+                      <fieldset className="advanced-config-section">
+                        <legend>启动参数</legend>
+                        <div className="advanced-option-list">
+                          <label className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={draft.skipPermissions ?? true}
+                              onChange={(e) => updateDraft('skipPermissions', e.target.checked)}
+                            />
+                            <span>启动时跳过权限检查</span>
+                            <small className="field-help">
+                              添加 --dangerously-skip-permissions
+                            </small>
+                          </label>
+                          <label className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={draft.claudeCodeRetryWatchdog ?? false}
+                              onChange={(e) =>
+                                updateDraft('claudeCodeRetryWatchdog', e.target.checked)
+                              }
+                            />
+                            <span>启用 Claude Code Retry Watchdog</span>
+                            <small className="field-help">
+                              注入 CLAUDE_CODE_RETRY_WATCHDOG=1
+                            </small>
+                          </label>
+                        </div>
+                        <div className="advanced-field-grid advanced-field-grid-compact">
+                          <label>
+                            <span>Claude Code 最大重试次数</span>
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              aria-label="Claude Code 最大重试次数"
+                              value={draft.claudeCodeMaxRetries ?? ''}
+                              onChange={(event) => updateClaudeCodeMaxRetries(event.target.value)}
+                            />
+                            <small className="field-help">
+                              填写后注入 CLAUDE_CODE_MAX_RETRIES。
+                            </small>
+                          </label>
+                        </div>
+                      </fieldset>
+
+                      <fieldset className="advanced-config-section">
+                        <legend>网络与请求</legend>
+                        <div className="advanced-field-grid">
+                          <label>
+                            <span>ANTHROPIC_BETAS</span>
+                            <input
+                              aria-label="ANTHROPIC_BETAS"
+                              value={draft.anthropicBetas ?? ''}
+                              onChange={(event) =>
+                                updateDraft('anthropicBetas', event.target.value)
+                              }
+                            />
+                            <small className="field-help">
+                              AnyRouter 长上下文配置，例如 context-1m-2025-08-07。
+                            </small>
+                          </label>
+                          <label>
+                            <span>CLAUDE_CODE_ATTRIBUTION_HEADER</span>
+                            <input
+                              aria-label="CLAUDE_CODE_ATTRIBUTION_HEADER"
+                              value={draft.claudeCodeAttributionHeader ?? ''}
+                              onChange={(event) =>
+                                updateDraft('claudeCodeAttributionHeader', event.target.value)
+                              }
+                            />
+                            <small className="field-help">
+                              文档示例为 0。
+                            </small>
+                          </label>
+                          <label>
+                            <span>HTTPS_PROXY</span>
+                            <input
+                              aria-label="HTTPS_PROXY"
+                              value={draft.httpsProxy ?? ''}
+                              onChange={(event) => updateDraft('httpsProxy', event.target.value)}
+                            />
+                            <small className="field-help">
+                              Claude Code HTTPS 代理地址。
+                            </small>
+                          </label>
+                          <label>
+                            <span>HTTP_PROXY</span>
+                            <input
+                              aria-label="HTTP_PROXY"
+                              value={draft.httpProxy ?? ''}
+                              onChange={(event) => updateDraft('httpProxy', event.target.value)}
+                            />
+                            <small className="field-help">
+                              Claude Code HTTP 代理地址。
+                            </small>
+                          </label>
+                        </div>
+                        <div className="advanced-option-list">
+                          <label className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={draft.claudeCodeDisableNonessentialTraffic ?? false}
+                              onChange={(e) =>
+                                updateDraft('claudeCodeDisableNonessentialTraffic', e.target.checked)
+                              }
+                            />
+                            <span>禁用非必要流量</span>
+                            <small className="field-help">
+                              注入 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+                            </small>
+                          </label>
+                          <label className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={draft.disableInstallationChecks ?? false}
+                              onChange={(e) =>
+                                updateDraft('disableInstallationChecks', e.target.checked)
+                              }
+                            />
+                            <span>禁用安装检查</span>
+                            <small className="field-help">
+                              注入 DISABLE_INSTALLATION_CHECKS=1
+                            </small>
+                          </label>
+                        </div>
+                      </fieldset>
+
+                      <fieldset className="advanced-config-section">
+                        <legend>本地配置</legend>
+                        <div className="advanced-field-grid advanced-field-grid-compact">
+                          <label>
+                            <span>Claude 配置清理保留天数</span>
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              aria-label="Claude 配置清理保留天数"
+                              value={draft.claudeCleanupPeriodDays ?? ''}
+                              onChange={(event) =>
+                                updateClaudeCleanupPeriodDays(event.target.value)
+                              }
+                            />
+                            <small className="field-help">
+                              写入 Claude settings 的 cleanupPeriodDays。
+                            </small>
+                          </label>
+                        </div>
+                        <fieldset className="advanced-readonly-fields">
+                          <legend>只读字段（由 AgentDock 自动管理）</legend>
+                          <label>
+                            <span>配置 ID</span>
+                            <input value={draft.id} readOnly />
+                          </label>
+                          <label>
+                            <span>Keychain Service</span>
+                            <input value={draft.keychainService} readOnly />
+                          </label>
+                          <label>
+                            <span>Keychain Account</span>
+                            <input value={draft.keychainAccount} readOnly />
+                          </label>
+                        </fieldset>
+                      </fieldset>
+                    </>
+                  ) : (
+                    <>
+                      {draft.toolType === 'codex' ? (
+                        <fieldset className="advanced-config-section">
+                          <legend>启动参数</legend>
+                          <div className="advanced-option-list">
+                            <label className="checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={draft.bypassApprovals ?? true}
+                                onChange={(e) => updateDraft('bypassApprovals', e.target.checked)}
+                              />
+                              <span>启动时跳过批准和沙箱</span>
+                              <small className="field-help">
+                                添加 --dangerously-bypass-approvals-and-sandbox
+                              </small>
+                            </label>
+                          </div>
+                        </fieldset>
+                      ) : null}
+                      <fieldset className="advanced-config-section">
+                        <legend>本地配置</legend>
+                        <fieldset className="advanced-readonly-fields">
+                          <legend>只读字段（由 AgentDock 自动管理）</legend>
+                          <label>
+                            <span>配置 ID</span>
+                            <input value={draft.id} readOnly />
+                          </label>
+                          <label>
+                            <span>Keychain Service</span>
+                            <input value={draft.keychainService} readOnly />
+                          </label>
+                          <label>
+                            <span>Keychain Account</span>
+                            <input value={draft.keychainAccount} readOnly />
+                          </label>
+                          {draft.toolType === 'codex' ? (
+                            <label>
+                              <span>Codex Home</span>
+                              <input value={draft.codexHome ?? ''} readOnly />
+                            </label>
+                          ) : null}
+                        </fieldset>
+                      </fieldset>
+                    </>
+                  )}
+                </div>
               ) : null}
               <div className="api-key-editor wide-field">
                 <label>
@@ -519,29 +866,27 @@ export function ApiConfigPanel({
                     填写后本机加密保存；留空则保留当前 Key。
                   </small>
                   <small className="field-help">点击显示才会读取当前配置的 Key。</small>
-                  <input
-                    type={secretVisible ? 'text' : 'password'}
-                    aria-label="API Key（本机加密保存）"
-                    value={secretDraft}
-                    autoComplete="off"
-                    placeholder="粘贴 API Key；留空则保留当前 Key"
-                    onChange={(event) => updateSecretDraft(event.target.value)}
-                  />
+                  <span className="secret-input-wrap">
+                    <input
+                      type={secretVisible ? 'text' : 'password'}
+                      aria-label="API Key（本机加密保存）"
+                      value={secretDraft}
+                      autoComplete="off"
+                      placeholder="粘贴 API Key；留空则保留当前 Key"
+                      onChange={(event) => updateSecretDraft(event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="secret-eye-button"
+                      aria-label={secretVisible ? '隐藏 API Key' : '显示 API Key'}
+                      title={secretVisible ? '隐藏 API Key' : '显示 API Key'}
+                      disabled={secretLoading || (!secretDraft && !onReadProfileSecret)}
+                      onClick={() => void toggleSecretVisibility()}
+                    >
+                      {secretLoading ? '…' : secretVisible ? '🙈' : '👁'}
+                    </button>
+                  </span>
                 </label>
-                <button
-                  type="button"
-                  className="secret-visibility-button"
-                  disabled={secretLoading || (!secretDraft && !onReadProfileSecret)}
-                  onClick={() => void toggleSecretVisibility()}
-                >
-                  {secretLoading
-                    ? '读取中…'
-                    : secretVisible
-                      ? '隐藏 API Key'
-                      : secretDraft
-                        ? '显示 API Key'
-                        : '显示已保存 API Key'}
-                </button>
               </div>
               <div className="profile-editor-actions wide-field">
                 <button
@@ -557,10 +902,21 @@ export function ApiConfigPanel({
                 >
                   重置
                 </button>
+                {!isNewDraft && onDeleteProfile ? (
+                  <button
+                    type="button"
+                    className="danger-button"
+                    disabled={deleting}
+                    onClick={() => void handleDelete()}
+                  >
+                    {deleting ? '删除中…' : '删除配置'}
+                  </button>
+                ) : null}
                 <button type="submit" className="primary-button" disabled={saving}>
                   {saving ? '保存中…' : '保存配置'}
                 </button>
               </div>
+              {deleteError ? <span className="save-status error" role="alert">{deleteError}</span> : null}
             </div>
           ) : (
             <p className="empty-state">请选择一个配置后编辑。</p>

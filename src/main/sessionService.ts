@@ -14,7 +14,10 @@ import type { KeychainAdapter } from './adapters/keychainAdapter.js';
 import { createUnavailableKeychainAdapter } from './adapters/keychainAdapter.js';
 import type { PtyAdapter, PtySession } from './adapters/ptyAdapter.js';
 import { createUnavailablePtyAdapter } from './adapters/ptyAdapter.js';
-import { buildLaunchEnvironment } from './launchEnvironment.js';
+import {
+  buildClaudeOptionalEnvironment,
+  buildLaunchEnvironment,
+} from './launchEnvironment.js';
 
 type Clock = {
   now(): Date;
@@ -83,6 +86,50 @@ function buildCodexConfig(profile: ApiProfile): string {
   ].join('\n');
 }
 
+function optionalTrimmedString(value: string | undefined): string | undefined {
+  const trimmedValue = value?.trim();
+  return trimmedValue ? trimmedValue : undefined;
+}
+
+function positiveInteger(value: number | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+
+  return Math.trunc(value);
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function buildClaudeSettings(
+  profile: ApiProfile,
+): Record<string, string | number | Record<string, string>> | undefined {
+  const settings: Record<string, string | number | Record<string, string>> = {};
+  const model = optionalTrimmedString(profile.defaultModel);
+  const cleanupPeriodDays = positiveInteger(profile.claudeCleanupPeriodDays);
+  const env = buildClaudeOptionalEnvironment(profile);
+
+  if (model) {
+    settings.model = model;
+  }
+
+  if (Object.keys(env).length > 0) {
+    settings.env = env;
+  }
+
+  if (cleanupPeriodDays) {
+    settings.cleanupPeriodDays = cleanupPeriodDays;
+  }
+
+  return Object.keys(settings).length > 0 ? settings : undefined;
+}
+
+function appendClaudeSettingsCommand(command: string, settingsPath: string): string {
+  return `${command} --settings ${shellQuote(settingsPath)}`;
+}
+
 function normalizeOptions(
   optionsOrClock: Clock | CreateSessionServiceOptions = {},
 ): NormalizedSessionServiceOptions {
@@ -122,12 +169,19 @@ function isLocalShellCommand(command: string): boolean {
   return normalizedCommand === 'zsh' || normalizedCommand === 'bash';
 }
 
+function isMacosProtectedUserFolderPath(workspacePath: string): boolean {
+  return /^\/Users\/[^/]+\/(Desktop|Documents|Downloads)(\/|$)/.test(
+    path.normalize(workspacePath),
+  );
+}
+
 function isSecretReadError(error: unknown): boolean {
   return (
     error instanceof Error &&
     (/API key was not found for account/.test(error.message) ||
       /Keychain secret was not found for account/.test(error.message) ||
-      /Unable to decrypt local API key vault entry/.test(error.message))
+      /Unable to decrypt local API key vault entry/.test(error.message) ||
+      /无法读取已保存的 API Key/.test(error.message))
   );
 }
 
@@ -148,7 +202,7 @@ export function createSessionService(
   const requirePtySession = (sessionId: string): PtySession => {
     const ptySession = ptySessions.get(sessionId);
     if (!ptySession) {
-      throw new Error('Terminal session was not found');
+      throw new Error('未找到指定的终端会话');
     }
     return ptySession;
   };
@@ -167,8 +221,12 @@ export function createSessionService(
 
   return {
     async launch({ profile, workspace, command }: LaunchSessionInput): Promise<AgentSession> {
-      if (workspaceExists && !workspaceExists(workspace.path)) {
-        throw new Error(`Workspace path is not available: ${workspace.path}`);
+      if (
+        workspaceExists &&
+        !isMacosProtectedUserFolderPath(workspace.path) &&
+        !workspaceExists(workspace.path)
+      ) {
+        throw new Error(`工作区路径不可用: ${workspace.path}`);
       }
 
       const session: AgentSession = {
@@ -195,15 +253,29 @@ export function createSessionService(
               appDataPath,
               homeDir,
             });
+        let spawnCommand = command;
+
         if (env.CODEX_HOME) {
           await ensureDirectory(env.CODEX_HOME);
           if (profile.toolType === 'codex') {
             await writeTextFile(path.join(env.CODEX_HOME, 'config.toml'), buildCodexConfig(profile));
           }
         }
+
+        if (!isLocalShellCommand(command) && profile.toolType === 'claude') {
+          const settings = buildClaudeSettings(profile);
+          if (settings) {
+            const settingsDirectory = path.join(appDataPath, 'claude-settings');
+            const settingsPath = path.join(settingsDirectory, `${profile.id}.json`);
+            await ensureDirectory(settingsDirectory);
+            await writeTextFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+            spawnCommand = appendClaudeSettingsCommand(command, settingsPath);
+          }
+        }
+
         const ptySession = await pty.spawn({
           sessionId: session.id,
-          command,
+          command: spawnCommand,
           cwd: workspace.path,
           env,
         });
@@ -220,7 +292,7 @@ export function createSessionService(
         if (isSecretReadError(error)) {
           throw error;
         }
-        throw new Error(`Failed to launch terminal command "${command}"`);
+        throw new Error(`终端命令启动失败: "${command}"`);
       }
     },
 
@@ -245,7 +317,7 @@ export function createSessionService(
 
       const session = findSession(sessionId);
       if (!session) {
-        throw new Error('Terminal session was not found');
+        throw new Error('未找到指定的终端会话');
       }
       session.status = 'stopped';
       return cloneSession(session);
@@ -254,7 +326,7 @@ export function createSessionService(
     async readTerminalBuffer({ sessionId }: TerminalBufferRequest): Promise<string> {
       const session = findSession(sessionId);
       if (!session) {
-        throw new Error('Terminal session was not found');
+        throw new Error('未找到指定的终端会话');
       }
 
       return terminalBuffers.get(sessionId) ?? '';
