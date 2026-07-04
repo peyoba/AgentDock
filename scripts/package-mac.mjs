@@ -75,7 +75,7 @@ if (isDirectRun) {
     '--arch=arm64',
     `--out=${outputDirectory}`,
     '--prune=true',
-    '--asar.unpack=**/{*.node,spawn-helper}',
+    '--asar.unpack=**/{*.node,spawn-helper,ccline}',
     '--ignore=^/(src|tests|docs|scripts|release|\\.agent-workflow|\\.agentdock|\\.claude|\\.git|\\.pytest_cache)(/|$)|^/\\.env(?:\\..*)?$|^/.*\\.log$',
   ]);
 

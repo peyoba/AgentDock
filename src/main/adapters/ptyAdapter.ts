@@ -63,7 +63,7 @@ export type EnsureNodePtySpawnHelperInput = {
   arch?: NodeJS.Architecture;
 };
 
-const COMMON_CLI_PATHS = [
+export const COMMON_CLI_PATHS = [
   '/opt/homebrew/bin',
   '/usr/local/bin',
   '/usr/bin',
@@ -127,7 +127,7 @@ function interactiveShellSpawn(command: string): { file: string; args: string[] 
   return undefined;
 }
 
-function uniquePathEntries(entries: Array<string | undefined>): string[] {
+export function uniquePathEntries(entries: Array<string | undefined>): string[] {
   const seen = new Set<string>();
   const uniqueEntries: string[] = [];
 
@@ -147,7 +147,7 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-function userCliPaths(homeDir: string | undefined): string[] {
+export function userCliPaths(homeDir: string | undefined): string[] {
   if (!homeDir) {
     return [];
   }

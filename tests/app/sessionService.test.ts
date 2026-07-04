@@ -236,6 +236,9 @@ describe('sessionService', () => {
   it('writes CCometixLine statusLine settings only when the Claude profile enables it', async () => {
     const runtime = createFakeRuntime();
     const writtenFiles: Array<{ filePath: string; content: string }> = [];
+    const resolvedCcline =
+      '/Applications/AgentDock.app/Contents/Resources/app.asar.unpacked/node_modules/@cometix/ccline-darwin-arm64/ccline';
+    let resolveCalls = 0;
     const service = createSessionService({
       clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
       keychain: runtime.keychain,
@@ -243,6 +246,10 @@ describe('sessionService', () => {
       appDataPath: '/tmp/agentdock-test-data',
       writeTextFile(filePath, content) {
         writtenFiles.push({ filePath, content });
+      },
+      resolveCclineCommand() {
+        resolveCalls += 1;
+        return resolvedCcline;
       },
     });
 
@@ -264,13 +271,14 @@ describe('sessionService', () => {
       command: 'claude',
     });
 
+    expect(resolveCalls).toBe(1);
     expect(writtenFiles).toEqual([
       {
         filePath: '/tmp/agentdock-test-data/claude-settings/profile-a.json',
         content: `${JSON.stringify({
           statusLine: {
             type: 'command',
-            command: 'ccline',
+            command: resolvedCcline,
             padding: 0,
           },
         }, null, 2)}\n`,
@@ -279,6 +287,57 @@ describe('sessionService', () => {
     expect(writtenFiles[0]?.content).not.toContain('local-development-secret');
     expect(runtime.spawnRequests[0]?.command).toBe(
       "claude --settings '/tmp/agentdock-test-data/claude-settings/profile-a.json'",
+    );
+  });
+
+  it('shell-quotes the resolved ccline path and skips resolution when the toggle is off', async () => {
+    const runtime = createFakeRuntime();
+    const writtenFiles: Array<{ filePath: string; content: string }> = [];
+    let resolveCalls = 0;
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      writeTextFile(filePath, content) {
+        writtenFiles.push({ filePath, content });
+      },
+      resolveCclineCommand() {
+        resolveCalls += 1;
+        return '/Users/example/My Apps/AgentDock.app/Contents/Resources/app.asar.unpacked/ccline';
+      },
+    });
+
+    const claudeProfile = {
+      id: 'profile-a',
+      name: 'Claude A',
+      toolType: 'claude' as const,
+      baseUrl: 'https://anyrouter.top',
+      keychainService: 'AgentDock',
+      keychainAccount: 'profile-a',
+    };
+    const workspace = {
+      id: 'workspace-a',
+      name: 'AgentDock',
+      path: '/Users/example/Desktop/web/AgentDock',
+    };
+
+    await service.launch({
+      profile: { ...claudeProfile, claudeCclineStatusLineEnabled: false },
+      workspace,
+      command: 'claude',
+    });
+    expect(resolveCalls).toBe(0);
+    expect(writtenFiles).toEqual([]);
+
+    await service.launch({
+      profile: { ...claudeProfile, claudeCclineStatusLineEnabled: true },
+      workspace,
+      command: 'claude',
+    });
+    expect(resolveCalls).toBe(1);
+    expect(writtenFiles[0]?.content).toContain(
+      `"command": "'/Users/example/My Apps/AgentDock.app/Contents/Resources/app.asar.unpacked/ccline'"`,
     );
   });
 

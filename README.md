@@ -29,16 +29,17 @@ MVP 基础能力已进入可打包验证阶段。
 - 完成终端滚动体验小修：长输出时可拖动右侧滚动滑块快速定位。
 - 完成本机加密 vault v2 修复：去除 hostname/目录依赖，旧记录读取时自愈迁移。
 - 完成 macOS 稳定自签名打包和标签快速 tooltip。
+- 完成 Claude StatusLine 的 CCometixLine 内嵌：优先使用 PATH 中用户已安装版本，缺失时回退到随包内嵌的 `ccline`。
 
 当前可复测包：
 
 ```text
-release/packages/20260705-020727/AgentDock-darwin-arm64/AgentDock.app
+release/packages/20260705-132413/AgentDock-darwin-arm64/AgentDock.app
 ```
 
 下一批计划：
 
-- 手动 smoke 最新包：vault 修复后 Profile 启动、标签 tooltip、TCC 一次性授权、多窗口同 workspace、CLI 退出提示。
+- 手动 smoke 最新包：vault 修复后 Profile 启动、标签 tooltip、StatusLine/ccline、TCC 一次性授权、多窗口同 workspace、CLI 退出提示。
 - 补真实终端体验验收：Ctrl+C、中文输入、粘贴长文本、resize、真实 Claude/Codex 请求。
 - 准备下一批前补一份真实终端体验验收记录。
 

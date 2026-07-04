@@ -15,6 +15,7 @@ import type { KeychainAdapter } from './adapters/keychainAdapter.js';
 import { createUnavailableKeychainAdapter } from './adapters/keychainAdapter.js';
 import type { PtyAdapter, PtySession } from './adapters/ptyAdapter.js';
 import { createUnavailablePtyAdapter } from './adapters/ptyAdapter.js';
+import { resolveCclineCommand as locateCclineCommand } from './cclineLocator.js';
 import {
   buildClaudeOptionalEnvironment,
   buildLaunchEnvironment,
@@ -47,6 +48,8 @@ type CreateSessionServiceOptions = {
   workspaceContext?: WorkspaceContextStore;
   /** 多窗口时注入每窗口唯一前缀，避免共享 workspace 上下文里的 session ID 冲突 */
   sessionIdPrefix?: string;
+  /** 解析 statusLine 使用的 ccline 命令；默认 PATH 已安装版本优先、内嵌二进制兜底 */
+  resolveCclineCommand?: () => string;
 };
 
 type NormalizedSessionServiceOptions = Required<
@@ -117,6 +120,11 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+// statusLine.command 由 Claude Code 交给 shell 解析，绝对路径含特殊字符时需要引号
+function shellSafeStatusLineCommand(command: string): string {
+  return /^[A-Za-z0-9_\-./@+]+$/.test(command) ? command : shellQuote(command);
+}
+
 function claudeSettingsModel(profile: ApiProfile): string | undefined {
   const launchMode = profile.claudeDefaultLaunchMode ?? 'custom';
   if (launchMode === 'default') {
@@ -130,7 +138,10 @@ function claudeSettingsModel(profile: ApiProfile): string | undefined {
   return launchMode;
 }
 
-function buildClaudeSettings(profile: ApiProfile): ClaudeSettings | undefined {
+function buildClaudeSettings(
+  profile: ApiProfile,
+  resolveCclineCommand: () => string,
+): ClaudeSettings | undefined {
   const settings: ClaudeSettings = {};
   const model = claudeSettingsModel(profile);
   const cleanupPeriodDays = positiveInteger(profile.claudeCleanupPeriodDays);
@@ -155,7 +166,7 @@ function buildClaudeSettings(profile: ApiProfile): ClaudeSettings | undefined {
   if (profile.claudeCclineStatusLineEnabled === true) {
     settings.statusLine = {
       type: 'command',
-      command: 'ccline',
+      command: shellSafeStatusLineCommand(resolveCclineCommand()),
       padding: 0,
     };
   }
@@ -195,33 +206,38 @@ function normalizeOptions(
   optionsOrClock: Clock | CreateSessionServiceOptions = {},
 ): NormalizedSessionServiceOptions {
   if ('now' in optionsOrClock && typeof optionsOrClock.now === 'function') {
+    const homeDir = process.env.HOME ?? process.cwd();
     return {
       clock: optionsOrClock,
       keychain: createUnavailableKeychainAdapter(),
       pty: createUnavailablePtyAdapter(),
       appDataPath: process.cwd(),
-      homeDir: process.env.HOME ?? process.cwd(),
+      homeDir,
       ensureDirectory: defaultEnsureDirectory,
       writeTextFile: defaultWriteTextFile,
       workspaceExists: undefined,
       workspaceContext: undefined,
       sessionIdPrefix: '',
+      resolveCclineCommand: () => locateCclineCommand({ homeDir }),
     };
   }
 
   const options = optionsOrClock as CreateSessionServiceOptions;
+  const homeDir = options.homeDir ?? process.env.HOME ?? process.cwd();
 
   return {
     clock: options.clock ?? defaultClock,
     keychain: options.keychain ?? createUnavailableKeychainAdapter(),
     pty: options.pty ?? createUnavailablePtyAdapter(),
     appDataPath: options.appDataPath ?? process.cwd(),
-    homeDir: options.homeDir ?? process.env.HOME ?? process.cwd(),
+    homeDir,
     ensureDirectory: options.ensureDirectory ?? defaultEnsureDirectory,
     writeTextFile: options.writeTextFile ?? defaultWriteTextFile,
     workspaceExists: options.workspaceExists,
     workspaceContext: options.workspaceContext,
     sessionIdPrefix: options.sessionIdPrefix ?? '',
+    resolveCclineCommand:
+      options.resolveCclineCommand ?? (() => locateCclineCommand({ homeDir })),
   };
 }
 
@@ -265,6 +281,7 @@ export function createSessionService(
     workspaceExists,
     workspaceContext,
     sessionIdPrefix,
+    resolveCclineCommand,
   } = normalizeOptions(optionsOrClock);
   const sessions: AgentSession[] = [];
   const ptySessions = new Map<string, PtySession>();
@@ -349,7 +366,7 @@ export function createSessionService(
         }
 
         if (!isLocalShellCommand(command) && profile.toolType === 'claude') {
-          const settings = buildClaudeSettings(profile);
+          const settings = buildClaudeSettings(profile, resolveCclineCommand);
           if (settings) {
             const settingsDirectory = path.join(appDataPath, 'claude-settings');
             const settingsPath = path.join(settingsDirectory, `${profile.id}.json`);

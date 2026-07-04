@@ -946,7 +946,7 @@ export function ApiConfigPanel({
                             />
                             <span>启用 CCometixLine 状态栏</span>
                             <small className="field-help">
-                              写入 Claude statusLine.command=ccline；需要本机已安装 @cometix/ccline。
+                              写入 Claude statusLine 配置；ccline 已随 AgentDock 内置，本机若已安装则优先使用已安装版本。
                             </small>
                           </label>
                         </div>

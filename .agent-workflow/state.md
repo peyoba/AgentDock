@@ -1,12 +1,12 @@
 # Agent Workflow State
 
 ## 当前任务
-2026-07-05 vault 稳定性、签名打包、tooltip 与项目清理收尾。
+2026-07-05 vault 稳定性、签名打包、tooltip、CCometixLine StatusLine 与项目清理收尾。
 
 ## 风险等级
 L3
 
-触发原因：Electron 桌面应用、API Key 本机加密 vault、真实 node-pty/Agent CLI 启动、macOS 签名与打包产物、项目清理。
+触发原因：Electron 桌面应用、API Key 本机加密 vault、真实 node-pty/Agent CLI 启动、Claude StatusLine 外部命令、optional dependency、macOS 签名与打包产物、项目清理。
 
 ## 当前 Hook
 delivery_hook
@@ -64,6 +64,9 @@ delivery
 | ⑦文档工程师 | PASS | 清理报告第一阶段：删除过时根文档与 mockups 原型；README/UI 文档/workflow 状态同步 |
 | ⑧集成工程师 | PASS | workflow doctor、workflow tests、全量 vitest、typecheck、build、codesign strict verify 通过；验证记录 `.agent-workflow/verification/2026-07-05-vault-signing-cleanup.md` |
 | ⑨部署工程师 | PASS | GitHub push 已恢复并推送到 `origin/main`；交付报告 `.agent-workflow/delivery/2026-07-05-vault-signing-cleanup-delivery-report.md` |
+| 主 Agent | PASS | CCometixLine 状态栏内嵌：`optionalDependencies` 固定 `@cometix/ccline-darwin-arm64@1.1.2`、`cclineLocator` PATH 已安装版本优先/内嵌二进制兜底、statusLine 命令 shell 安全引号、打包 `asar.unpack` 解包 ccline |
+| ⑧集成工程师 | PASS | StatusLine worktree 提交已合并到 `main`；聚焦测试、全量测试、workflow、typecheck、build、package、codesign、packaged ccline smoke 通过；验证记录 `.agent-workflow/verification/2026-07-05-ccline-statusline-merge.md` |
+| ⑨部署工程师 | PASS | 新产物 `release/packages/20260705-132413/AgentDock-darwin-arm64/AgentDock.app`，交付报告 `.agent-workflow/delivery/2026-07-05-ccline-statusline-merge-delivery-report.md` |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -71,10 +74,10 @@ delivery
 无
 
 ## 用户待确认
-在当前运行的新包中启动此前报错的 Profile，确认无需重新粘贴 API Key；如 macOS 首次请求桌面/文稿权限，授权一次后后续包应保持稳定。
+在最新包中启动此前报错的 Profile，确认无需重新粘贴 API Key；开启 Claude StatusLine 后确认状态栏正常显示；如 macOS 首次请求桌面/文稿权限，授权一次后后续包应保持稳定。
 
 ## 下一步
-用户侧 smoke：使用 `release/packages/20260705-020727/AgentDock-darwin-arm64/AgentDock.app` 启动此前报错的 Profile；再验证标签 tooltip、TCC 一次性授权、多窗口同 workspace、CLI 退出提示。
+用户侧 smoke：使用 `release/packages/20260705-132413/AgentDock-darwin-arm64/AgentDock.app` 启动此前报错的 Profile；再验证标签 tooltip、StatusLine/ccline、TCC 一次性授权、多窗口同 workspace、CLI 退出提示。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -99,6 +102,7 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-05 | vault v2 密钥材料不再混入 hostname 和 vault 目录字符串 | hostname 随网络漂移导致旧记录不可读；本地 vault 定位是稳定本机加密记录，不追求防本机攻击者 |
 | 2026-07-05 | macOS 打包使用 `AgentDock Codesign` 自签名证书 | 避免 ad-hoc 签名 cdhash 每次变化导致 TCC 权限反复弹窗 |
 | 2026-07-05 | 清理第一阶段执行后保留 `.agent-workflow/` 和 `docs/requirements/` | workflow CLI/测试仍依赖 `.agent-workflow/`；requirements 仍作为产品与架构背景 |
+| 2026-07-05 | ccline 状态栏二进制随 App 内嵌，PATH 已安装版本优先 | 勾选状态栏后零依赖可用，无需手动 `npm install -g`；用户自装新版仍然优先生效；`optionalDependencies` 固定 1.1.2 保证非 darwin-arm64 环境安装不失败 |
 
 ## 验证记录
 | 时间 | 命令 | 结果 |
@@ -111,6 +115,13 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-05 | `codesign --verify --deep --strict --verbose=2 release/packages/20260705-020727/AgentDock-darwin-arm64/AgentDock.app` | PASS |
 | 2026-07-05 | packaged app.asar marker scan | PASS：包含 vault v2 与 custom tooltip marker |
 | 2026-07-05 | `git push` | PASS：`main -> origin/main` |
+| 2026-07-05 | ccline 内嵌批次 worktree 验证 | PASS：typecheck、vitest、workflow、package、codesign、packaged ccline smoke、diff check 均通过 |
+| 2026-07-05 | `npx vitest run tests/app/cclineLocator.test.ts tests/app/sessionService.test.ts tests/app/packageMacScript.test.ts` | PASS：3 files / 15 tests |
+| 2026-07-05 | `npm test`（StatusLine 合并后） | PASS：31 files / 187 tests |
+| 2026-07-05 | `npm run workflow:doctor` / `npm run test:workflow`（StatusLine 合并后） | PASS：doctor 全绿；pytest 8 passed |
+| 2026-07-05 | `npm run typecheck` / `npm run build`（StatusLine 合并后） | PASS：build 仅 Vite chunk size warning |
+| 2026-07-05 | `npm run package:mac`（StatusLine 合并后） | PASS：`release/packages/20260705-132413/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-05 | packaged ccline smoke（StatusLine 合并后） | PASS：`app.asar.unpacked/.../@cometix/ccline-darwin-arm64/ccline --version` 输出 `ccline 1.1.2` |
 | 2026-07-04 | `npm run typecheck`（审查修复批次收尾后） | PASS |
 | 2026-07-04 | `npx vitest run`（审查修复批次收尾后） | PASS：30 files / 177 tests |
 | 2026-07-04 | `npm run test -- tests/app/ptyAdapter.test.ts` RED | PASS：新增 PATH 测试先失败，证明旧实现命中 Homebrew 优先顺序 |
@@ -303,6 +314,7 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 ## 批次进展
 | 批次 | 状态 | 产出 |
 |------|------|------|
+| CCometixLine Embedded Binary | PASS | ccline 1.1.2 随包内嵌（`asar.unpack`）、PATH 已安装版本优先、statusLine 绝对路径 + shell 安全引号；worktree 分支 `worktree-ccline-embed` 已合并到 `main` |
 | Claude Lite MCP Launch Mode | PASS | 默认轻量空 MCP 启动、完整 MCP 模式可选；验证记录 `.agent-workflow/verification/2026-07-04-claude-lite-mcp-launch-mode.md`；交付报告 `.agent-workflow/delivery/2026-07-04-claude-lite-mcp-launch-mode-delivery-report.md` |
 | Batch A Claude Models / Multi-window / Timestamp Package | PASS | 分支内验证通过；交付报告 `.agent-workflow/delivery/2026-07-04-agentdock-batch-a-delivery-report.md`；合并并行 Claude lite/full MCP 改动后需二次验证 |
 | Batch A + Claude Lite MCP Integration | PASS | 主分支合并验证通过；验证记录 `.agent-workflow/verification/2026-07-04-batch-a-claude-lite-integration.md`；交付报告 `.agent-workflow/delivery/2026-07-04-batch-a-claude-lite-integration-delivery-report.md` |
