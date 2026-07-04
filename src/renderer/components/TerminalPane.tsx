@@ -13,6 +13,7 @@ const FALLBACK_CELL_WIDTH = 8;
 const FALLBACK_CELL_HEIGHT = 18;
 const MIN_COLS = 20;
 const MIN_ROWS = 8;
+const SCROLLBAR_HIDE_DELAY_MS = 900;
 
 function numberFromCssPixel(value: string): number {
   const parsed = Number.parseFloat(value);
@@ -87,6 +88,28 @@ function installTerminalDragScrollbar(container: HTMLElement): () => void {
 
   let dragging = false;
   let dragOffset = 0;
+  let hovering = false;
+  let hideTimer: number | undefined;
+
+  const showScrollbar = (): void => {
+    if (hideTimer !== undefined) {
+      window.clearTimeout(hideTimer);
+      hideTimer = undefined;
+    }
+    track.classList.add('is-active');
+  };
+
+  const scheduleScrollbarHide = (): void => {
+    if (hideTimer !== undefined) {
+      window.clearTimeout(hideTimer);
+    }
+    hideTimer = window.setTimeout(() => {
+      hideTimer = undefined;
+      if (!dragging && !hovering) {
+        track.classList.remove('is-active');
+      }
+    }, SCROLLBAR_HIDE_DELAY_MS);
+  };
 
   const scrollbarMetrics = () => {
     const trackHeight =
@@ -128,8 +151,13 @@ function installTerminalDragScrollbar(container: HTMLElement): () => void {
   };
 
   const onPointerUp = (): void => {
+    if (!dragging) {
+      return;
+    }
     dragging = false;
+    track.classList.remove('is-dragging');
     document.body.classList.remove('terminal-scroll-dragging');
+    scheduleScrollbarHide();
   };
 
   const onPointerDown = (event: PointerEvent): void => {
@@ -142,20 +170,47 @@ function installTerminalDragScrollbar(container: HTMLElement): () => void {
       event.target === thumb
         ? event.clientY - thumb.getBoundingClientRect().top
         : thumbHeight / 2;
+    track.classList.add('is-dragging');
     document.body.classList.add('terminal-scroll-dragging');
+    showScrollbar();
     event.preventDefault();
     scrollToPointer(event, dragOffset);
   };
 
+  const onViewportScroll = (): void => {
+    updateThumb();
+    showScrollbar();
+    scheduleScrollbarHide();
+  };
+
+  const onPointerEnter = (): void => {
+    hovering = true;
+    showScrollbar();
+  };
+
+  const onPointerLeave = (): void => {
+    hovering = false;
+    if (!dragging) {
+      scheduleScrollbarHide();
+    }
+  };
+
   track.addEventListener('pointerdown', onPointerDown);
-  viewport.addEventListener('scroll', updateThumb);
+  track.addEventListener('pointerenter', onPointerEnter);
+  track.addEventListener('pointerleave', onPointerLeave);
+  viewport.addEventListener('scroll', onViewportScroll);
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
   updateThumb();
 
   return () => {
+    if (hideTimer !== undefined) {
+      window.clearTimeout(hideTimer);
+    }
     track.removeEventListener('pointerdown', onPointerDown);
-    viewport.removeEventListener('scroll', updateThumb);
+    track.removeEventListener('pointerenter', onPointerEnter);
+    track.removeEventListener('pointerleave', onPointerLeave);
+    viewport.removeEventListener('scroll', onViewportScroll);
     window.removeEventListener('pointermove', onPointerMove);
     window.removeEventListener('pointerup', onPointerUp);
     document.body.classList.remove('terminal-scroll-dragging');

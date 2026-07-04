@@ -29,14 +29,17 @@ describe('layout polish styles', () => {
     expect(css).toMatch(/\.session-tab button\s*\{[^}]*text-overflow:\s*ellipsis/s);
   });
 
-  it('keeps the xterm scrollbar dark and pinned to the terminal edge', () => {
+  it('hides the native xterm scrollbar and styles the overlay scrollbar like macOS', () => {
     const css = styles();
 
     expect(css).toMatch(/\.terminal-surface\s+\.xterm-viewport\s*\{[^}]*right:\s*0/s);
     expect(css).toMatch(/\.terminal-surface\s+\.xterm-viewport\s*\{[^}]*overflow-y:\s*scroll !important/s);
-    expect(css).toMatch(/\.terminal-surface\s+\.xterm-viewport\s*\{[^}]*scrollbar-gutter:\s*stable/s);
-    expect(css).toMatch(/\.terminal-surface\s+\.xterm-viewport\s*\{[^}]*scrollbar-color:\s*#4b5563 #07080c/s);
-    expect(css).toMatch(/\.terminal-surface\s+\.xterm-viewport::-webkit-scrollbar\s*\{[^}]*width:\s*10px/s);
+    expect(css).toMatch(/\.terminal-surface\s+\.xterm-viewport\s*\{[^}]*scrollbar-width:\s*none/s);
+    expect(css).toMatch(/\.terminal-surface\s+\.xterm-viewport::-webkit-scrollbar\s*\{[^}]*display:\s*none/s);
+    expect(css).toMatch(/\.terminal-drag-scrollbar\s*\{[^}]*opacity:\s*0/s);
+    expect(css).toMatch(/\.terminal-drag-scrollbar\.is-active[^{]*\{[^}]*opacity:\s*1/s);
+    expect(css).toMatch(/\.terminal-drag-scrollbar-thumb\s*\{[^}]*border-radius:\s*999px/s);
+    expect(css).toMatch(/\.terminal-drag-scrollbar-thumb\s*\{[^}]*background:\s*rgba\(255,\s*255,\s*255,\s*0\.32\)/s);
     expect(css).toMatch(/\.terminal-surface\s+\.xterm-screen\s*\{[^}]*padding-right:\s*14px/s);
   });
 

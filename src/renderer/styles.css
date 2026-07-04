@@ -347,48 +347,46 @@ p {
   width: auto !important;
   overflow-y: scroll !important;
   background-color: #07080c !important;
-  scrollbar-gutter: stable;
-  scrollbar-color: #4b5563 #07080c;
-  scrollbar-width: thin;
+  scrollbar-width: none;
 }
 
 .terminal-surface .xterm-viewport::-webkit-scrollbar {
-  width: 10px;
-}
-
-.terminal-surface .xterm-viewport::-webkit-scrollbar-track {
-  background: #07080c;
-}
-
-.terminal-surface .xterm-viewport::-webkit-scrollbar-thumb {
-  background: #4b5563;
-  border-radius: 999px;
-  border: 2px solid #07080c;
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .terminal-drag-scrollbar {
   position: absolute;
-  top: 8px;
-  right: 4px;
-  bottom: 8px;
+  top: 3px;
+  right: 0;
+  bottom: 3px;
   z-index: 5;
-  width: 12px;
-  cursor: pointer;
+  width: 14px;
+  opacity: 0;
+  transition: opacity 0.25s ease;
   touch-action: none;
 }
 
-.terminal-drag-scrollbar-thumb {
-  width: 10px;
-  min-height: 32px;
-  border: 2px solid #07080c;
-  border-radius: 999px;
-  background: #6b7280;
-  cursor: grab;
-  box-sizing: border-box;
+.terminal-drag-scrollbar.is-active,
+.terminal-drag-scrollbar:hover {
+  opacity: 1;
 }
 
-.terminal-drag-scrollbar-thumb:hover {
-  background: #9ca3af;
+.terminal-drag-scrollbar-thumb {
+  width: 7px;
+  min-height: 32px;
+  margin: 0 3px 0 auto;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.32);
+  box-sizing: border-box;
+  transition: width 0.12s ease, background-color 0.15s ease;
+}
+
+.terminal-drag-scrollbar:hover .terminal-drag-scrollbar-thumb,
+.terminal-drag-scrollbar.is-dragging .terminal-drag-scrollbar-thumb {
+  width: 9px;
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .terminal-drag-scrollbar.is-disabled {
@@ -397,7 +395,7 @@ p {
 
 .terminal-scroll-dragging,
 .terminal-scroll-dragging * {
-  cursor: grabbing !important;
+  cursor: default !important;
   user-select: none !important;
 }
 

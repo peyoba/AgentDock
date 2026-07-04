@@ -274,6 +274,52 @@ describe('TerminalPane xterm binding', () => {
     expect(viewport.scrollTop).toBe(900);
   });
 
+  it('reveals the scrollbar while scrolling and fades it out after scrolling stops', () => {
+    vi.useFakeTimers();
+    try {
+      render(<TerminalPane sessionId="session-1" />);
+      const scrollbar = document.querySelector('[aria-label="终端滚动条"]') as HTMLElement;
+      const viewport = document.querySelector('.xterm-viewport') as HTMLElement;
+
+      expect(scrollbar).not.toBeNull();
+      expect(scrollbar.classList.contains('is-active')).toBe(false);
+
+      act(() => {
+        viewport.dispatchEvent(new Event('scroll'));
+      });
+      expect(scrollbar.classList.contains('is-active')).toBe(true);
+
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(scrollbar.classList.contains('is-active')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the scrollbar visible while hovering and hides it after the pointer leaves', () => {
+    vi.useFakeTimers();
+    try {
+      render(<TerminalPane sessionId="session-1" />);
+      const scrollbar = document.querySelector('[aria-label="终端滚动条"]') as HTMLElement;
+
+      act(() => {
+        scrollbar.dispatchEvent(new PointerEvent('pointerenter', { pointerId: 1 }));
+        vi.advanceTimersByTime(5000);
+      });
+      expect(scrollbar.classList.contains('is-active')).toBe(true);
+
+      act(() => {
+        scrollbar.dispatchEvent(new PointerEvent('pointerleave', { pointerId: 1 }));
+        vi.advanceTimersByTime(1500);
+      });
+      expect(scrollbar.classList.contains('is-active')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('creates an xterm instance and bridges input, resize, and scoped output through IPC', () => {
     const { unmount } = render(<TerminalPane sessionId="session-1" />);
     const terminal = FakeTerminal.instances[0];
