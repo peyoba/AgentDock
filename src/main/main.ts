@@ -71,6 +71,11 @@ function sanitizeProfile(profile: ApiProfile): ApiProfile {
     ),
     disableInstallationChecks: normalizedProfile.disableInstallationChecks,
     claudeCleanupPeriodDays,
+    claudeDefaultLaunchMode: normalizedProfile.claudeDefaultLaunchMode,
+    claudeHaikuModel: optionalTrimmedString(normalizedProfile.claudeHaikuModel),
+    claudeSonnetModel: optionalTrimmedString(normalizedProfile.claudeSonnetModel),
+    claudeOpusModel: optionalTrimmedString(normalizedProfile.claudeOpusModel),
+    claudeAlwaysThinkingEnabled: normalizedProfile.claudeAlwaysThinkingEnabled,
   };
 }
 

@@ -65,6 +65,12 @@ export function migrateProfile(data: unknown): ApiProfile {
       claudeCodeAttributionHeader: profile.claudeCodeAttributionHeader as string | undefined,
       disableInstallationChecks: profile.disableInstallationChecks as boolean | undefined,
       claudeCleanupPeriodDays: profile.claudeCleanupPeriodDays as number | undefined,
+      claudeDefaultLaunchMode:
+        profile.claudeDefaultLaunchMode as ApiProfile['claudeDefaultLaunchMode'],
+      claudeHaikuModel: profile.claudeHaikuModel as string | undefined,
+      claudeSonnetModel: profile.claudeSonnetModel as string | undefined,
+      claudeOpusModel: profile.claudeOpusModel as string | undefined,
+      claudeAlwaysThinkingEnabled: profile.claudeAlwaysThinkingEnabled as boolean | undefined,
     });
   }
 
@@ -96,6 +102,11 @@ function migrateProfileToCurrent(profile: Record<string, unknown>): ApiProfile {
     claudeCodeAttributionHeader: undefined,
     disableInstallationChecks: undefined,
     claudeCleanupPeriodDays: undefined,
+    claudeDefaultLaunchMode: undefined,
+    claudeHaikuModel: undefined,
+    claudeSonnetModel: undefined,
+    claudeOpusModel: undefined,
+    claudeAlwaysThinkingEnabled: undefined,
   });
 }
 

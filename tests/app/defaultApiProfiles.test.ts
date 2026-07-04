@@ -2,15 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { defaultApiProfiles, isDefaultApiProfileId } from '../../src/shared/defaultApiProfiles';
 
 describe('default API profiles', () => {
-  it('starts with dangerous permissions enabled and no prefilled alternate model list', () => {
+  it('starts Claude AnyRouter with explicit Claude model mapping defaults', () => {
     expect(defaultApiProfiles.length).toBeGreaterThan(0);
 
     const claudeProfile = defaultApiProfiles.find((profile) => profile.toolType === 'claude');
     const codexProfile = defaultApiProfiles.find((profile) => profile.toolType === 'codex');
 
     expect(claudeProfile?.skipPermissions).toBe(true);
-    expect(claudeProfile?.defaultModel).toBe('claude-fable-5');
+    expect(claudeProfile?.defaultModel).toBe('claude-opus-4-8');
     expect(claudeProfile?.defaultModel).not.toBe('opus[1m]');
+    expect(claudeProfile?.claudeHaikuModel).toBe('claude-haiku-4-5-20251001');
+    expect(claudeProfile?.claudeSonnetModel).toBe('claude-fable-5');
+    expect(claudeProfile?.claudeOpusModel).toBe('claude-opus-4-8');
+    expect(claudeProfile?.claudeDefaultLaunchMode).toBe('default');
     expect(claudeProfile?.claudeCodeRetryWatchdog).toBe(true);
     expect(claudeProfile?.claudeCodeMaxRetries).toBe(100);
     expect(claudeProfile?.anthropicBetas).toBe('context-1m-2025-08-07');

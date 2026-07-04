@@ -1,7 +1,10 @@
 import type { ApiProfile } from './agentdockTypes.js';
 import {
   ANYROUTER_CLAUDE_BETA,
-  ANYROUTER_CLAUDE_DEFAULT_MODEL,
+  ANYROUTER_CLAUDE_HAIKU_MODEL,
+  ANYROUTER_CLAUDE_OPUS_MODEL,
+  ANYROUTER_CLAUDE_PRIMARY_MODEL,
+  ANYROUTER_CLAUDE_SONNET_MODEL,
 } from './claudeProfileDefaults.js';
 
 export const defaultApiProfiles: ApiProfile[] = [
@@ -10,7 +13,11 @@ export const defaultApiProfiles: ApiProfile[] = [
     name: 'Claude · AnyRouter A',
     toolType: 'claude',
     baseUrl: 'https://anyrouter.top',
-    defaultModel: ANYROUTER_CLAUDE_DEFAULT_MODEL,
+    defaultModel: ANYROUTER_CLAUDE_PRIMARY_MODEL,
+    claudeHaikuModel: ANYROUTER_CLAUDE_HAIKU_MODEL,
+    claudeSonnetModel: ANYROUTER_CLAUDE_SONNET_MODEL,
+    claudeOpusModel: ANYROUTER_CLAUDE_OPUS_MODEL,
+    claudeDefaultLaunchMode: 'default',
     keychainService: 'AgentDock',
     keychainAccount: 'claude-anyrouter',
     skipPermissions: true,

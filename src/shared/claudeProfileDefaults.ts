@@ -1,8 +1,13 @@
 import type { ApiProfile } from './agentdockTypes.js';
 
-export const ANYROUTER_CLAUDE_DEFAULT_MODEL = 'claude-fable-5';
+export const ANYROUTER_CLAUDE_PRIMARY_MODEL = 'claude-opus-4-8';
+export const ANYROUTER_CLAUDE_HAIKU_MODEL = 'claude-haiku-4-5-20251001';
+export const ANYROUTER_CLAUDE_SONNET_MODEL = 'claude-fable-5';
+export const ANYROUTER_CLAUDE_OPUS_MODEL = 'claude-opus-4-8';
+export const ANYROUTER_CLAUDE_DEFAULT_MODEL = ANYROUTER_CLAUDE_PRIMARY_MODEL;
 export const ANYROUTER_CLAUDE_BETA = 'context-1m-2025-08-07';
 const LEGACY_ONE_MILLION_MODEL_ALIAS = 'opus[1m]';
+const CLAUDE_LAUNCH_MODES = new Set(['default', 'opus', 'sonnet', 'haiku', 'custom']);
 
 function optionalTrimmedString(value: string | undefined): string | undefined {
   const trimmedValue = value?.trim();
@@ -46,15 +51,57 @@ function defaultSelectableClaudeModel(
   }
 
   if (trimmedModel && isLegacyOneMillionModelAlias(trimmedModel)) {
-    return (
-      models.find((availableModel) => availableModel === ANYROUTER_CLAUDE_DEFAULT_MODEL) ??
-      models.find((availableModel) => availableModel.toLowerCase().includes('opus')) ??
-      models[0] ??
-      ANYROUTER_CLAUDE_DEFAULT_MODEL
-    );
+    return ANYROUTER_CLAUDE_DEFAULT_MODEL;
   }
 
   return useAnyRouterDefaults ? ANYROUTER_CLAUDE_DEFAULT_MODEL : undefined;
+}
+
+function normalizeClaudeDefaultLaunchMode(
+  value: ApiProfile['claudeDefaultLaunchMode'],
+  useAnyRouterDefaults: boolean,
+): ApiProfile['claudeDefaultLaunchMode'] {
+  if (value && CLAUDE_LAUNCH_MODES.has(value)) {
+    return value;
+  }
+
+  return useAnyRouterDefaults ? 'default' : undefined;
+}
+
+function defaultClaudeModelMapping(
+  profile: ApiProfile,
+  selectableModels: string[],
+  useAnyRouterDefaults: boolean,
+): Pick<
+  ApiProfile,
+  | 'defaultModel'
+  | 'claudeHaikuModel'
+  | 'claudeSonnetModel'
+  | 'claudeOpusModel'
+  | 'claudeDefaultLaunchMode'
+> {
+  const defaultModel = defaultSelectableClaudeModel(
+    profile.defaultModel,
+    selectableModels,
+    useAnyRouterDefaults,
+  );
+
+  return {
+    defaultModel,
+    claudeHaikuModel:
+      optionalTrimmedString(profile.claudeHaikuModel) ??
+      (useAnyRouterDefaults ? ANYROUTER_CLAUDE_HAIKU_MODEL : undefined),
+    claudeSonnetModel:
+      optionalTrimmedString(profile.claudeSonnetModel) ??
+      (useAnyRouterDefaults ? ANYROUTER_CLAUDE_SONNET_MODEL : undefined),
+    claudeOpusModel:
+      optionalTrimmedString(profile.claudeOpusModel) ??
+      (useAnyRouterDefaults ? ANYROUTER_CLAUDE_OPUS_MODEL : undefined),
+    claudeDefaultLaunchMode: normalizeClaudeDefaultLaunchMode(
+      profile.claudeDefaultLaunchMode,
+      useAnyRouterDefaults,
+    ),
+  };
 }
 
 function isAnthropicBetaToken(value: string): boolean {
@@ -127,15 +174,15 @@ export function normalizeClaudeProfileDefaults(profile: ApiProfile): ApiProfile 
   const availableModels = useAnyRouterDefaults
     ? selectableClaudeModels(profile.availableModels)
     : profile.availableModels;
-  const defaultModel = defaultSelectableClaudeModel(
-    profile.defaultModel,
+  const modelMapping = defaultClaudeModelMapping(
+    profile,
     availableModels ?? [],
     useAnyRouterDefaults,
   );
 
   return {
     ...profile,
-    defaultModel,
+    ...modelMapping,
     availableModels: availableModels && availableModels.length > 0 ? availableModels : undefined,
     anthropicBetas,
     httpProxy,

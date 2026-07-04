@@ -161,13 +161,17 @@ describe('configMigration', () => {
       const migrated = migrateProfile(v3ProfileWithVersion);
 
       expect(migrated.defaultModel).toBe('claude-fable-5');
+      expect(migrated.claudeHaikuModel).toBe('claude-haiku-4-5-20251001');
+      expect(migrated.claudeSonnetModel).toBe('claude-fable-5');
+      expect(migrated.claudeOpusModel).toBe('claude-opus-4-8');
+      expect(migrated.claudeDefaultLaunchMode).toBe('default');
       expect(migrated.availableModels).toEqual(['claude-fable-5', 'claude-opus-4-7']);
       expect(migrated.anthropicBetas).toBe('context-1m-2025-08-07');
       expect(migrated.httpProxy).toBeUndefined();
       expect(migrated.httpsProxy).toBeUndefined();
     });
 
-    it('migrates legacy opus 1m pseudo model to a real selectable Claude model', () => {
+    it('migrates legacy opus 1m pseudo model to explicit AnyRouter Claude model mapping defaults', () => {
       const v4ProfileWithLegacyModel = {
         __version: 4,
         id: 'claude-anyrouter',
@@ -183,7 +187,11 @@ describe('configMigration', () => {
 
       const migrated = migrateProfile(v4ProfileWithLegacyModel);
 
-      expect(migrated.defaultModel).toBe('claude-fable-5');
+      expect(migrated.defaultModel).toBe('claude-opus-4-8');
+      expect(migrated.claudeHaikuModel).toBe('claude-haiku-4-5-20251001');
+      expect(migrated.claudeSonnetModel).toBe('claude-fable-5');
+      expect(migrated.claudeOpusModel).toBe('claude-opus-4-8');
+      expect(migrated.claudeDefaultLaunchMode).toBe('default');
       expect(migrated.availableModels).toEqual(['claude-fable-5', 'claude-opus-4-7']);
       expect(migrated.anthropicBetas).toBe('context-1m-2025-08-07');
     });
