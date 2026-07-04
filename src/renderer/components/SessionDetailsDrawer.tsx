@@ -67,6 +67,8 @@ export function SessionDetailsDrawer({
       <h2>当前会话</h2>
       {session && profile && workspace ? (
         <dl>
+          <dt>API 配置</dt>
+          <dd>{profile.name}</dd>
           <dt>状态</dt>
           <dd>{session.status}</dd>
           <dt>命令</dt>

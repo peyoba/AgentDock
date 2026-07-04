@@ -225,6 +225,36 @@ describe('AgentDock shell', () => {
     });
   });
 
+  it('shows the API profile name in session details and full tab titles on hover', async () => {
+    const runningSession: AgentSession = {
+      id: 'session-1',
+      title: 'Claude A · AgentDock',
+      profileId: 'profile-a',
+      workspaceId: 'workspace-a',
+      command: 'claude',
+      status: 'running',
+      startedAt: '2026-07-02T00:00:00.000Z',
+    };
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([runningSession]),
+    });
+
+    render(<App />);
+
+    const tabButton = await screen.findByRole('button', { name: /^Claude A · AgentDock$/ });
+    expect(tabButton).toHaveAttribute('title', 'Claude A · AgentDock');
+    expect(screen.getByRole('button', { name: '关闭 Claude A · AgentDock' })).toHaveAttribute(
+      'title',
+      '关闭 Claude A · AgentDock',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /会话详情/ }));
+
+    const details = screen.getByRole('complementary', { name: '当前会话详情' });
+    expect(within(details).getByText('API 配置')).toBeInTheDocument();
+    expect(within(details).getByText('Claude A')).toBeInTheDocument();
+  });
+
   it('opens API config as a separate page instead of embedding it in the terminal workspace', async () => {
     render(<App />);
 

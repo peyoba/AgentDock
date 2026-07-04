@@ -22,7 +22,7 @@ export function SessionTabs({
     <nav className="session-tabs" aria-label="运行中的会话">
       {tabs.map((tab) => (
         <span key={tab.id} className={tab.active ? 'session-tab active' : 'session-tab'}>
-          <button type="button" onClick={() => onSelectSession?.(tab.id)}>
+          <button type="button" title={tab.title} onClick={() => onSelectSession?.(tab.id)}>
             <span className="live-dot" />
             {tab.title}
           </button>
@@ -30,6 +30,7 @@ export function SessionTabs({
             type="button"
             className="close-mark"
             aria-label={`关闭 ${tab.title}`}
+            title={`关闭 ${tab.title}`}
             onClick={() => onCloseSession?.(tab.id)}
           >
             ×
