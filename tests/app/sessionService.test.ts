@@ -199,7 +199,7 @@ describe('sessionService', () => {
     expect(JSON.parse(writtenFiles[0].content).model).toBe('claude-opus-4-8');
   });
 
-  it('launches Claude lite mode with an empty strict MCP config without changing model betas or retry settings', async () => {
+  it('launches Claude lite mode with isolated settings and empty strict MCP config without changing model betas or retry settings', async () => {
     const runtime = createFakeRuntime();
     const ensuredDirectories: string[] = [];
     const writtenFiles: Array<{ filePath: string; content: string }> = [];
@@ -261,7 +261,7 @@ describe('sessionService', () => {
       },
     ]);
     expect(runtime.spawnRequests[0]?.command).toBe(
-      "claude --dangerously-skip-permissions --settings '/tmp/agentdock-test-data/claude-settings/profile-a.json' --mcp-config '/tmp/agentdock-test-data/claude-mcp/empty.json' --strict-mcp-config",
+      "claude --dangerously-skip-permissions --settings '/tmp/agentdock-test-data/claude-settings/profile-a.json' --setting-sources project,local --mcp-config '/tmp/agentdock-test-data/claude-mcp/empty.json' --strict-mcp-config",
     );
   });
 

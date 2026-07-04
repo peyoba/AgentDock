@@ -150,6 +150,10 @@ function appendClaudeSettingsCommand(command: string, settingsPath: string): str
   return `${command} --settings ${shellQuote(settingsPath)}`;
 }
 
+function appendClaudeSettingSourcesCommand(command: string): string {
+  return `${command} --setting-sources project,local`;
+}
+
 function buildEmptyClaudeMcpConfig(): string {
   return `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`;
 }
@@ -310,6 +314,7 @@ export function createSessionService(
             const mcpConfigPath = path.join(mcpConfigDirectory, 'empty.json');
             await ensureDirectory(mcpConfigDirectory);
             await writeTextFile(mcpConfigPath, buildEmptyClaudeMcpConfig());
+            spawnCommand = appendClaudeSettingSourcesCommand(spawnCommand);
             spawnCommand = appendClaudeMcpConfigCommand(spawnCommand, mcpConfigPath);
           }
         }
