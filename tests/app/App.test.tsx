@@ -242,11 +242,16 @@ describe('AgentDock shell', () => {
     render(<App />);
 
     const tabButton = await screen.findByRole('button', { name: /^Claude A · AgentDock$/ });
-    expect(tabButton).toHaveAttribute('title', 'Claude A · AgentDock');
-    expect(screen.getByRole('button', { name: '关闭 Claude A · AgentDock' })).toHaveAttribute(
-      'title',
-      '关闭 Claude A · AgentDock',
-    );
+    fireEvent.mouseEnter(tabButton);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Claude A · AgentDock');
+    fireEvent.mouseLeave(tabButton);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    const closeButton = screen.getByRole('button', { name: '关闭 Claude A · AgentDock' });
+    fireEvent.mouseEnter(closeButton);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('关闭 Claude A · AgentDock');
+    fireEvent.mouseLeave(closeButton);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /会话详情/ }));
 
