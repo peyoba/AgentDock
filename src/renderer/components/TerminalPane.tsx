@@ -64,6 +64,105 @@ function calculateTerminalFit(container: HTMLElement): { cols: number; rows: num
   };
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function installTerminalDragScrollbar(container: HTMLElement): () => void {
+  const viewport = container.querySelector<HTMLElement>('.xterm-viewport');
+  if (!viewport) {
+    return () => undefined;
+  }
+
+  const track = document.createElement('div');
+  const thumb = document.createElement('div');
+  track.className = 'terminal-drag-scrollbar';
+  track.setAttribute('role', 'scrollbar');
+  track.setAttribute('aria-label', '终端滚动条');
+  track.setAttribute('aria-orientation', 'vertical');
+  track.setAttribute('aria-valuemin', '0');
+  thumb.className = 'terminal-drag-scrollbar-thumb';
+  track.appendChild(thumb);
+  container.appendChild(track);
+
+  let dragging = false;
+  let dragOffset = 0;
+
+  const scrollbarMetrics = () => {
+    const trackHeight =
+      track.clientHeight || track.getBoundingClientRect().height || viewport.clientHeight;
+    const viewportHeight = viewport.clientHeight;
+    const scrollHeight = viewport.scrollHeight;
+    const maxScroll = Math.max(0, scrollHeight - viewportHeight);
+    const proportionalHeight = scrollHeight > 0 ? (trackHeight * viewportHeight) / scrollHeight : trackHeight;
+    const thumbHeight = clampNumber(proportionalHeight, Math.min(32, trackHeight), trackHeight);
+    const maxThumbTop = Math.max(0, trackHeight - thumbHeight);
+
+    return { maxScroll, maxThumbTop, thumbHeight, trackHeight };
+  };
+
+  const updateThumb = (): void => {
+    const { maxScroll, maxThumbTop, thumbHeight } = scrollbarMetrics();
+    const thumbTop = maxScroll === 0 ? 0 : (viewport.scrollTop / maxScroll) * maxThumbTop;
+    thumb.style.height = `${thumbHeight}px`;
+    thumb.style.transform = `translateY(${thumbTop}px)`;
+    track.setAttribute('aria-valuemax', String(maxScroll));
+    track.setAttribute('aria-valuenow', String(Math.round(viewport.scrollTop)));
+    track.classList.toggle('is-disabled', maxScroll === 0);
+  };
+
+  const scrollToPointer = (event: PointerEvent, offset: number): void => {
+    const { maxScroll, maxThumbTop } = scrollbarMetrics();
+    const trackTop = track.getBoundingClientRect().top;
+    const thumbTop = clampNumber(event.clientY - trackTop - offset, 0, maxThumbTop);
+    viewport.scrollTop = maxThumbTop === 0 ? 0 : (thumbTop / maxThumbTop) * maxScroll;
+    updateThumb();
+  };
+
+  const onPointerMove = (event: PointerEvent): void => {
+    if (!dragging) {
+      return;
+    }
+    event.preventDefault();
+    scrollToPointer(event, dragOffset);
+  };
+
+  const onPointerUp = (): void => {
+    dragging = false;
+    document.body.classList.remove('terminal-scroll-dragging');
+  };
+
+  const onPointerDown = (event: PointerEvent): void => {
+    if (event.button !== 0) {
+      return;
+    }
+    const { thumbHeight } = scrollbarMetrics();
+    dragging = true;
+    dragOffset =
+      event.target === thumb
+        ? event.clientY - thumb.getBoundingClientRect().top
+        : thumbHeight / 2;
+    document.body.classList.add('terminal-scroll-dragging');
+    event.preventDefault();
+    scrollToPointer(event, dragOffset);
+  };
+
+  track.addEventListener('pointerdown', onPointerDown);
+  viewport.addEventListener('scroll', updateThumb);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  updateThumb();
+
+  return () => {
+    track.removeEventListener('pointerdown', onPointerDown);
+    viewport.removeEventListener('scroll', updateThumb);
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    document.body.classList.remove('terminal-scroll-dragging');
+    track.remove();
+  };
+}
+
 export function TerminalPane({
   sessionId,
   preserveHistory = true,
@@ -85,6 +184,7 @@ export function TerminalPane({
     });
 
     terminal.open(terminalElementRef.current);
+    const cleanupScrollbar = installTerminalDragScrollbar(terminalElementRef.current);
 
     const fitTerminal = (): void => {
       const container = terminalElementRef.current;
@@ -162,6 +262,7 @@ export function TerminalPane({
       }
       fitTimers.forEach((timer) => window.clearTimeout(timer));
       resizeObserver?.disconnect();
+      cleanupScrollbar();
       terminalElementRef.current?.removeEventListener('wheel', wheelListener, true);
       dataSubscription.dispose();
       resizeSubscription.dispose();

@@ -1,12 +1,12 @@
 # Agent Workflow State
 
 ## 当前任务
-Batch B Workspace Shared Context 交付验证。
+终端右侧滚动滑块拖动交互小修。
 
 ## 风险等级
 L3
 
-触发原因：Electron 桌面应用、内嵌终端 PTY、环境变量注入、终端输出落盘、preload IPC、安全脱敏边界、macOS 打包。
+触发原因：Electron 桌面应用、内嵌终端 xterm.js 交互、终端历史滚动体验、macOS 打包验证。
 
 ## 当前 Hook
 delivery_hook
@@ -51,6 +51,8 @@ delivery
 | ⑧集成工程师 | PASS | 全量测试、workflow、typecheck、build 通过；验证记录 `.agent-workflow/verification/2026-07-04-agentdock-batch-b-workspace-shared-context.md` |
 | ⑨部署工程师 | PASS | 新产物 `release/packages/20260704-173315/AgentDock-darwin-arm64/AgentDock.app`，codesign strict verify 通过 |
 | ⑦文档工程师 | PASS | 交付报告 `.agent-workflow/delivery/2026-07-04-agentdock-batch-b-workspace-shared-context-delivery-report.md` |
+| 主 Agent | PASS | 终端右侧新增可拖动 scroll thumb，支持鼠标点击拖动快速跳转长输出 |
+| ⑧集成工程师 | PASS | TerminalPane/layout tests、typecheck、workflow doctor、build、package、codesign strict verify 通过 |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -61,7 +63,7 @@ delivery
 无
 
 ## 下一步
-用户用 `release/packages/20260704-173315/AgentDock-darwin-arm64/AgentDock.app` 手动 smoke：启动 zsh/Claude/Codex session，检查所选 workspace 下 `.agentdock/context/shared-context.md` 更新，并确认 `.agentdock/` 未进入项目 Git 提交。
+用户用 `release/packages/20260704-182834/AgentDock-darwin-arm64/AgentDock.app` 手动 smoke：启动长输出 session 后拖动终端右侧滚动滑块，确认可从顶部快速拖到底部；同时可继续检查 workspace shared context。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -94,6 +96,13 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-04 | `npm run package:mac` | PASS：`release/packages/20260704-173315/AgentDock-darwin-arm64/AgentDock.app` |
 | 2026-07-04 | `codesign --verify --deep --strict --verbose=2 release/packages/20260704-173315/AgentDock-darwin-arm64/AgentDock.app` | PASS |
 | 2026-07-04 | key/token 模式扫描 | PASS：当前 diff 和未跟踪文件无输出 |
+| 2026-07-04 | `npm run test -- tests/app/TerminalPane.test.tsx` | PASS：1 file / 9 tests |
+| 2026-07-04 | `npm run test -- tests/app/layoutPolish.test.ts tests/app/TerminalPane.test.tsx` | PASS：2 files / 14 tests |
+| 2026-07-04 | `npm run typecheck` | PASS |
+| 2026-07-04 | `npm run workflow:doctor` | PASS |
+| 2026-07-04 | `npm run build` | PASS：仅 Vite chunk size warning |
+| 2026-07-04 | `npm run package:mac` | PASS：`release/packages/20260704-182834/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-04 | `codesign --verify --deep --strict --verbose=2 release/packages/20260704-182834/AgentDock-darwin-arm64/AgentDock.app` | PASS |
 | 2026-07-04 | `npm run test -- tests/app/sessionService.test.ts` | PASS：5 tests |
 | 2026-07-04 | `npm run test -- tests/app/App.test.tsx` | PASS：44 tests |
 | 2026-07-04 | `npm run test` | PASS：29 files / 149 tests |

@@ -15,7 +15,26 @@ const { FakeTerminal } = vi.hoisted(() => {
 
     cols = 80;
     rows = 24;
-    open = vi.fn();
+    open = vi.fn((container: HTMLElement) => {
+      const viewport = document.createElement('div');
+      viewport.className = 'xterm-viewport';
+      Object.defineProperties(viewport, {
+        clientHeight: { configurable: true, value: 100 },
+        scrollHeight: { configurable: true, value: 1000 },
+      });
+      viewport.getBoundingClientRect = () => ({
+        width: 10,
+        height: 100,
+        top: 0,
+        right: 100,
+        bottom: 100,
+        left: 90,
+        x: 90,
+        y: 0,
+        toJSON: () => undefined,
+      });
+      container.appendChild(viewport);
+    });
     resize = vi.fn((cols: number, rows: number) => {
       this.cols = cols;
       this.rows = rows;
@@ -206,6 +225,53 @@ describe('TerminalPane xterm binding', () => {
     });
 
     expect(terminal.scrollLines).toHaveBeenCalledWith(3);
+  });
+
+  it('lets users drag the terminal scrollbar thumb to jump through long output', async () => {
+    render(<TerminalPane sessionId="session-1" />);
+
+    const scrollbar = await vi.waitFor(() => {
+      const element = document.querySelector('[aria-label="终端滚动条"]');
+      expect(element).not.toBeNull();
+      return element as HTMLElement;
+    });
+    Object.defineProperties(scrollbar, {
+      clientHeight: { configurable: true, value: 100 },
+    });
+    scrollbar.getBoundingClientRect = () => ({
+      width: 10,
+      height: 100,
+      top: 0,
+      right: 100,
+      bottom: 100,
+      left: 90,
+      x: 90,
+      y: 0,
+      toJSON: () => undefined,
+    });
+
+    const thumb = scrollbar.querySelector('.terminal-drag-scrollbar-thumb') as HTMLElement;
+    expect(thumb).not.toBeNull();
+    thumb.getBoundingClientRect = () => ({
+      width: 10,
+      height: 32,
+      top: 0,
+      right: 100,
+      bottom: 32,
+      left: 90,
+      x: 90,
+      y: 0,
+      toJSON: () => undefined,
+    });
+
+    act(() => {
+      thumb.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, clientY: 0, bubbles: true }));
+      window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientY: 100, bubbles: true }));
+      window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientY: 100, bubbles: true }));
+    });
+
+    const viewport = document.querySelector('.xterm-viewport') as HTMLElement;
+    expect(viewport.scrollTop).toBe(900);
   });
 
   it('creates an xterm instance and bridges input, resize, and scoped output through IPC', () => {

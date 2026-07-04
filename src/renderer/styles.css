@@ -335,6 +335,10 @@ p {
   max-width: none !important;
 }
 
+.terminal-surface {
+  position: relative;
+}
+
 .terminal-surface .xterm-viewport {
   left: 0 !important;
   right: 0 !important;
@@ -360,6 +364,41 @@ p {
   background: #4b5563;
   border-radius: 999px;
   border: 2px solid #07080c;
+}
+
+.terminal-drag-scrollbar {
+  position: absolute;
+  top: 8px;
+  right: 4px;
+  bottom: 8px;
+  z-index: 5;
+  width: 12px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.terminal-drag-scrollbar-thumb {
+  width: 10px;
+  min-height: 32px;
+  border: 2px solid #07080c;
+  border-radius: 999px;
+  background: #6b7280;
+  cursor: grab;
+  box-sizing: border-box;
+}
+
+.terminal-drag-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+.terminal-drag-scrollbar.is-disabled {
+  display: none;
+}
+
+.terminal-scroll-dragging,
+.terminal-scroll-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
 }
 
 .terminal-surface .xterm-screen {
