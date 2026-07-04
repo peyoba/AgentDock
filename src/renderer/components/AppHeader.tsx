@@ -2,9 +2,13 @@ import React from 'react';
 
 type AppHeaderProps = {
   onShowApiConfig(): void;
+  onOpenNewWindow?(): void;
 };
 
-export function AppHeader({ onShowApiConfig }: AppHeaderProps): React.JSX.Element {
+export function AppHeader({
+  onShowApiConfig,
+  onOpenNewWindow,
+}: AppHeaderProps): React.JSX.Element {
   return (
     <header className="titlebar-spacer">
       <div className="brand-lockup">
@@ -15,6 +19,11 @@ export function AppHeader({ onShowApiConfig }: AppHeaderProps): React.JSX.Elemen
         </div>
       </div>
       <div className="header-actions">
+        {onOpenNewWindow ? (
+          <button type="button" className="secondary-button" onClick={onOpenNewWindow}>
+            新窗口
+          </button>
+        ) : null}
         <button type="button" className="ghost-button" onClick={onShowApiConfig}>
           🔑 接口配置
         </button>

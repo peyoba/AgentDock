@@ -54,6 +54,10 @@ input {
   padding: 6px 10px;
 }
 
+.titlebar-spacer .secondary-button {
+  padding: 6px 10px;
+}
+
 h1 {
   margin: 0;
   font-size: 18px;
@@ -95,6 +99,7 @@ p {
 }
 
 .ghost-button,
+.secondary-button,
 .primary-button,
 .command-bar select,
 .local-shell-button,

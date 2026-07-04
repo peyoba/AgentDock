@@ -17,6 +17,8 @@ type TestAgentDockApi = AgentDockApi & {
   saveProfileSecret: ReturnType<typeof vi.fn<[(request: { keychainService: string; keychainAccount: string; secret: string }) => Promise<void>]>>;
   readProfileSecret: ReturnType<typeof vi.fn<[(request: { keychainService: string; keychainAccount: string }) => Promise<string>]>>;
   fetchProfileModels: ReturnType<typeof vi.fn<[(request: { profileId: string }) => Promise<string[]>]>>;
+  openNewWindow: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  onMetadataChanged: ReturnType<typeof vi.fn<[(listener: () => void) => () => void]>>;
 };
 
 function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
@@ -60,6 +62,8 @@ function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
     killTerminal: vi.fn(),
     readTerminalBuffer: vi.fn().mockResolvedValue(''),
     onTerminalOutput: vi.fn(() => () => undefined),
+    openNewWindow: vi.fn().mockResolvedValue(undefined),
+    onMetadataChanged: vi.fn(() => () => undefined),
     ...overrides,
   };
   window.agentDock = api;
@@ -76,6 +80,62 @@ async function openApiConfigPage(): Promise<void> {
 }
 
 describe('AgentDock shell', () => {
+  it('opens a new AgentDock window from the header action', async () => {
+    const api = installAgentDockApi({
+      openNewWindow: vi.fn().mockResolvedValue(undefined),
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: '新窗口' }));
+
+    await waitFor(() => {
+      expect(api.openNewWindow).toHaveBeenCalled();
+    });
+  });
+
+  it('refreshes profile and workspace metadata when another window changes it', async () => {
+    let metadataListener: (() => void) | undefined;
+    const api = installAgentDockApi({
+      listProfiles: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 'profile-a',
+            name: 'Claude A',
+            toolType: 'claude',
+            baseUrl: 'https://a.example.invalid',
+            keychainService: 'AgentDock',
+            keychainAccount: 'profile-a',
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 'profile-b',
+            name: 'Claude B',
+            toolType: 'claude',
+            baseUrl: 'https://b.example.invalid',
+            keychainService: 'AgentDock',
+            keychainAccount: 'profile-b',
+          },
+        ]),
+      onMetadataChanged: vi.fn((listener: () => void) => {
+        metadataListener = listener;
+        return () => undefined;
+      }),
+    });
+
+    render(<App />);
+    expect(await screen.findByText('Claude A')).toBeInTheDocument();
+
+    metadataListener?.();
+
+    await waitFor(() => {
+      expect(api.listProfiles).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('Claude B')).toBeInTheDocument();
+    });
+  });
+
   it('renders terminal-first launch controls', () => {
     render(<App />);
 
