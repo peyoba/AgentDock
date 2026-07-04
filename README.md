@@ -12,14 +12,30 @@ AgentDock 是一个面向 Claude CLI / Codex CLI 的多配置内嵌终端工作�
 
 ## 当前阶段
 
-开发前准备 / MVP 骨架。
+MVP 基础能力已进入可打包验证阶段。
 
 已完成：
 
-- 导入 `agent-workflow-template` 工作流。
+- 导入并配置 `agent-workflow-template` 工作流。
 - 导入 Obsidian 中的需求、UI 调研、效果图和技术架构文档。
-- 创建 Electron + React + TypeScript 最小可运行骨架。
-- 记录 AgentDock 的项目约束和开发命令。
+- 实现 Electron + React + TypeScript + xterm.js 的终端优先工作台。
+- 接入真实 `node-pty` 与 macOS Keychain adapter。
+- 支持 Claude/Codex API Profile、Workspace、内嵌终端会话和独立启动环境。
+- 支持 Codex 每 Profile 独立 `CODEX_HOME`。
+- 支持 API 配置独立页面、多 Profile 新增/编辑和按工具类型分类。
+- 完成 Batch A：Claude 模型映射、多窗口 Session 隔离、时间戳 macOS 打包。
+- 完成 Claude 轻量/完整 MCP 启动模式；轻量模式隔离 user settings/plugin hook。
+
+当前可复测包：
+
+```text
+release/packages/20260704-142744/AgentDock-darwin-arm64/AgentDock.app
+```
+
+下一批计划：
+
+- Batch B Workspace Shared Context：把会话上下文写入所选 workspace 的 `.agentdock/context/`，并向 PTY 注入非敏感上下文路径。
+- 计划文件：`docs/plans/2026-07-04-agentdock-batch-b-workspace-shared-context.md`。
 
 ## 开发命令
 
