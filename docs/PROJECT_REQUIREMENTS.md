@@ -128,5 +128,4 @@ MVP 验收时必须证明：
 - `docs/requirements/04-竞品UI参考.md`
 - `docs/requirements/05-UI效果图.md`
 - `docs/requirements/06-技术架构方案.md`
-- `docs/assets/mockups/`
 - `docs/assets/ui-references/`

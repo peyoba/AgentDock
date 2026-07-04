@@ -66,7 +66,6 @@ release/packages/20260704-153000/AgentDock-darwin-arm64/AgentDock.app
 
 - `docs/PROJECT_REQUIREMENTS.md`：需求和 UI 要求汇总。
 - `docs/requirements/`：从 Obsidian 导入的完整调研文档。
-- `docs/assets/mockups/`：UI 效果图。
 - `06-技术架构方案.md` 的导入副本：技术选型依据。
 - `AGENTS.md`：开发代理必须遵守的工程约束。
 - `.agent-workflow/`：9+1 工程角色开发工作流。

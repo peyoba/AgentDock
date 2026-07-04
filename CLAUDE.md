@@ -145,7 +145,9 @@ npm run package:mac     # 打包 macOS app
 - ⚙️ 危险权限标志默认开启是有意设计，高级设置可关，不作为缺陷处理
 
 ### 项目清理分析
-- 📄 已生成清理分析报告：`docs/reports/2026-07-03-project-cleanup-analysis.md`（待执行）
+- 📄 清理分析报告：`docs/reports/2026-07-03-project-cleanup-analysis.md`
+- ✅ 第一阶段已执行（2026-07-05）：删除 Agent.md、BOOTSTRAP_CHECKLIST.md、EMERGENCY_FIX.md、INSTALL_SUPERPOWERS.md 及 `docs/assets/mockups/` 全部原型，并清理保留文档中的悬空引用
+- ⏸️ 第二阶段说明：`.agent-workflow/` 仍被 `workflow.py`、workflow 测试和本文档引用，**保留不删**（报告中"已不参与日常开发"的前提已过时）；`docs/requirements/` 暂保留，待用户决定归档或删除
 
 ---
 
@@ -202,6 +204,9 @@ npm run package:mac     # 打包 macOS app
 
 | 日期 | 类型 | 内容 |
 |------|------|------|
+| 2026-07-05 | 修复 | vault 密钥材料 v2（去除 hostname/目录依赖 + legacy 自愈），9 条已存记录已迁移；标签悬停 0.3s 自定义 tooltip；打包排除本地工具文件；出厂配置去除本机代理 |
+| 2026-07-05 | 构建 | 打包改用本机自签名证书 `AgentDock Codesign`（解决 TCC 权限反复弹窗）；GitHub 直连失败时用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` |
+| 2026-07-05 | 清理 | 执行清理报告第一阶段：删除 4 个过时根文档 + mockups 原型 19 个文件，清理悬空引用；`.agent-workflow/` 确认保留 |
 | 2026-07-04 | 修复 | 全项目审查修复批次：PTY 退出感知、跨窗口 session ID、PATH 同步、密钥迁移接线、上下文节流、低优先级批量 |
 | 2026-07-04 | 优化 | 终端滚动条 macOS 悬浮化；会话详情显示 API 配置名；标签悬停显示全名 |
 | 2026-07-04 | 决策 | API Key 界面可见（本地保存不外发）；危险权限标志默认开启为预期设计 |
@@ -213,6 +218,6 @@ npm run package:mac     # 打包 macOS app
 
 ---
 
-**下一步**: 用最新构建做一次真机 smoke（新包启动 Claude profile、多窗口同工作区、CLI 退出提示），然后按清理分析报告执行项目清理。
+**下一步**: 用 2026-07-05 新包做真机 smoke（vault 修复后 profile 启动、悬停 tooltip、TCC 一次性授权、多窗口同工作区、CLI 退出提示），并决定 `docs/requirements/` 归档或保留（清理第二阶段）。
 
 Happy coding! 🚀

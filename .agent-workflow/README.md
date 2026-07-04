@@ -7,12 +7,8 @@
 ```text
 your-project/
   AGENTS.md
-  Agent.md
   QUICKSTART.md
-  BOOTSTRAP_CHECKLIST.md
-  INSTALL_SUPERPOWERS.md
   PROJECT_PROFILE.md
-  EMERGENCY_FIX.md
   VERSION.md
   DECISIONS.md
   .agent-workflow/
@@ -48,10 +44,7 @@ your-project/
 根目录补充文档：
 
 - `QUICKSTART.md`：复制到新项目后的启动方法。
-- `BOOTSTRAP_CHECKLIST.md`：主 Agent 启动前自检清单。
-- `INSTALL_SUPERPOWERS.md`：Superpowers 检查、安装、启用和阻塞规则。
 - `PROJECT_PROFILE.md`：项目技术栈、命令、环境变量和部署信息。
-- `EMERGENCY_FIX.md`：紧急修复流程。
 - `VERSION.md`：模板版本和升级规则。
 - `DECISIONS.md`：用户决策和已拒绝建议记录。
 

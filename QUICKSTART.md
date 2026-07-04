@@ -8,7 +8,6 @@
 
 ```text
 AGENTS.md
-Agent.md
 .agent-workflow/
 scripts/
 tests/
@@ -94,7 +93,7 @@ python3 scripts/workflow.py new-task "Add user login" \
 请把 https://github.com/peyoba/agent-workflow-template 安装到当前项目。
 
 要求：
-1. 复制 AGENTS.md、Agent.md、PROJECT_PROFILE.md、QUICKSTART.md、INSTALL_SUPERPOWERS.md、.agent-workflow/、scripts/ 和 tests/。
+1. 复制 AGENTS.md、PROJECT_PROFILE.md、QUICKSTART.md、.agent-workflow/、scripts/ 和 tests/。
 2. 如果目标项目已经有 AGENTS.md、Agent.md 或 .agent-workflow/，不要覆盖，先展示差异并等待确认。
 3. 安装后运行 python3 scripts/workflow.py doctor。
 4. 如果 PROJECT_PROFILE.md 仍有占位符，先根据项目文件补全；无法确认的再问我。

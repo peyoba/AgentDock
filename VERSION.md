@@ -21,7 +21,6 @@
 ## 兼容性说明
 
 - `AGENTS.md`：推荐入口文件名。
-- `Agent.md`：兼容入口文件名。
 - `.agent-workflow/SKILLS.md`：定义 skill 加载和降级规则。
 - `.agent-workflow/agents/`：定义每个角色的具体执行协议。
 

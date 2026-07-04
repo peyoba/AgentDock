@@ -9,3 +9,7 @@ coverage/
 !.env.example
 *.log
 .agentdock-local/
+.agentdock/
+.claude/
+.pytest_cache/
+__pycache__/

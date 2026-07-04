@@ -43,7 +43,6 @@
 | `src/preload/` | Electron preload bridge |
 | `src/renderer/` | React renderer UI |
 | `docs/requirements/` | 从 Obsidian 导入的需求、UI、架构和竞品调研 |
-| `docs/assets/mockups/` | UI 效果图 |
 | `docs/assets/ui-references/` | 竞品 UI 参考图 |
 | `.agent-workflow/` | agent-workflow-template 工作流 |
 | `scripts/` | 工作流 CLI 和后续维护脚本 |

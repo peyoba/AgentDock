@@ -19,6 +19,8 @@
 | 2026-07-04 | Gemini/OpenCode 配置入口暂时隐藏 | 启动环境尚未实现（不注入凭证），避免半成品入口误导用户 | API 配置 UI |
 | 2026-07-04 | `node-pty` 移入 dependencies，`keytar` 保留在 optionalDependencies | node-pty 是核心依赖，安装失败应立即暴露；keytar 仅作 legacy 迁移回退，缺失可降级 | 依赖管理、打包 |
 | 2026-07-04 | 会话 ID 注入每窗口唯一前缀（`session-w<windowId>-<n>`），CLI 进程退出后标记 exited 并在终端提示 | 修复多窗口下共享上下文 transcript 互相覆盖、以及 CLI 退出后会话假活的两个审查高优先级问题 | SessionService、窗口注册、workspace 上下文、终端 UX |
+| 2026-07-05 | macOS 打包使用本机自签名证书 `AgentDock Codesign`（脚本自动检测），不再 ad-hoc | ad-hoc 每次打包 cdhash 变化，TCC 反复弹桌面/文稿权限窗；稳定签名让授权持续有效 | 打包脚本、真机权限体验 |
+| 2026-07-05 | vault 密钥材料升级 v2：仅由固定字面量+用户名+home 目录组成，不再混入 hostname 和 vault 目录字符串；读取旧记录时自动用 legacy 材料解密并重加密回写（自愈） | hostname 随网络漂移（`设备名.local` ↔ 纯 IP）导致已存 Key 解不开（真机故障复盘：9 条记录分属两个历史 hostname）；vault 定位是本地混淆不追求防本机攻击者，稳定性优先 | 密钥存储、Session 启动可靠性 |
 
 ## 已拒绝/避免方向
 
