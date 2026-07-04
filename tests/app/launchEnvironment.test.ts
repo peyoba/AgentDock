@@ -56,6 +56,46 @@ describe('buildLaunchEnvironment', () => {
     expect(env.DISABLE_INSTALLATION_CHECKS).toBe('1');
   });
 
+  it('adds Claude model mapping environment variables without exposing them for Codex', () => {
+    const env = buildLaunchEnvironment({
+      profile: {
+        ...baseProfile,
+        defaultModel: 'claude-opus-4-8',
+        claudeHaikuModel: 'claude-haiku-4-5-20251001',
+        claudeSonnetModel: 'claude-fable-5',
+        claudeOpusModel: 'claude-opus-4-8',
+      },
+      secret: 'local-development-secret',
+      appDataPath: '/Users/example/Library/Application Support/AgentDock',
+    });
+
+    expect(env.ANTHROPIC_MODEL).toBe('claude-opus-4-8');
+    expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('claude-haiku-4-5-20251001');
+    expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('claude-fable-5');
+    expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('claude-opus-4-8');
+  });
+
+  it('does not add Claude model mapping variables to Codex environment', () => {
+    const env = buildLaunchEnvironment({
+      profile: {
+        ...baseProfile,
+        id: 'codex-openai',
+        toolType: 'codex',
+        defaultModel: 'gpt-5-codex',
+        claudeHaikuModel: 'claude-haiku-4-5-20251001',
+        claudeSonnetModel: 'claude-fable-5',
+        claudeOpusModel: 'claude-opus-4-8',
+      },
+      secret: 'local-development-secret',
+      appDataPath: '/Users/example/Library/Application Support/AgentDock',
+    });
+
+    expect(env.ANTHROPIC_MODEL).toBeUndefined();
+    expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBeUndefined();
+    expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBeUndefined();
+    expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined();
+  });
+
   it('does not inject invalid proxy URLs into Claude launch environment', () => {
     const env = buildLaunchEnvironment({
       profile: {
