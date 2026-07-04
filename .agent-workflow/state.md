@@ -1,7 +1,7 @@
 # Agent Workflow State
 
 ## 当前任务
-Batch A 需求 SPEC：Claude 模型映射、多窗口支持与 macOS 打包安全输出。
+Batch A 实施计划：Claude 模型映射、多窗口支持与 macOS 打包安全输出。
 
 ## 风险等级
 L3
@@ -12,7 +12,7 @@ L3
 plan_review_hook
 
 ## 当前阶段
-spec-review
+plan-ready
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
@@ -32,6 +32,7 @@ spec-review
 | 主 Agent | PASS | Session launch failure safety：workspace 缺失先失败、PTY 启动失败标记 failed、安全错误不泄露 secret/env |
 | 主 Agent | PASS | Claude AnyRouter 1m 配置修复、代理 URL 防呆、默认工作区清空、Desktop 预检查跳过；交付报告 `.agent-workflow/delivery/2026-07-03-claude-anyrouter-desktop-permission-delivery-report.md` |
 | 主 Agent | PASS | Claude 默认模型选择修复：移除 `opus[1m]` 伪模型并迁移历史配置；交付报告 `.agent-workflow/delivery/2026-07-04-claude-model-selector-fix-delivery-report.md` |
+| 主 Agent | PASS | Batch A SPEC 已确认；实施计划 `docs/plans/2026-07-04-agentdock-batch-a-claude-models-multiwindow-package.md` 已生成并完成自审 |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -39,10 +40,10 @@ spec-review
 无
 
 ## 用户待确认
-请用户 review `.agent-workflow/specs/2026-07-04-agentdock-batch-a-claude-models-multiwindow-package.md`，确认后再进入实施计划。
+请用户 review `docs/plans/2026-07-04-agentdock-batch-a-claude-models-multiwindow-package.md`，确认执行方式后再进入代码实现：推荐 `superpowers:subagent-driven-development`，也可选择 inline execution。
 
 ## 下一步
-用户确认 SPEC 后，使用 writing-plans 生成 Batch A 实施计划；确认实施计划前不写代码。
+提交 Batch A 实施计划；用户确认计划和执行方式后，按 TDD 进入 Task 1。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -55,6 +56,7 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-01 | API 配置按工具类型分类，参考 CC Switch | 用户明确要求 |
 | 2026-07-01 | 创建 GitHub 私有仓库 | 用户明确要求创建 GitHub 仓库；私有仓库更适合开发初期 |
 | 2026-07-02 | Phase 1 执行确认并补充安全/UI 测试约束 | 用户确认计划并要求 Codex endpoint 隔离、Renderer/IPC 不返回完整 secret/env、UI 测试覆盖关键 UI 行为 |
+| 2026-07-04 | Batch A SPEC 已确认并进入实施计划 | 用户确认 Claude 5 个配置项、多窗口、安全打包为当前批次范围 |
 
 ## 验证记录
 | 时间 | 命令 | 结果 |
