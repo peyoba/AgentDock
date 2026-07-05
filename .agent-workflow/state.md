@@ -1,12 +1,12 @@
 # Agent Workflow State
 
 ## 当前任务
-2026-07-04 全项目审查修复批次收尾（低优先级批量 + PTY 退出感知 + 跨窗口 session ID + 文档同步）。
+2026-07-05 vault 稳定性、签名打包、tooltip 与项目清理收尾。
 
 ## 风险等级
 L3
 
-触发原因：Electron 桌面应用、真实 node-pty 生命周期、跨窗口共享 workspace 上下文、依赖管理调整（node-pty 移入 dependencies）。
+触发原因：Electron 桌面应用、API Key 本机加密 vault、真实 node-pty/Agent CLI 启动、macOS 签名与打包产物、项目清理。
 
 ## 当前 Hook
 delivery_hook
@@ -58,6 +58,12 @@ delivery
 | 主 Agent | PASS | Agent CLI PATH 同步修复：用户级 CLI 目录优先，并在 login shell 命令前重新 `export PATH` |
 | ⑧集成工程师 | PASS | 全量测试、workflow doctor、typecheck、build、真实 node-pty Claude PATH smoke、package、codesign strict verify 通过 |
 | ⑦文档工程师 | PASS | 交付报告 `.agent-workflow/delivery/2026-07-04-agent-cli-path-sync-delivery-report.md`，验证记录 `.agent-workflow/verification/2026-07-04-agent-cli-path-sync.md` |
+| 主 Agent | PASS | vault 密钥材料升级 v2，去除 hostname/目录依赖；9 条本机 vault 记录已迁移并备份 |
+| 主 Agent | PASS | macOS `AgentDock Codesign` 自签名证书验证通过，重新打包 `release/packages/20260705-020727/AgentDock-darwin-arm64/AgentDock.app` |
+| 主 Agent | PASS | 标签原生 tooltip 替换为 0.3s 自绘 tooltip；包内 marker 验证通过 |
+| ⑦文档工程师 | PASS | 清理报告第一阶段：删除过时根文档与 mockups 原型；README/UI 文档/workflow 状态同步 |
+| ⑧集成工程师 | PASS | workflow doctor、workflow tests、全量 vitest、typecheck、build、codesign strict verify 通过；验证记录 `.agent-workflow/verification/2026-07-05-vault-signing-cleanup.md` |
+| ⑨部署工程师 | PASS | GitHub push 已恢复并推送到 `origin/main`；交付报告 `.agent-workflow/delivery/2026-07-05-vault-signing-cleanup-delivery-report.md` |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -65,10 +71,10 @@ delivery
 无
 
 ## 用户待确认
-无
+在当前运行的新包中启动此前报错的 Profile，确认无需重新粘贴 API Key；如 macOS 首次请求桌面/文稿权限，授权一次后后续包应保持稳定。
 
 ## 下一步
-重新打包后真机 smoke：启动 Claude profile 确认新版 CLI；开两个窗口在同一 workspace 各启一个会话，确认 transcript 文件不再互相覆盖（`session-w<id>-1.md`）；在终端里 exit 退出 CLI，确认出现"进程已退出"提示且标签页可正常关闭。
+用户侧 smoke：使用 `release/packages/20260705-020727/AgentDock-darwin-arm64/AgentDock.app` 启动此前报错的 Profile；再验证标签 tooltip、TCC 一次性授权、多窗口同 workspace、CLI 退出提示。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -90,10 +96,21 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-04 | Workspace Shared Context 只写 workspace 本地 `.agentdock/context/` | 本批次目标是跨 Agent CLI 可读的本地上下文，不做云同步、自动 LLM 总结或修改用户项目 Agent 配置 |
 | 2026-07-04 | 新保存 API Key 使用本机加密 `secrets.vault.json`，旧 Keychain 仅用于迁移/适配 | 减少本地/ad-hoc App 系统密码弹窗，同时保持不明文落盘和 IPC 不泄露 secret |
 | 2026-07-04 | Agent CLI PATH 优先用户级安装目录 | 用户要求 AgentDock 内 Agent 会话跟随已更新 CLI；`~/.local/bin` 等用户级路径应先于 Homebrew，并在 `zsh -lc` 命令前重新导出 PATH |
+| 2026-07-05 | vault v2 密钥材料不再混入 hostname 和 vault 目录字符串 | hostname 随网络漂移导致旧记录不可读；本地 vault 定位是稳定本机加密记录，不追求防本机攻击者 |
+| 2026-07-05 | macOS 打包使用 `AgentDock Codesign` 自签名证书 | 避免 ad-hoc 签名 cdhash 每次变化导致 TCC 权限反复弹窗 |
+| 2026-07-05 | 清理第一阶段执行后保留 `.agent-workflow/` 和 `docs/requirements/` | workflow CLI/测试仍依赖 `.agent-workflow/`；requirements 仍作为产品与架构背景 |
 
 ## 验证记录
 | 时间 | 命令 | 结果 |
 |------|------|------|
+| 2026-07-05 | `npm run workflow:doctor` | PASS |
+| 2026-07-05 | `npm run test:workflow` | PASS：8 passed |
+| 2026-07-05 | `npm test` | PASS：30 files / 180 tests |
+| 2026-07-05 | `npm run typecheck` | PASS |
+| 2026-07-05 | `npm run build` | PASS：仅 Vite chunk size warning |
+| 2026-07-05 | `codesign --verify --deep --strict --verbose=2 release/packages/20260705-020727/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-05 | packaged app.asar marker scan | PASS：包含 vault v2 与 custom tooltip marker |
+| 2026-07-05 | `git push` | PASS：`main -> origin/main` |
 | 2026-07-04 | `npm run typecheck`（审查修复批次收尾后） | PASS |
 | 2026-07-04 | `npx vitest run`（审查修复批次收尾后） | PASS：30 files / 177 tests |
 | 2026-07-04 | `npm run test -- tests/app/ptyAdapter.test.ts` RED | PASS：新增 PATH 测试先失败，证明旧实现命中 Homebrew 优先顺序 |
