@@ -164,6 +164,7 @@ function createNewProfileDraft({
     claudeSonnetModel: toolType === 'claude' ? ANYROUTER_CLAUDE_SONNET_MODEL : undefined,
     claudeOpusModel: toolType === 'claude' ? ANYROUTER_CLAUDE_OPUS_MODEL : undefined,
     claudeDefaultLaunchMode: toolType === 'claude' ? 'default' : undefined,
+    claudeCclineStatusLineEnabled: toolType === 'claude' ? true : undefined,
     keychainService: selectedProfile?.keychainService || 'AgentDock',
     keychainAccount: id,
     codexHome: toolType === 'codex' ? `~/.agentdock/codex-profiles/${id}` : undefined,

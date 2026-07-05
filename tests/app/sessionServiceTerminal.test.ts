@@ -376,6 +376,9 @@ describe('sessionService terminal controls', () => {
           'wire_api = "responses"',
           'env_key = "OPENAI_API_KEY"',
           '',
+          '[projects."/Users/example/Desktop/web/AgentDock"]',
+          'trust_level = "trusted"',
+          '',
         ].join('\n'),
       },
     ]);

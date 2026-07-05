@@ -71,6 +71,8 @@ export function migrateProfile(data: unknown): ApiProfile {
       claudeSonnetModel: profile.claudeSonnetModel as string | undefined,
       claudeOpusModel: profile.claudeOpusModel as string | undefined,
       claudeAlwaysThinkingEnabled: profile.claudeAlwaysThinkingEnabled as boolean | undefined,
+      claudeCclineStatusLineEnabled:
+        profile.claudeCclineStatusLineEnabled as boolean | undefined,
     });
   }
 
@@ -107,6 +109,7 @@ function migrateProfileToCurrent(profile: Record<string, unknown>): ApiProfile {
     claudeSonnetModel: undefined,
     claudeOpusModel: undefined,
     claudeAlwaysThinkingEnabled: undefined,
+    claudeCclineStatusLineEnabled: undefined,
   });
 }
 

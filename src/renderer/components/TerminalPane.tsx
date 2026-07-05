@@ -5,6 +5,7 @@ import { preserveTerminalHistoryOutput } from '../terminalOutput';
 type TerminalPaneProps = {
   sessionId?: string;
   preserveHistory?: boolean;
+  readOnly?: boolean;
 };
 
 const TERMINAL_FONT_FAMILY = 'SFMono-Regular, Consolas, monospace';
@@ -221,6 +222,7 @@ function installTerminalDragScrollbar(container: HTMLElement): () => void {
 export function TerminalPane({
   sessionId,
   preserveHistory = true,
+  readOnly = false,
 }: TerminalPaneProps): React.JSX.Element {
   const terminalElementRef = React.useRef<HTMLDivElement>(null);
 
@@ -233,6 +235,7 @@ export function TerminalPane({
     const terminal = new Terminal({
       convertEol: true,
       cursorBlink: true,
+      disableStdin: readOnly,
       fontFamily: TERMINAL_FONT_FAMILY,
       fontSize: TERMINAL_FONT_SIZE,
       scrollback: 50_000,
@@ -254,9 +257,11 @@ export function TerminalPane({
 
       terminal.resize(cols, rows);
       terminal.refresh(0, rows - 1);
-      void window.agentDock
-        .resizeTerminal({ sessionId, cols, rows })
-        .catch(() => undefined);
+      if (!readOnly) {
+        void window.agentDock
+          .resizeTerminal({ sessionId, cols, rows })
+          .catch(() => undefined);
+      }
     };
 
     fitTerminal();
@@ -284,8 +289,12 @@ export function TerminalPane({
       passive: false,
     });
 
-    const writeOutput = (data: string): void => {
-      terminal.write(preserveHistory ? preserveTerminalHistoryOutput(data) : data);
+    const writeReplayedOutput = (data: string): void => {
+      terminal.write(preserveHistory && readOnly ? preserveTerminalHistoryOutput(data) : data);
+    };
+
+    const writeLiveOutput = (data: string): void => {
+      terminal.write(data);
     };
 
     // 回放完成前先暂存实时输出：主进程先写入快照缓冲再推送事件（同一 IPC 管道按序到达），
@@ -300,7 +309,7 @@ export function TerminalPane({
           return;
         }
         if (buffer) {
-          writeOutput(buffer);
+          writeReplayedOutput(buffer);
         }
         bufferReplayed = true;
         pendingLiveOutput.length = 0;
@@ -311,17 +320,21 @@ export function TerminalPane({
         }
         bufferReplayed = true;
         for (const data of pendingLiveOutput.splice(0)) {
-          writeOutput(data);
+          writeLiveOutput(data);
         }
       });
 
-    const dataSubscription = terminal.onData((input) => {
-      void window.agentDock.writeTerminal({ sessionId, input }).catch(() => undefined);
-    });
+    const dataSubscription = readOnly
+      ? undefined
+      : terminal.onData((input) => {
+          void window.agentDock.writeTerminal({ sessionId, input }).catch(() => undefined);
+        });
     const resizeSubscription = terminal.onResize(({ cols, rows }) => {
-      void window.agentDock
-        .resizeTerminal({ sessionId, cols, rows })
-        .catch(() => undefined);
+      if (!readOnly) {
+        void window.agentDock
+          .resizeTerminal({ sessionId, cols, rows })
+          .catch(() => undefined);
+      }
     });
     const unsubscribeOutput = window.agentDock.onTerminalOutput((event) => {
       if (event.sessionId !== sessionId) {
@@ -331,7 +344,7 @@ export function TerminalPane({
         pendingLiveOutput.push(event.data);
         return;
       }
-      writeOutput(event.data);
+      writeLiveOutput(event.data);
     });
 
     return () => {
@@ -343,12 +356,12 @@ export function TerminalPane({
       resizeObserver?.disconnect();
       cleanupScrollbar();
       terminalElementRef.current?.removeEventListener('wheel', wheelListener, true);
-      dataSubscription.dispose();
+      dataSubscription?.dispose();
       resizeSubscription.dispose();
       unsubscribeOutput();
       terminal.dispose();
     };
-  }, [preserveHistory, sessionId]);
+  }, [preserveHistory, readOnly, sessionId]);
 
   if (!window.agentDock) {
     return (

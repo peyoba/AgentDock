@@ -5,6 +5,13 @@ import type {
   ProfileModelsFetchRequest,
   ProfileSecretReadRequest,
   ProfileSecretSaveRequest,
+  RestartSessionRequest,
+  SessionContextPressureRequest,
+  SessionContextPressureResult,
+  SessionHistoryArchiveRequest,
+  SessionHistoryArchiveResult,
+  SessionSummaryRequest,
+  SessionSummaryResult,
   TerminalBufferRequest,
   TerminalKillRequest,
   TerminalOutputEvent,
@@ -27,12 +34,17 @@ export type AgentDockApi = {
   readProfileSecret(request: ProfileSecretReadRequest): Promise<string>;
   fetchProfileModels(request: ProfileModelsFetchRequest): Promise<string[]>;
   launchSession(request: LaunchRequest): Promise<AgentSession>;
+  restartSession(request: RestartSessionRequest): Promise<AgentSession>;
   listSessions(): Promise<AgentSession[]>;
   writeTerminal(request: TerminalWriteRequest): Promise<void>;
   resizeTerminal(request: TerminalResizeRequest): Promise<void>;
   killTerminal(request: TerminalKillRequest): Promise<AgentSession>;
   readTerminalBuffer(request: TerminalBufferRequest): Promise<string>;
+  archiveSessionHistory(request: SessionHistoryArchiveRequest): Promise<SessionHistoryArchiveResult>;
+  getSessionContextPressure(request: SessionContextPressureRequest): Promise<SessionContextPressureResult>;
+  summarizeSession(request: SessionSummaryRequest): Promise<SessionSummaryResult>;
   onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void;
+  onSessionChanged(listener: (session: AgentSession) => void): () => void;
   readWorkspaceContext(request: WorkspaceContextReadRequest): Promise<WorkspaceContextReadResult>;
   openWorkspaceContextFolder(request: WorkspaceContextOpenRequest): Promise<void>;
   openNewWindow(): Promise<void>;
@@ -50,12 +62,17 @@ export const AGENT_DOCK_API_METHODS = [
   'readProfileSecret',
   'fetchProfileModels',
   'launchSession',
+  'restartSession',
   'listSessions',
   'writeTerminal',
   'resizeTerminal',
   'killTerminal',
   'readTerminalBuffer',
+  'archiveSessionHistory',
+  'getSessionContextPressure',
+  'summarizeSession',
   'onTerminalOutput',
+  'onSessionChanged',
   'readWorkspaceContext',
   'openWorkspaceContextFolder',
   'openNewWindow',

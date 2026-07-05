@@ -1,12 +1,12 @@
 # Agent Workflow State
 
 ## 当前任务
-2026-07-05 vault 稳定性、签名打包、tooltip、CCometixLine StatusLine 与项目清理收尾。
+2026-07-06 Context Budget Guard + 手动总结/续开 Phase 2：真实 Claude/Codex one-shot summary runner 已接入主进程总结路径。
 
 ## 风险等级
 L3
 
-触发原因：Electron 桌面应用、API Key 本机加密 vault、真实 node-pty/Agent CLI 启动、Claude StatusLine 外部命令、optional dependency、macOS 签名与打包产物、项目清理。
+触发原因：Electron IPC、LLM summary runner 边界、API Key/环境变量安全边界、workspace `.agentdock/context/` 写入、会话历史和终端会话。
 
 ## 当前 Hook
 delivery_hook
@@ -67,6 +67,22 @@ delivery
 | 主 Agent | PASS | CCometixLine 状态栏内嵌：`optionalDependencies` 固定 `@cometix/ccline-darwin-arm64@1.1.2`、`cclineLocator` PATH 已安装版本优先/内嵌二进制兜底、statusLine 命令 shell 安全引号、打包 `asar.unpack` 解包 ccline |
 | ⑧集成工程师 | PASS | StatusLine worktree 提交已合并到 `main`；聚焦测试、全量测试、workflow、typecheck、build、package、codesign、packaged ccline smoke 通过；验证记录 `.agent-workflow/verification/2026-07-05-ccline-statusline-merge.md` |
 | ⑨部署工程师 | PASS | 新产物 `release/packages/20260705-132413/AgentDock-darwin-arm64/AgentDock.app`，交付报告 `.agent-workflow/delivery/2026-07-05-ccline-statusline-merge-delivery-report.md` |
+| 主 Agent | PASS | 修复 `claudeCclineStatusLineEnabled` 在 profile save/list/migration 白名单中丢失，避免保存后 checkbox 回滚 |
+| ⑧集成工程师 | PASS | RED 测试、聚焦测试、全量测试、workflow doctor、typecheck、build 通过；验证记录 `.agent-workflow/verification/2026-07-05-ccline-statusline-profile-save-fix.md` |
+| ⑨部署工程师 | PASS | 新产物 `release/packages/20260705-163705/AgentDock-darwin-arm64/AgentDock.app`，codesign strict verify 与 packaged ccline smoke 通过；交付报告 `.agent-workflow/delivery/2026-07-05-ccline-statusline-profile-save-fix-delivery-report.md` |
+| 主 Agent | PASS | 退出态操作条：恢复会话、重新启动、复制输出、关闭标签；异常退出独立文案 |
+| 主 Agent | PASS | 会话历史持久化：重启后恢复标签和输出，运行中会话标记 `interrupted`，单会话 5MB 保存上限提示与归档 |
+| 主 Agent | PASS | CCometixLine 对所有 Claude Profile 默认开启，显式关闭保留关闭 |
+| ⑧集成工程师 | PASS | 聚焦测试、全量测试、workflow doctor、typecheck、build、package、codesign、packaged marker 通过；验证记录 `.agent-workflow/verification/2026-07-05-session-exit-history-ccline-default.md` |
+| ⑨部署工程师 | PASS | 新产物 `release/packages/20260705-172808/AgentDock-darwin-arm64/AgentDock.app`，交付报告 `.agent-workflow/delivery/2026-07-05-session-exit-history-ccline-default-delivery-report.md` |
+| 主 Agent | PASS | 修复 session history 高频并发 append 写坏 `sessions.json`：写入串行化、坏文件备份恢复、本机坏文件已恢复 |
+| ⑧集成工程师 | PASS | RED 测试、聚焦测试、全量测试、workflow doctor、typecheck、build、package、codesign、packaged marker 通过；验证记录 `.agent-workflow/verification/2026-07-05-session-history-corruption-fix.md` |
+| ⑨部署工程师 | PASS | 新产物 `release/packages/20260705-174749/AgentDock-darwin-arm64/AgentDock.app`，交付报告 `.agent-workflow/delivery/2026-07-05-session-history-corruption-fix-delivery-report.md` |
+| 主 Agent | PASS | TerminalPane live replay 保留 raw 控制序列，read-only 历史继续过滤破坏性控制序列 |
+| ⑧集成工程师 | PASS | RED 测试、聚焦测试、相关 UI 测试、全量测试、workflow doctor、typecheck、build、package、codesign、packaged marker 通过；验证记录 `.agent-workflow/verification/2026-07-05-terminal-live-replay-control-sequences.md` |
+| ⑨部署工程师 | PASS | 新产物 `release/packages/20260705-223035/AgentDock-darwin-arm64/AgentDock.app`，交付报告 `.agent-workflow/delivery/2026-07-05-terminal-live-replay-control-sequences-delivery-report.md` |
+| 主 Agent | PASS | Context Budget Auto Summary Phase 1：pressure estimator、summary store/job service、SessionService/IPC/preload、shared-context 摘要优先、renderer summary actions；验证记录 `.agent-workflow/verification/2026-07-06-context-budget-auto-summary.md` |
+| 主 Agent | PASS | Context Budget Auto Summary Phase 2：真实 Claude `--print` / Codex `exec` summary runner、主进程接线、错误脱敏、Codex config 无密钥写入；新产物 `release/packages/20260706-010227/AgentDock-darwin-arm64/AgentDock.app`；交付报告 `.agent-workflow/delivery/2026-07-06-context-budget-auto-summary-runner-delivery-report.md` |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -74,10 +90,10 @@ delivery
 无
 
 ## 用户待确认
-在最新包中启动此前报错的 Profile，确认无需重新粘贴 API Key；开启 Claude StatusLine 后确认状态栏正常显示；如 macOS 首次请求桌面/文稿权限，授权一次后后续包应保持稳定。
+无
 
 ## 下一步
-用户侧 smoke：使用 `release/packages/20260705-132413/AgentDock-darwin-arm64/AgentDock.app` 启动此前报错的 Profile；再验证标签 tooltip、StatusLine/ccline、TCC 一次性授权、多窗口同 workspace、CLI 退出提示。
+用户可用新包复测 summary/handoff；如明确授权消耗本机 API 额度，再做真实 Claude/Codex summary API smoke。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -107,6 +123,28 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 ## 验证记录
 | 时间 | 命令 | 结果 |
 |------|------|------|
+| 2026-07-06 | `claude --help` / `codex exec --help` | PASS：本机 CLI 存在，支持 one-shot summary runner 所需参数 |
+| 2026-07-06 | `npx vitest run tests/app/summaryRunner.test.ts` RED | PASS：实现前因 `src/main/summaryRunner` 不存在而失败 |
+| 2026-07-06 | `npx vitest run tests/app/summaryRunner.test.ts` | PASS：1 file / 3 tests |
+| 2026-07-06 | `npx vitest run tests/app/summaryRunner.test.ts tests/app/summaryJobService.test.ts tests/app/sessionService.test.ts tests/app/sessionServiceTerminal.test.ts tests/app/App.test.tsx` | PASS：5 files / 92 tests |
+| 2026-07-06 | `npm run workflow:doctor` / `npm run test:workflow` | PASS：doctor 全绿；pytest 8 passed |
+| 2026-07-06 | `npm test` | PASS：37 files / 234 tests |
+| 2026-07-06 | `npm run typecheck` / `npm run build` | PASS：build 仅 Vite chunk size warning |
+| 2026-07-06 | `git diff --check` / summary runner key-like scan | PASS：无空白错误；本次 runner 相关文件无 key-like 命中 |
+| 2026-07-06 | `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm run package:mac` | PASS：`release/packages/20260706-010227/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-06 | `codesign --verify --deep --strict --verbose=2 release/packages/20260706-010227/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-06 | packaged `app.asar` marker scan | PASS：包含 `dist/main/summaryRunner.js`、`createProfileSummaryRunner`、Claude/Codex runner markers |
+| 2026-07-05 | `npx vitest run tests/app/TerminalPane.test.tsx`（terminal live replay RED） | FAIL before：运行中 session replay 控制序列被过滤 |
+| 2026-07-05 | `npx vitest run tests/app/TerminalPane.test.tsx`（terminal live replay） | PASS：16 tests |
+| 2026-07-05 | `npx vitest run tests/app/App.test.tsx tests/app/TerminalPane.test.tsx` | PASS：2 files / 71 tests |
+| 2026-07-05 | `npm run workflow:doctor`（terminal live replay） | PASS |
+| 2026-07-05 | `npm test`（terminal live replay） | PASS：33 files / 215 tests |
+| 2026-07-05 | `npm run typecheck`（terminal live replay） | PASS |
+| 2026-07-05 | `npm run build`（terminal live replay） | PASS：仅 Vite chunk size warning |
+| 2026-07-05 | `git diff --check`（terminal live replay） | PASS |
+| 2026-07-05 | `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm run package:mac` | PASS：`release/packages/20260705-223035/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-05 | `codesign --verify --deep --strict --verbose=2 release/packages/20260705-223035/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-05 | packaged renderer marker scan（terminal live replay） | PASS：包内 renderer 包含 `preserveHistory && readOnly ? ... : data` 逻辑 |
 | 2026-07-05 | `npm run workflow:doctor` | PASS |
 | 2026-07-05 | `npm run test:workflow` | PASS：8 passed |
 | 2026-07-05 | `npm test` | PASS：30 files / 180 tests |
@@ -122,6 +160,32 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-05 | `npm run typecheck` / `npm run build`（StatusLine 合并后） | PASS：build 仅 Vite chunk size warning |
 | 2026-07-05 | `npm run package:mac`（StatusLine 合并后） | PASS：`release/packages/20260705-132413/AgentDock-darwin-arm64/AgentDock.app` |
 | 2026-07-05 | packaged ccline smoke（StatusLine 合并后） | PASS：`app.asar.unpacked/.../@cometix/ccline-darwin-arm64/ccline --version` 输出 `ccline 1.1.2` |
+| 2026-07-05 | `npx vitest run tests/app/metadataStores.test.ts tests/app/configMigration.test.ts`（CCometixLine 保存修复） | PASS：修复前 RED 命中保存后丢字段，修复后 2 files / 24 tests |
+| 2026-07-05 | `npx vitest run tests/app/App.test.tsx tests/app/sessionService.test.ts tests/app/cclineLocator.test.ts tests/app/packageMacScript.test.ts tests/app/metadataStores.test.ts tests/app/configMigration.test.ts` | PASS：6 files / 86 tests |
+| 2026-07-05 | `npm test`（CCometixLine 保存修复） | PASS：31 files / 188 tests |
+| 2026-07-05 | `npm run workflow:doctor` / `npm run typecheck` / `npm run build`（CCometixLine 保存修复） | PASS：build 仅 Vite chunk size warning |
+| 2026-07-05 | `npm run package:mac`（CCometixLine 保存修复） | PASS：`release/packages/20260705-163705/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-05 | `codesign --verify --deep --strict --verbose=2 release/packages/20260705-163705/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-05 | packaged ccline smoke / app.asar marker scan（CCometixLine 保存修复） | PASS：`ccline 1.1.2`；包内 main/profileStore 包含 `claudeCclineStatusLineEnabled` |
+| 2026-07-05 | `npx vitest run tests/app/metadataStores.test.ts tests/app/sessionService.test.ts tests/app/App.test.tsx tests/app/preloadTypes.test.ts` | PASS：4 files / 70 tests |
+| 2026-07-05 | `npx vitest run tests/app/sessionServiceTerminal.test.ts tests/app/sessionService.test.ts` | PASS：2 files / 20 tests |
+| 2026-07-05 | `npm run typecheck` | PASS |
+| 2026-07-05 | `npm test`（退出态/历史持久化/CCometixLine 默认开启） | PASS：32 files / 199 tests |
+| 2026-07-05 | `npm run workflow:doctor` | PASS |
+| 2026-07-05 | `npm run build`（退出态/历史持久化/CCometixLine 默认开启） | PASS：仅 Vite chunk size warning |
+| 2026-07-05 | `npm run package:mac`（退出态/历史持久化/CCometixLine 默认开启） | PASS：`release/packages/20260705-172808/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-05 | `codesign --verify --deep --strict --verbose=2 release/packages/20260705-172808/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-05 | packaged ccline smoke / app.asar marker scan（退出态/历史持久化/CCometixLine 默认开启） | PASS：`ccline 1.1.2`；包内包含 session history markers |
+| 2026-07-05 | 本机 `sessions.json` parse 检查 | FAIL before：`Unexpected non-whitespace character after JSON at position 2882` |
+| 2026-07-05 | `npx vitest run tests/app/metadataStores.test.ts`（session history 损坏修复） | PASS：8 tests |
+| 2026-07-05 | `npx vitest run tests/app/metadataStores.test.ts tests/app/sessionService.test.ts tests/app/App.test.tsx tests/app/preloadTypes.test.ts` | PASS：4 files / 72 tests |
+| 2026-07-05 | `npm run typecheck`（session history 损坏修复） | PASS |
+| 2026-07-05 | `npm test`（session history 损坏修复） | PASS：32 files / 201 tests |
+| 2026-07-05 | `npm run workflow:doctor` / `npm run build`（session history 损坏修复） | PASS：build 仅 Vite chunk size warning |
+| 2026-07-05 | `npm run package:mac`（session history 损坏修复） | PASS：`release/packages/20260705-174749/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-05 | `codesign --verify --deep --strict --verbose=2 release/packages/20260705-174749/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-05 | packaged ccline smoke / app.asar marker scan（session history 损坏修复） | PASS：`ccline 1.1.2`；包内包含 recovery markers |
+| 2026-07-05 | 本机坏 `sessions.json` 恢复 smoke | PASS：`beforeOk: false`、`afterOk: true`、`recoveredSessionCount: 1`、`corruptBackups: 1` |
 | 2026-07-04 | `npm run typecheck`（审查修复批次收尾后） | PASS |
 | 2026-07-04 | `npx vitest run`（审查修复批次收尾后） | PASS：30 files / 177 tests |
 | 2026-07-04 | `npm run test -- tests/app/ptyAdapter.test.ts` RED | PASS：新增 PATH 测试先失败，证明旧实现命中 Homebrew 优先顺序 |

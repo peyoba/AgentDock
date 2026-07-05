@@ -28,6 +28,7 @@ export const defaultApiProfiles: ApiProfile[] = [
     claudeCodeAttributionHeader: '0',
     disableInstallationChecks: true,
     claudeCleanupPeriodDays: 720,
+    claudeCclineStatusLineEnabled: true,
   },
   {
     id: 'codex-openai',

@@ -37,7 +37,13 @@ export type Workspace = {
   path: string;
 };
 
-export type SessionStatus = 'starting' | 'running' | 'stopped' | 'failed' | 'exited';
+export type SessionStatus =
+  | 'starting'
+  | 'running'
+  | 'stopped'
+  | 'failed'
+  | 'exited'
+  | 'interrupted';
 
 export type AgentSession = {
   id: string;
@@ -47,12 +53,24 @@ export type AgentSession = {
   command: string;
   status: SessionStatus;
   startedAt: string;
+  exitedAt?: string;
+  exitCode?: number;
+  exitSignal?: number;
+  resumeCommand?: string;
+  historyLimitReached?: boolean;
+  historyArchivePath?: string;
 };
 
 export type LaunchRequest = {
   profileId: string;
   workspaceId: string;
   command: string;
+  claudeLaunchMode?: ClaudeLaunchMode;
+};
+
+export type RestartSessionRequest = {
+  sessionId: string;
+  command?: string;
   claudeLaunchMode?: ClaudeLaunchMode;
 };
 
@@ -88,6 +106,39 @@ export type TerminalKillRequest = {
 
 export type TerminalBufferRequest = {
   sessionId: string;
+};
+
+export type ContextPressureLevel = 'low' | 'medium' | 'high' | 'full';
+
+export type SessionContextPressureRequest = {
+  sessionId: string;
+};
+
+export type SessionContextPressureResult = {
+  sessionId: string;
+  level: ContextPressureLevel;
+  score: number;
+};
+
+export type SessionHistoryArchiveRequest = {
+  sessionId: string;
+};
+
+export type SessionHistoryArchiveResult = {
+  filePath: string;
+};
+
+export type SessionSummaryRequest = {
+  sessionId: string;
+  continueAfterSummary?: boolean;
+};
+
+export type SessionSummaryResult = {
+  status: 'success';
+  summaryFile: string;
+  handoffFile: string;
+  handoffPrompt: string;
+  continuationSession?: AgentSession;
 };
 
 export type TerminalOutputEvent = {

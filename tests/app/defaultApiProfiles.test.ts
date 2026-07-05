@@ -22,6 +22,7 @@ describe('default API profiles', () => {
     expect(claudeProfile?.claudeCodeAttributionHeader).toBe('0');
     expect(claudeProfile?.disableInstallationChecks).toBe(true);
     expect(claudeProfile?.claudeCleanupPeriodDays).toBe(720);
+    expect(claudeProfile?.claudeCclineStatusLineEnabled).toBe(true);
     expect(codexProfile?.bypassApprovals).toBe(true);
     for (const profile of defaultApiProfiles) {
       expect(profile.defaultModel).toBeTruthy();

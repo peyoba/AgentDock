@@ -12,8 +12,13 @@ import {
 import { fetchProfileModels } from './modelFetchService.js';
 import type { SessionService } from './sessionService.js';
 import { createSessionService } from './sessionService.js';
+import { installSingleInstanceGuard } from './singleInstanceGuard.js';
+import { createSessionSummaryStore } from './sessionSummaryStore.js';
 import { createProfileStore } from './stores/profileStore.js';
+import { createSessionHistoryStore } from './stores/sessionHistoryStore.js';
 import { createWorkspaceStore } from './stores/workspaceStore.js';
+import { createSummaryJobService } from './summaryJobService.js';
+import { createProfileSummaryRunner } from './summaryRunner.js';
 import { createWindowSessionRegistry } from './windowSessionRegistry.js';
 import { createWorkspaceContextStore } from './workspaceContextStore.js';
 import { createWorkspaceFromPath, mergeWorkspaces } from './workspaceService.js';
@@ -26,6 +31,10 @@ import type {
   ProfileModelsFetchRequest,
   ProfileSecretReadRequest,
   ProfileSecretSaveRequest,
+  RestartSessionRequest,
+  SessionContextPressureRequest,
+  SessionHistoryArchiveRequest,
+  SessionSummaryRequest,
   TerminalBufferRequest,
   TerminalKillRequest,
   TerminalResizeRequest,
@@ -36,9 +45,17 @@ import type {
 } from '../shared/agentdockTypes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const hasSingleInstanceLock = installSingleInstanceGuard({
+  app,
+  getAllWindows: () => BrowserWindow.getAllWindows(),
+  openWindow: () => {
+    createMainWindow({ restoreHistory: true });
+  },
+});
 const userDataPath = app.getPath('userData');
 const profileStore = createProfileStore(userDataPath);
 const workspaceStore = createWorkspaceStore(userDataPath);
+const sessionHistoryStore = createSessionHistoryStore(userDataPath);
 // vault 永远是唯一写入与首选读取来源；仅当 vault 未命中时读一次 legacy Keychain
 // 并回写 vault（升级迁移，老 Key 至多触发一次系统弹窗）。keytar 原生模块缺失时降级纯 vault。
 function createSecretAdapter(dataPath: string): KeychainAdapter {
@@ -55,17 +72,53 @@ function createSecretAdapter(dataPath: string): KeychainAdapter {
 
 const secretAdapter = createSecretAdapter(userDataPath);
 const workspaceContextStore = createWorkspaceContextStore();
-const sessionRegistry = createWindowSessionRegistry((windowId) =>
-  createSessionService({
+const sessionSummaryStore = createSessionSummaryStore();
+const windowRestoreHistory = new Map<number, boolean>();
+const sessionRegistry = createWindowSessionRegistry((windowId) => {
+  let service: SessionService;
+  service = createSessionService({
     keychain: secretAdapter,
     pty: createNodePtyAdapter(),
     appDataPath: userDataPath,
     workspaceExists: fs.existsSync,
     workspaceContext: workspaceContextStore,
+    historyStore: sessionHistoryStore,
+    restoreHistory: windowRestoreHistory.get(windowId) ?? true,
     // 每窗口唯一前缀，避免多窗口在同一 workspace 下 transcript 文件互相覆盖
     sessionIdPrefix: `w${windowId}-`,
-  }),
-);
+    summaryJob: async ({ session, workspace, continueAfterSummary }) => {
+      const profile = (await listProfiles()).find((item) => item.id === session.profileId);
+      if (!profile) {
+        throw new Error('所选配置不存在，无法生成摘要');
+      }
+      const job = createSummaryJobService({
+        summaryStore: sessionSummaryStore,
+        runSummary: createProfileSummaryRunner({
+          profile,
+          keychain: secretAdapter,
+          pty: createNodePtyAdapter(),
+          appDataPath: userDataPath,
+          homeDir: process.env.HOME ?? app.getPath('home'),
+        }),
+        readTranscript: () => service.readTerminalBuffer({ sessionId: session.id }),
+        launchContinuation: async ({ sourceSession }) => {
+          return service.launch({
+            profile,
+            workspace,
+            command: sourceSession.command,
+          });
+        },
+      });
+      return job.summarizeSession({
+        session,
+        workspace,
+        continueAfterSummary,
+        summaryProviderProfileId: profile.id,
+      });
+    },
+  });
+  return service;
+});
 
 const defaultProfiles: ApiProfile[] = defaultApiProfiles;
 
@@ -116,6 +169,7 @@ function sanitizeProfile(profile: ApiProfile): ApiProfile {
     claudeSonnetModel: optionalTrimmedString(normalizedProfile.claudeSonnetModel),
     claudeOpusModel: optionalTrimmedString(normalizedProfile.claudeOpusModel),
     claudeAlwaysThinkingEnabled: normalizedProfile.claudeAlwaysThinkingEnabled,
+    claudeCclineStatusLineEnabled: normalizedProfile.claudeCclineStatusLineEnabled,
   };
 }
 
@@ -304,6 +358,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle('terminal:buffer', (event, request: TerminalBufferRequest) =>
     sessionServiceForWebContents(event.sender).readTerminalBuffer(request),
   );
+  ipcMain.handle('sessions:archiveHistory', (event, request: SessionHistoryArchiveRequest) =>
+    sessionServiceForWebContents(event.sender).archiveSessionHistory(request),
+  );
+  ipcMain.handle('sessions:contextPressure', (event, request: SessionContextPressureRequest) =>
+    sessionServiceForWebContents(event.sender).getContextPressure(request),
+  );
+  ipcMain.handle('sessions:summarize', (event, request: SessionSummaryRequest) =>
+    sessionServiceForWebContents(event.sender).summarizeSession(request),
+  );
   ipcMain.handle('workspaceContext:read', async (_event, request: WorkspaceContextReadRequest) => {
     const workspace = await requireWorkspaceForContext(
       request.workspaceId,
@@ -341,12 +404,41 @@ function registerIpcHandlers(): void {
       claudeLaunchMode: request.claudeLaunchMode,
     });
   });
+  ipcMain.handle('sessions:restart', async (event, request: RestartSessionRequest) => {
+    const service = sessionServiceForWebContents(event.sender);
+    const session = (await service.list()).find((item) => item.id === request.sessionId);
+
+    if (!session) {
+      throw new Error('未找到指定的终端会话');
+    }
+
+    const profiles = await listProfiles();
+    const profile = profiles.find((item) => item.id === session.profileId);
+    const workspaces = await listWorkspaces();
+    const workspace = workspaces.find((item) => item.id === session.workspaceId);
+
+    if (!profile || !workspace) {
+      throw new Error('所选配置或工作区不存在，无法重启会话');
+    }
+
+    return service.restart({
+      sessionId: request.sessionId,
+      profile,
+      workspace,
+      command: request.command ?? session.command,
+      claudeLaunchMode: request.claudeLaunchMode,
+    });
+  });
   ipcMain.handle('windows:new', () => {
-    createMainWindow();
+    createMainWindow({ restoreHistory: false });
   });
 }
 
-function createMainWindow(): BrowserWindow {
+function createMainWindow({
+  restoreHistory = BrowserWindow.getAllWindows().length === 0,
+}: {
+  restoreHistory?: boolean;
+} = {}): BrowserWindow {
   const window = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -363,6 +455,7 @@ function createMainWindow(): BrowserWindow {
     },
   });
 
+  windowRestoreHistory.set(window.webContents.id, restoreHistory);
   const windowSessionService = sessionRegistry.getOrCreate(window.webContents.id);
   const webContentsId = window.webContents.id;
   const unsubscribeTerminalOutput = windowSessionService.onTerminalOutput((event) => {
@@ -370,8 +463,15 @@ function createMainWindow(): BrowserWindow {
       window.webContents.send('terminal:output', event);
     }
   });
+  const unsubscribeSessionChanged = windowSessionService.onSessionChanged((session) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('session:changed', session);
+    }
+  });
   window.on('closed', () => {
+    windowRestoreHistory.delete(webContentsId);
     unsubscribeTerminalOutput();
+    unsubscribeSessionChanged();
     void sessionRegistry.delete(webContentsId);
   });
 
@@ -400,7 +500,7 @@ function installApplicationMenu(): void {
           label: '新窗口',
           accelerator: 'CommandOrControl+N',
           click: () => {
-            createMainWindow();
+            createMainWindow({ restoreHistory: false });
           },
         },
       ],
@@ -421,17 +521,19 @@ function installApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-app.whenReady().then(() => {
-  registerIpcHandlers();
-  installApplicationMenu();
-  createMainWindow();
+if (hasSingleInstanceLock) {
+  app.whenReady().then(() => {
+    registerIpcHandlers();
+    installApplicationMenu();
+    createMainWindow({ restoreHistory: true });
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
-    }
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindow({ restoreHistory: true });
+      }
+    });
   });
-});
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

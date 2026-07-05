@@ -212,21 +212,49 @@ describe('TerminalPane xterm binding', () => {
     });
   });
 
-  it('only strips alternate-screen and scrollback-clear output in history-preserving agent sessions', async () => {
+  it('strips screen-clearing output only when replaying read-only preserved history', async () => {
+    agentDock.readTerminalBuffer = vi.fn().mockResolvedValue(
+      '\u001b[?1049h\u001b[?1006h\u001b[2J\u001b[HOLD CONTEXT\n\u001b[3J\u001b[32mNEW CONTEXT\u001b[0m',
+    );
+
+    render(<TerminalPane sessionId="session-1" readOnly />);
+    const terminal = FakeTerminal.instances[0];
+
+    await vi.waitFor(() => {
+      expect(terminal.write).toHaveBeenCalledWith(
+        'OLD CONTEXT\n\u001b[32mNEW CONTEXT\u001b[0m',
+      );
+    });
+  });
+
+  it('keeps raw terminal control sequences for live agent output', async () => {
     render(<TerminalPane sessionId="session-1" />);
     const terminal = FakeTerminal.instances[0];
     await act(async () => {});
+    const liveOutput =
+      '\u001b[?1049h\u001b[?1006h\u001b[2J\u001b[HWorking(9s • esc to interrupt)\r\u001b[2KDone';
 
     act(() =>
       outputListener?.({
         sessionId: 'session-1',
-        data: '\u001b[?1049h\u001b[?1006h\u001b[2J\u001b[HOLD CONTEXT\n\u001b[3J\u001b[32mNEW CONTEXT\u001b[0m',
+        data: liveOutput,
       }),
     );
 
-    expect(terminal.write).toHaveBeenCalledWith(
-      '\u001b[2J\u001b[HOLD CONTEXT\n\u001b[32mNEW CONTEXT\u001b[0m',
-    );
+    expect(terminal.write).toHaveBeenCalledWith(liveOutput);
+  });
+
+  it('keeps raw terminal control sequences when replaying a live agent session', async () => {
+    const replayedOutput =
+      '\u001b[?1049h\u001b[?1006h\u001b[2J\u001b[HWorking(9s • esc to interrupt)\r\u001b[2KDone';
+    agentDock.readTerminalBuffer = vi.fn().mockResolvedValue(replayedOutput);
+
+    render(<TerminalPane sessionId="session-1" />);
+    const terminal = FakeTerminal.instances[0];
+
+    await vi.waitFor(() => {
+      expect(terminal.write).toHaveBeenCalledWith(replayedOutput);
+    });
   });
 
   it('keeps raw terminal control sequences for local shell sessions', async () => {
@@ -399,5 +427,23 @@ describe('TerminalPane xterm binding', () => {
     unmount();
     expect(unsubscribeOutput).toHaveBeenCalledTimes(1);
     expect(terminal.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('replays output but does not bridge user input when the terminal is read-only', async () => {
+    agentDock.readTerminalBuffer = vi.fn().mockResolvedValue('restored interrupted output');
+
+    render(<TerminalPane sessionId="session-1" readOnly />);
+    const terminal = FakeTerminal.instances[0];
+    await vi.waitFor(() => {
+      expect(terminal.write).toHaveBeenCalledWith('restored interrupted output');
+    });
+
+    expect(FakeTerminal.constructorOptions[0]).toMatchObject({
+      disableStdin: true,
+    });
+
+    act(() => terminal.emitData('help\n'));
+
+    expect(agentDock.writeTerminal).not.toHaveBeenCalled();
   });
 });

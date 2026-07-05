@@ -14,6 +14,7 @@ import type {
   ApiProfile,
   ClaudeLaunchMode,
   LaunchRequest,
+  SessionContextPressureResult,
   Workspace,
 } from '../shared/agentdockTypes';
 
@@ -68,7 +69,9 @@ const fallbackSessions: AgentSession[] = [
 function defaultCommandFor(profile?: ApiProfile): string {
   if (profile?.toolType === 'codex') {
     const bypass = profile.bypassApprovals ?? true;
-    return bypass ? 'codex --dangerously-bypass-approvals-and-sandbox' : 'codex';
+    return bypass
+      ? 'codex --no-alt-screen --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust'
+      : 'codex --no-alt-screen';
   }
 
   if (profile?.toolType === 'claude') {
@@ -100,9 +103,148 @@ function upsertWorkspace(workspaces: Workspace[], nextWorkspace: Workspace): Wor
   return workspaces.map((workspace, index) => (index === existingIndex ? nextWorkspace : workspace));
 }
 
+function upsertSession(sessions: AgentSession[], nextSession: AgentSession): AgentSession[] {
+  if (!sessions.some((session) => session.id === nextSession.id)) {
+    return [...sessions, nextSession];
+  }
+
+  return sessions.map((session) => (session.id === nextSession.id ? nextSession : session));
+}
+
+function exitedSessionLabel(session: AgentSession): string {
+  const exitCode = session.exitCode ?? 'unknown';
+  return session.exitCode === 0
+    ? `会话已退出 · exit code ${exitCode}`
+    : `异常退出 · exit code ${exitCode}`;
+}
+
+function inactiveSessionLabel(session: AgentSession): string {
+  if (session.status === 'interrupted') {
+    return '会话已中断 · 可重新启动';
+  }
+  if (session.status === 'failed') {
+    return '启动失败 · 可重新启动';
+  }
+  return exitedSessionLabel(session);
+}
+
+function isLiveSession(session: AgentSession | undefined): boolean {
+  return session?.status === 'running' || session?.status === 'starting';
+}
+
+function isRecoverableSession(session: AgentSession | undefined): session is AgentSession {
+  return session?.status === 'exited' || session?.status === 'interrupted' || session?.status === 'failed';
+}
+
+function SessionRecoveryBar({
+  session,
+  onResume,
+  onRestart,
+  onCopyOutput,
+  onClose,
+}: {
+  session: AgentSession;
+  onResume?(command: string): void;
+  onRestart(): void;
+  onCopyOutput(): void;
+  onClose(): void;
+}): React.JSX.Element {
+  const isErrorExit = session.status === 'exited' && session.exitCode !== 0;
+
+  return (
+    <div
+      className={isErrorExit ? 'session-exit-bar session-exit-bar-error' : 'session-exit-bar'}
+      role="status"
+      aria-label="会话退出状态"
+    >
+      <span>{inactiveSessionLabel(session)}</span>
+      <div className="session-exit-actions">
+        {session.resumeCommand ? (
+          <button type="button" onClick={() => onResume?.(session.resumeCommand as string)}>
+            恢复会话
+          </button>
+        ) : null}
+        <button type="button" onClick={onRestart}>
+          重新启动
+        </button>
+        <button type="button" onClick={onCopyOutput}>
+          复制输出
+        </button>
+        <button type="button" onClick={onClose}>
+          关闭标签
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SessionHistoryLimitBar({
+  archiveMessage,
+  onNewSession,
+  onArchive,
+}: {
+  archiveMessage?: string;
+  onNewSession(): void;
+  onArchive(): void;
+}): React.JSX.Element {
+  return (
+    <div className="session-history-limit-bar" role="status" aria-label="历史保存状态">
+      <span>{archiveMessage ?? '历史保存已满 · 5MB'}</span>
+      <div className="session-exit-actions">
+        <button type="button" onClick={onNewSession}>
+          新开会话
+        </button>
+        <button type="button" onClick={onArchive}>
+          存档历史
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SessionContextBar({
+  pressure,
+  handoffPrompt,
+  onSummarize,
+  onSummarizeAndContinue,
+  onCopyPrompt,
+}: {
+  pressure: SessionContextPressureResult;
+  handoffPrompt?: string;
+  onSummarize(): void;
+  onSummarizeAndContinue(): void;
+  onCopyPrompt(): void;
+}): React.JSX.Element | null {
+  if (pressure.level !== 'high' && pressure.level !== 'full') {
+    return null;
+  }
+
+  return (
+    <div className="session-context-bar" role="status" aria-label="上下文压力状态">
+      <span>
+        {pressure.level === 'full' ? '上下文已满' : '上下文压力高'} · {pressure.score}
+      </span>
+      <div className="session-exit-actions">
+        <button type="button" onClick={onSummarize}>
+          总结当前会话
+        </button>
+        <button type="button" onClick={onSummarizeAndContinue}>
+          总结并续开
+        </button>
+        {handoffPrompt ? (
+          <button type="button" onClick={onCopyPrompt}>
+            复制续接提示
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export default function App(): React.JSX.Element {
   const api = typeof window === 'undefined' ? undefined : window.agentDock;
   const commandBarRef = React.useRef<HTMLElement>(null);
+  const closedSessionIdsRef = React.useRef<Set<string>>(new Set());
   const [activePage, setActivePage] = React.useState<ActivePage>('workbench');
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [profiles, setProfiles] = React.useState<ApiProfile[]>(api ? [] : fallbackProfiles);
@@ -121,6 +263,12 @@ export default function App(): React.JSX.Element {
   );
   const [launching, setLaunching] = React.useState(false);
   const [launchError, setLaunchError] = React.useState<string | null>(null);
+  const [actionStatus, setActionStatus] = React.useState<string | null>(null);
+  const [historyArchiveMessage, setHistoryArchiveMessage] = React.useState<string | undefined>();
+  const [contextPressureBySessionId, setContextPressureBySessionId] = React.useState<
+    Record<string, SessionContextPressureResult>
+  >({});
+  const [summaryHandoffPrompt, setSummaryHandoffPrompt] = React.useState<string | undefined>();
 
   const refreshMetadata = React.useCallback(async (): Promise<void> => {
     if (!api) {
@@ -186,6 +334,19 @@ export default function App(): React.JSX.Element {
     });
   }, [api, refreshMetadata]);
 
+  React.useEffect(() => {
+    if (!api?.onSessionChanged) {
+      return undefined;
+    }
+
+    return api.onSessionChanged((session) => {
+      if (closedSessionIdsRef.current.has(session.id)) {
+        return;
+      }
+      setSessions((current) => upsertSession(current, session));
+    });
+  }, [api]);
+
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId) ?? profiles[0];
   const selectedWorkspace =
     workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? workspaces[0];
@@ -207,6 +368,34 @@ export default function App(): React.JSX.Element {
       setApiConfigFilter(nextProfile.toolType);
     }
   };
+
+  React.useEffect(() => {
+    setHistoryArchiveMessage(undefined);
+    setActionStatus(null);
+    setSummaryHandoffPrompt(undefined);
+  }, [activeSessionId]);
+
+  React.useEffect(() => {
+    if (!api || !activeSessionId) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    void api.getSessionContextPressure({ sessionId: activeSessionId })
+      .then((pressure) => {
+        if (!cancelled) {
+          setContextPressureBySessionId((current) => ({
+            ...current,
+            [pressure.sessionId]: pressure,
+          }));
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api, activeSessionId, activeSession?.historyLimitReached]);
 
   const launchSession = async (commandOverride?: string): Promise<AgentSession | undefined> => {
     if (!selectedProfile || !selectedWorkspace) {
@@ -241,9 +430,11 @@ export default function App(): React.JSX.Element {
 
     setLaunching(true);
     setLaunchError(null);
+    setActionStatus(null);
     try {
       const session = await api.launchSession(launchRequest);
-      setSessions((current) => [...current.filter((item) => item.id !== session.id), session]);
+      closedSessionIdsRef.current.delete(session.id);
+      setSessions((current) => upsertSession(current, session));
       setActiveSessionId(session.id);
       return session;
     } catch (error) {
@@ -252,6 +443,135 @@ export default function App(): React.JSX.Element {
     } finally {
       setLaunching(false);
     }
+  };
+
+  const launchFromSession = async (
+    sourceSession: AgentSession,
+    command: string,
+  ): Promise<AgentSession | undefined> => {
+    if (!api) {
+      return undefined;
+    }
+
+    setLaunching(true);
+    setLaunchError(null);
+    setActionStatus(null);
+    try {
+      const session = await api.launchSession({
+        profileId: sourceSession.profileId,
+        workspaceId: sourceSession.workspaceId,
+        command,
+      });
+      closedSessionIdsRef.current.delete(session.id);
+      setSessions((current) => upsertSession(current, session));
+      setActiveSessionId(session.id);
+      return session;
+    } catch (error) {
+      setLaunchError(safeLaunchError(error));
+      return undefined;
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  const restartSessionInPlace = async (
+    sourceSession: AgentSession,
+    command?: string,
+  ): Promise<AgentSession | undefined> => {
+    if (!api) {
+      return undefined;
+    }
+
+    setLaunching(true);
+    setLaunchError(null);
+    setActionStatus(null);
+    try {
+      const session = await api.restartSession({
+        sessionId: sourceSession.id,
+        command,
+      });
+      closedSessionIdsRef.current.delete(session.id);
+      setSessions((current) => upsertSession(current, session));
+      setActiveSessionId(session.id);
+      return session;
+    } catch (error) {
+      setLaunchError(safeLaunchError(error));
+      return undefined;
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  const copySessionOutput = async (sessionId: string): Promise<void> => {
+    if (!api) {
+      return;
+    }
+
+    try {
+      const output = await api.readTerminalBuffer({ sessionId });
+      await navigator.clipboard?.writeText(output);
+      setActionStatus('输出已复制');
+    } catch (error) {
+      setLaunchError(safeLaunchError(error));
+    }
+  };
+
+  const archiveSessionHistory = async (sessionId: string): Promise<void> => {
+    if (!api) {
+      return;
+    }
+
+    try {
+      const archive = await api.archiveSessionHistory({ sessionId });
+      setActionStatus(null);
+      setSessions((current) =>
+        current.map((session) =>
+          session.id === sessionId
+            ? {
+                ...session,
+                historyLimitReached: false,
+                historyArchivePath: archive.filePath,
+              }
+            : session,
+        ),
+      );
+      setHistoryArchiveMessage(`历史已存档：${archive.filePath}`);
+    } catch (error) {
+      setLaunchError(safeLaunchError(error));
+    }
+  };
+
+  const summarizeActiveSession = async (continueAfterSummary: boolean): Promise<void> => {
+    if (!api || !activeSession) {
+      return;
+    }
+
+    setLaunchError(null);
+    setActionStatus(null);
+    try {
+      const result = await api.summarizeSession({
+        sessionId: activeSession.id,
+        continueAfterSummary,
+      });
+      setSummaryHandoffPrompt(result.handoffPrompt);
+      setActionStatus(`摘要已生成：${result.handoffFile}`);
+      if (result.continuationSession) {
+        closedSessionIdsRef.current.delete(result.continuationSession.id);
+        setSessions((current) => upsertSession(current, result.continuationSession as AgentSession));
+        setActiveSessionId(result.continuationSession.id);
+      }
+    } catch (error) {
+      setLaunchError(safeLaunchError(error));
+    }
+  };
+
+  const copySummaryHandoffPrompt = async (): Promise<void> => {
+    if (!summaryHandoffPrompt) {
+      return;
+    }
+
+    await navigator.clipboard?.writeText(summaryHandoffPrompt);
+    setActionStatus('续接提示已复制');
   };
 
   const closeSession = async (sessionId: string): Promise<void> => {
@@ -264,12 +584,16 @@ export default function App(): React.JSX.Element {
       }
     }
 
-    setSessions((current) => current.filter((session) => session.id !== sessionId));
-    setActiveSessionId((current) => {
-      if (current !== sessionId) {
-        return current;
-      }
-      return sessions.find((session) => session.id !== sessionId)?.id;
+    closedSessionIdsRef.current.add(sessionId);
+    setSessions((current) => {
+      const nextSessions = current.filter((session) => session.id !== sessionId);
+      setActiveSessionId((currentActiveSessionId) => {
+        if (currentActiveSessionId !== sessionId) {
+          return currentActiveSessionId;
+        }
+        return nextSessions[0]?.id;
+      });
+      return nextSessions;
     });
   };
 
@@ -406,6 +730,7 @@ export default function App(): React.JSX.Element {
             onLaunch={() => void launchSession()}
           />
           {launchError ? <p role="alert" className="launch-error">{launchError}</p> : null}
+          {actionStatus ? <p role="status" className="launch-status">{actionStatus}</p> : null}
 
           <section className={detailsOpen ? 'workspace-grid details-open' : 'workspace-grid'}>
             <section className="terminal-card">
@@ -420,7 +745,33 @@ export default function App(): React.JSX.Element {
               <TerminalPane
                 sessionId={activeSessionId}
                 preserveHistory={activeSession ? !['zsh', 'bash'].includes(activeSession.command) : true}
+                readOnly={activeSession ? !isLiveSession(activeSession) : false}
               />
+              {isRecoverableSession(activeSession) ? (
+                <SessionRecoveryBar
+                  session={activeSession}
+                  onResume={(command) => void restartSessionInPlace(activeSession, command)}
+                  onRestart={() => void restartSessionInPlace(activeSession, activeSession.command)}
+                  onCopyOutput={() => void copySessionOutput(activeSession.id)}
+                  onClose={() => void closeSession(activeSession.id)}
+                />
+              ) : null}
+              {activeSession && contextPressureBySessionId[activeSession.id] ? (
+                <SessionContextBar
+                  pressure={contextPressureBySessionId[activeSession.id]}
+                  handoffPrompt={summaryHandoffPrompt}
+                  onSummarize={() => void summarizeActiveSession(false)}
+                  onSummarizeAndContinue={() => void summarizeActiveSession(true)}
+                  onCopyPrompt={() => void copySummaryHandoffPrompt()}
+                />
+              ) : null}
+              {activeSession && (activeSession.historyLimitReached || historyArchiveMessage) ? (
+                <SessionHistoryLimitBar
+                  archiveMessage={historyArchiveMessage}
+                  onNewSession={() => void launchFromSession(activeSession, activeSession.command)}
+                  onArchive={() => void archiveSessionHistory(activeSession.id)}
+                />
+              ) : null}
             </section>
 
             <SessionDetailsDrawer

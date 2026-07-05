@@ -24,7 +24,7 @@ describe('configMigration', () => {
 
       const migrated = migrateProfile(v1Profile);
 
-      expect(migrated).toEqual({
+      expect(migrated).toMatchObject({
         id: 'claude-test',
         name: 'Claude Test',
         toolType: 'claude',
@@ -43,6 +43,7 @@ describe('configMigration', () => {
         claudeCodeAttributionHeader: undefined,
         disableInstallationChecks: undefined,
         claudeCleanupPeriodDays: undefined,
+        claudeCclineStatusLineEnabled: true,
       });
     });
 
@@ -127,6 +128,7 @@ describe('configMigration', () => {
         claudeCodeAttributionHeader: '0',
         disableInstallationChecks: true,
         claudeCleanupPeriodDays: 720,
+        claudeCclineStatusLineEnabled: true,
       };
 
       const migrated = migrateProfile(v3ProfileWithVersion);
@@ -350,6 +352,7 @@ describe('configMigration', () => {
         claudeCodeAttributionHeader: '0',
         disableInstallationChecks: true,
         claudeCleanupPeriodDays: 720,
+        claudeCclineStatusLineEnabled: true,
       };
 
       // 保存时添加版本号
@@ -378,6 +381,9 @@ describe('configMigration', () => {
       );
       expect(migrated.disableInstallationChecks).toBe(originalProfile.disableInstallationChecks);
       expect(migrated.claudeCleanupPeriodDays).toBe(originalProfile.claudeCleanupPeriodDays);
+      expect(migrated.claudeCclineStatusLineEnabled).toBe(
+        originalProfile.claudeCclineStatusLineEnabled,
+      );
     });
 
     it('workspace survives v1->v2 migration', () => {

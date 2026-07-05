@@ -187,5 +187,6 @@ export function normalizeClaudeProfileDefaults(profile: ApiProfile): ApiProfile 
     anthropicBetas,
     httpProxy,
     httpsProxy,
+    claudeCclineStatusLineEnabled: profile.claudeCclineStatusLineEnabled ?? true,
   };
 }

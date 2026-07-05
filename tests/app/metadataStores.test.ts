@@ -1,8 +1,9 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProfileStore } from '../../src/main/stores/profileStore';
+import { createSessionHistoryStore } from '../../src/main/stores/sessionHistoryStore';
 import { createWorkspaceStore } from '../../src/main/stores/workspaceStore';
 import type { ApiProfile } from '../../src/shared/agentdockTypes';
 
@@ -48,6 +49,7 @@ describe('metadata stores', () => {
         availableModels: ['claude-3-5-haiku-20241022', 'claude-3-7-sonnet-20250219'],
         keychainService: 'AgentDock',
         keychainAccount: 'profile-a',
+        claudeCclineStatusLineEnabled: true,
       },
     ]);
     expect(JSON.stringify(profiles)).not.toContain('local-development-secret');
@@ -126,6 +128,33 @@ describe('metadata stores', () => {
         keychainService: 'AgentDock',
         keychainAccount: 'claude-anyrouter',
         anthropicBetas: 'context-1m-2025-08-07',
+        claudeCclineStatusLineEnabled: true,
+      },
+    ]);
+  });
+
+  it('preserves the Claude CCometixLine statusline setting after saving a profile', async () => {
+    const store = createProfileStore(tempDir);
+
+    await store.save({
+      id: 'claude-a',
+      name: 'Claude A',
+      toolType: 'claude',
+      baseUrl: 'https://claude.example.invalid',
+      keychainService: 'AgentDock',
+      keychainAccount: 'claude-a',
+      claudeCclineStatusLineEnabled: true,
+    });
+
+    await expect(store.list()).resolves.toEqual([
+      {
+        id: 'claude-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://claude.example.invalid',
+        keychainService: 'AgentDock',
+        keychainAccount: 'claude-a',
+        claudeCclineStatusLineEnabled: true,
       },
     ]);
   });
@@ -146,5 +175,108 @@ describe('metadata stores', () => {
         path: '/Users/example/Desktop/web/AgentDock',
       },
     ]);
+  });
+
+  it('persists session history with a capped buffer and archive action', async () => {
+    const store = createSessionHistoryStore(tempDir, {
+      maxBufferBytes: 20,
+      maxSessions: 50,
+    });
+
+    await store.saveSession({
+      id: 'session-1',
+      title: 'Claude A · AgentDock',
+      profileId: 'profile-a',
+      workspaceId: 'workspace-a',
+      command: 'claude',
+      status: 'running',
+      startedAt: '2026-07-01T00:00:00.000Z',
+    });
+
+    await expect(store.appendOutput('session-1', '1234567890')).resolves.toEqual({
+      limitReached: false,
+    });
+    await expect(store.appendOutput('session-1', 'abcdefghijk')).resolves.toEqual({
+      limitReached: true,
+    });
+
+    await expect(store.readBuffer('session-1')).resolves.toBe('1234567890abcdefghij');
+    await expect(store.listSessions()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        historyLimitReached: true,
+      }),
+    ]);
+
+    const archive = await store.archiveBuffer('session-1');
+    expect(archive.filePath).toContain('session-1');
+    await expect(readFile(archive.filePath, 'utf-8')).resolves.toBe('1234567890abcdefghij');
+    await expect(store.readBuffer('session-1')).resolves.toBe('');
+    await expect(store.listSessions()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'session-1',
+        historyLimitReached: false,
+        historyArchivePath: archive.filePath,
+      }),
+    ]);
+  });
+
+  it('serializes concurrent session history appends without losing output', async () => {
+    const store = createSessionHistoryStore(tempDir, {
+      maxBufferBytes: 1000,
+      maxSessions: 50,
+    });
+
+    await store.saveSession({
+      id: 'session-1',
+      title: 'Claude A · AgentDock',
+      profileId: 'profile-a',
+      workspaceId: 'workspace-a',
+      command: 'claude',
+      status: 'running',
+      startedAt: '2026-07-01T00:00:00.000Z',
+    });
+
+    await Promise.all(
+      Array.from({ length: 20 }, (_, index) => store.appendOutput('session-1', `${index},`)),
+    );
+
+    await expect(store.readBuffer('session-1')).resolves.toBe(
+      Array.from({ length: 20 }, (_, index) => `${index},`).join(''),
+    );
+  });
+
+  it('backs up and recovers a session history file with trailing non-json output', async () => {
+    const sessionsPath = path.join(tempDir, 'sessions.json');
+    const validSessionsJson = JSON.stringify(
+      [
+        {
+          id: 'session-1',
+          session: {
+            id: 'session-1',
+            title: 'Claude A · AgentDock',
+            profileId: 'profile-a',
+            workspaceId: 'workspace-a',
+            command: 'claude',
+            status: 'exited',
+            startedAt: '2026-07-01T00:00:00.000Z',
+          },
+          terminalBuffer: 'safe output',
+        },
+      ],
+      null,
+      2,
+    );
+    await writeFile(sessionsPath, `${validSessionsJson}\n\u001b[244mtrailing terminal output`, 'utf-8');
+
+    const store = createSessionHistoryStore(tempDir);
+
+    await expect(store.listSessions()).resolves.toEqual([
+      expect.objectContaining({ id: 'session-1' }),
+    ]);
+    await expect(store.readBuffer('session-1')).resolves.toBe('safe output');
+    await expect(readdir(tempDir)).resolves.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^sessions\.corrupt-.*\.json$/)]),
+    );
   });
 });

@@ -5,6 +5,7 @@ import type { AgentSession, Workspace } from '../shared/agentdockTypes.js';
 const RECENT_OUTPUT_LIMIT = 40_000;
 const CONTEXT_DIR_PARTS = ['.agentdock', 'context'];
 const TRANSCRIPT_DIR_PARTS = [...CONTEXT_DIR_PARTS, 'sessions'];
+const SUMMARY_DIR_PARTS = [...CONTEXT_DIR_PARTS, 'summaries'];
 const DEFAULT_REBUILD_THROTTLE_MS = 500;
 
 export type WorkspaceContextFiles = {
@@ -204,24 +205,55 @@ export function createWorkspaceContextStore(
     const sessionLines = index.sessions.map(
       (session) => `- ${session.sessionId}: ${session.title} (\`${session.transcriptFile}\`)`,
     );
-    const recentOutput = await Promise.all(
-      index.sessions.map(async (session) => {
-        const transcriptPath = path.join(workspace.path, session.transcriptFile);
-        let transcript = '';
-        try {
-          transcript = await readFile(transcriptPath, 'utf-8');
-        } catch (error) {
-          if (!(isNodeError(error) && error.code === 'ENOENT')) {
+    const summaries = (
+      await Promise.all(
+        index.sessions.map(async (session) => {
+          const summaryPath = path.join(
+            workspace.path,
+            ...SUMMARY_DIR_PARTS,
+            `${safeContextFileName(session.sessionId)}.md`,
+          );
+          try {
+            return {
+              sessionId: session.sessionId,
+              content: await readFile(summaryPath, 'utf-8'),
+            };
+          } catch (error) {
+            if (isNodeError(error) && error.code === 'ENOENT') {
+              return undefined;
+            }
             throw error;
           }
-        }
-        return [
-          `### ${session.sessionId}`,
-          '```text',
-          redactSecrets(transcript).slice(-RECENT_OUTPUT_LIMIT),
-          '```',
-        ].join('\n');
-      }),
+        }),
+      )
+    ).filter((summary): summary is { sessionId: string; content: string } => Boolean(summary));
+    const summarizedSessionIds = new Set(summaries.map((summary) => summary.sessionId));
+    const summaryOutput = summaries.map((summary) =>
+      [
+        `### ${summary.sessionId}`,
+        redactSecrets(summary.content).trimEnd(),
+      ].join('\n'),
+    );
+    const recentOutput = await Promise.all(
+      index.sessions
+        .filter((session) => !summarizedSessionIds.has(session.sessionId))
+        .map(async (session) => {
+          const transcriptPath = path.join(workspace.path, session.transcriptFile);
+          let transcript = '';
+          try {
+            transcript = await readFile(transcriptPath, 'utf-8');
+          } catch (error) {
+            if (!(isNodeError(error) && error.code === 'ENOENT')) {
+              throw error;
+            }
+          }
+          return [
+            `### ${session.sessionId}`,
+            '```text',
+            redactSecrets(transcript).slice(-RECENT_OUTPUT_LIMIT),
+            '```',
+          ].join('\n');
+        }),
     );
 
     return [
@@ -236,6 +268,14 @@ export function createWorkspaceContextStore(
       '## Sessions',
       ...(sessionLines.length > 0 ? sessionLines : ['No sessions recorded yet.']),
       '',
+      ...(summaryOutput.length > 0
+        ? [
+            '## Session Summaries',
+            '',
+            ...summaryOutput,
+            '',
+          ]
+        : []),
       '## Recent Output',
       '',
       ...recentOutput,
@@ -278,6 +318,10 @@ function contextFiles(workspace: Workspace, sessionId: string): WorkspaceContext
     sharedContextFile: path.join(contextDir, 'shared-context.md'),
     sessionTranscriptFile: path.join(workspace.path, ...TRANSCRIPT_DIR_PARTS, `${sessionId}.md`),
   };
+}
+
+function safeContextFileName(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, '_');
 }
 
 async function isGitWorkspace(workspace: Workspace): Promise<boolean> {

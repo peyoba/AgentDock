@@ -1,11 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
 import { createSessionService } from '../../src/main/sessionService';
 import type { KeychainAdapter } from '../../src/main/adapters/keychainAdapter';
 import type { PtyAdapter, PtySpawnRequest } from '../../src/main/adapters/ptyAdapter';
 import type { WorkspaceContextStore } from '../../src/main/workspaceContextStore';
+import type { SessionHistoryStore } from '../../src/main/stores/sessionHistoryStore';
+import { createSessionHistoryStore } from '../../src/main/stores/sessionHistoryStore';
 
 function createFakeRuntime() {
   const spawnRequests: PtySpawnRequest[] = [];
+  const dataHandlers = new Map<string, (data: string) => void>();
+  const exitHandlers = new Map<string, (event: { exitCode: number; signal?: number }) => void>();
 
   const keychain: KeychainAdapter = {
     async readSecret(service, account) {
@@ -25,14 +32,19 @@ function createFakeRuntime() {
         write() {},
         resize() {},
         kill() {},
-        onData() {
+        onData(listener) {
+          dataHandlers.set(request.sessionId, listener);
+          return () => dataHandlers.delete(request.sessionId);
+        },
+        onExit(listener) {
+          exitHandlers.set(request.sessionId, listener);
           return () => {};
         },
       };
     },
   };
 
-  return { keychain, pty, spawnRequests };
+  return { keychain, pty, spawnRequests, dataHandlers, exitHandlers };
 }
 
 describe('sessionService', () => {
@@ -83,6 +95,435 @@ describe('sessionService', () => {
         },
       },
     ]);
+  });
+
+  it('records exit code and Claude resume command when a PTY exits', async () => {
+    const runtime = createFakeRuntime();
+    const changedSessions: string[] = [];
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+    });
+    service.onSessionChanged((session) => {
+      changedSessions.push(`${session.status}:${session.exitCode}:${session.resumeCommand}`);
+    });
+
+    const session = await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude',
+    });
+
+    runtime.dataHandlers.get(session.id)?.(
+      'Resume this session with:\r\nclaude --resume c4bf-b857\r\n',
+    );
+    runtime.exitHandlers.get(session.id)?.({ exitCode: 0 });
+
+    await expect(service.list()).resolves.toEqual([
+      expect.objectContaining({
+        id: session.id,
+        status: 'exited',
+        exitCode: 0,
+        resumeCommand: 'claude --resume c4bf-b857',
+      }),
+    ]);
+    expect(changedSessions).toContain('exited:0:claude --resume c4bf-b857');
+  });
+
+  it('restarts an exited session with the same session id and preserved buffer', async () => {
+    const runtime = createFakeRuntime();
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+    });
+    const profile = {
+      id: 'profile-a',
+      name: 'Claude A',
+      toolType: 'claude' as const,
+      baseUrl: 'https://example.invalid/v1',
+      keychainService: 'AgentDock',
+      keychainAccount: 'profile-a',
+    };
+    const workspace = {
+      id: 'workspace-a',
+      name: 'AgentDock',
+      path: '/Users/example/Desktop/web/AgentDock',
+    };
+
+    const session = await service.launch({
+      profile,
+      workspace,
+      command: 'claude',
+    });
+    runtime.dataHandlers.get(session.id)?.('previous terminal output');
+    runtime.exitHandlers.get(session.id)?.({ exitCode: 0 });
+
+    const restartedSession = await service.restart({
+      sessionId: session.id,
+      profile,
+      workspace,
+      command: 'claude --resume c4bf-b857',
+    });
+
+    expect(restartedSession).toEqual({
+      id: 'session-1',
+      title: 'Claude A · AgentDock',
+      profileId: 'profile-a',
+      workspaceId: 'workspace-a',
+      command: 'claude --resume c4bf-b857',
+      status: 'running',
+      startedAt: '2026-07-01T00:00:00.000Z',
+    });
+    expect(runtime.spawnRequests.at(-1)).toEqual({
+      sessionId: 'session-1',
+      command: 'claude --resume c4bf-b857',
+      cwd: '/Users/example/Desktop/web/AgentDock',
+      env: {
+        ANTHROPIC_BASE_URL: 'https://example.invalid/v1',
+        ANTHROPIC_AUTH_TOKEN: 'local-development-secret',
+      },
+    });
+    await expect(service.readTerminalBuffer({ sessionId: session.id })).resolves.toContain(
+      'previous terminal output',
+    );
+  });
+
+  it('preserves persisted history when restarting an exited session in place', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restart-history-'));
+    const runtime = createFakeRuntime();
+    const historyStore = createSessionHistoryStore(tempDir, {
+      maxBufferBytes: 1000,
+      maxSessions: 50,
+    });
+    try {
+      const service = createSessionService({
+        clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+        keychain: runtime.keychain,
+        pty: runtime.pty,
+        appDataPath: '/tmp/agentdock-test-data',
+        historyStore,
+      });
+      const profile = {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude' as const,
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      };
+      const workspace = {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      };
+
+      const session = await service.launch({
+        profile,
+        workspace,
+        command: 'claude',
+      });
+      runtime.dataHandlers.get(session.id)?.('previous terminal output');
+      runtime.exitHandlers.get(session.id)?.({ exitCode: 0 });
+      await historyStore.readBuffer(session.id);
+
+      await service.restart({
+        sessionId: session.id,
+        profile,
+        workspace,
+        command: 'claude --resume c4bf-b857',
+      });
+
+      await expect(historyStore.readBuffer(session.id)).resolves.toContain(
+        'previous terminal output',
+      );
+      await expect(service.readTerminalBuffer({ sessionId: session.id })).resolves.toContain(
+        'previous terminal output',
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('loads persisted session history and marks previously running sessions as interrupted', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-history-'));
+    const historyStore = createSessionHistoryStore(tempDir, {
+      maxBufferBytes: 1000,
+      maxSessions: 50,
+    });
+    try {
+      await historyStore.saveSession({
+        id: 'session-old',
+        title: 'Claude A · AgentDock',
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude',
+        status: 'running',
+        startedAt: '2026-07-01T00:00:00.000Z',
+      });
+      await historyStore.appendOutput('session-old', 'previous terminal output');
+
+      const service = createSessionService({
+        clock: { now: () => new Date('2026-07-02T00:00:00.000Z') },
+        keychain: createFakeRuntime().keychain,
+        pty: createFakeRuntime().pty,
+        appDataPath: '/tmp/agentdock-test-data',
+        historyStore,
+      });
+
+      await expect(service.list()).resolves.toEqual([
+        expect.objectContaining({
+          id: 'session-old',
+          status: 'interrupted',
+        }),
+      ]);
+      await expect(service.readTerminalBuffer({ sessionId: 'session-old' })).resolves.toBe(
+        'previous terminal output',
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('can start an independent window service without restoring persisted sessions', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-new-window-history-'));
+    const historyStore = createSessionHistoryStore(tempDir, {
+      maxBufferBytes: 1000,
+      maxSessions: 50,
+    });
+    try {
+      await historyStore.saveSession({
+        id: 'session-old',
+        title: 'Claude A · AgentDock',
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude',
+        status: 'running',
+        startedAt: '2026-07-01T00:00:00.000Z',
+      });
+
+      const service = createSessionService({
+        keychain: createFakeRuntime().keychain,
+        pty: createFakeRuntime().pty,
+        appDataPath: '/tmp/agentdock-test-data',
+        historyStore,
+        restoreHistory: false,
+      });
+
+      await expect(service.list()).resolves.toEqual([]);
+      await expect(historyStore.listSessions()).resolves.toEqual([
+        expect.objectContaining({
+          id: 'session-old',
+          status: 'running',
+        }),
+      ]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('spawns the PTY even when session history persistence is backed up', async () => {
+    const runtime = createFakeRuntime();
+    let releaseSaveSession: (() => void) | undefined;
+    const historyStore: SessionHistoryStore = {
+      listSessions: vi.fn().mockResolvedValue([]),
+      saveSession: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseSaveSession = resolve;
+          }),
+      ),
+      appendOutput: vi.fn().mockResolvedValue({ limitReached: false }),
+      readBuffer: vi.fn().mockResolvedValue(''),
+      deleteSession: vi.fn().mockResolvedValue(undefined),
+      archiveBuffer: vi.fn().mockResolvedValue({ filePath: '/tmp/archive.txt' }),
+    };
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      historyStore,
+    });
+
+    const launchPromise = service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude',
+    });
+    await vi.waitFor(() => {
+      expect(runtime.spawnRequests).toHaveLength(1);
+    });
+    releaseSaveSession?.();
+    await expect(launchPromise).resolves.toEqual(
+      expect.objectContaining({
+        id: 'session-1',
+        status: 'running',
+      }),
+    );
+  });
+
+  it('estimates context pressure from the terminal buffer without exposing output', async () => {
+    const runtime = createFakeRuntime();
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+    });
+    const session = await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude',
+    });
+
+    runtime.dataHandlers.get(session.id)?.('x'.repeat(4_500_000));
+
+    await expect(service.getContextPressure({ sessionId: session.id })).resolves.toEqual({
+      sessionId: session.id,
+      level: 'high',
+      score: 90,
+    });
+  });
+
+  it('delegates session summaries with non-secret session and workspace metadata', async () => {
+    const runtime = createFakeRuntime();
+    const summaryJob = vi.fn().mockResolvedValue({
+      status: 'success',
+      summaryFile: '/workspace/.agentdock/context/summaries/session-1.md',
+      handoffFile: '/workspace/.agentdock/context/handoffs/session-1.md',
+      handoffPrompt: 'Read the AgentDock handoff first',
+    });
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      summaryJob,
+    });
+    const workspace = {
+      id: 'workspace-a',
+      name: 'AgentDock',
+      path: '/Users/example/Desktop/web/AgentDock',
+    };
+    const session = await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      },
+      workspace,
+      command: 'claude',
+    });
+
+    await expect(
+      service.summarizeSession({ sessionId: session.id, continueAfterSummary: true }),
+    ).resolves.toEqual({
+      status: 'success',
+      summaryFile: '/workspace/.agentdock/context/summaries/session-1.md',
+      handoffFile: '/workspace/.agentdock/context/handoffs/session-1.md',
+      handoffPrompt: 'Read the AgentDock handoff first',
+    });
+
+    expect(JSON.stringify(summaryJob.mock.calls)).not.toContain('local-development-secret');
+    expect(summaryJob).toHaveBeenCalledWith({
+      session,
+      workspace,
+      continueAfterSummary: true,
+    });
+  });
+
+  it('coalesces terminal history output while a previous append is still running', async () => {
+    const runtime = createFakeRuntime();
+    let releaseAppend: (() => void) | undefined;
+    const appendOutput = vi.fn(
+      () =>
+        new Promise<{ limitReached: boolean }>((resolve) => {
+          releaseAppend = () => resolve({ limitReached: false });
+        }),
+    );
+    const historyStore: SessionHistoryStore = {
+      listSessions: vi.fn().mockResolvedValue([]),
+      saveSession: vi.fn().mockResolvedValue(undefined),
+      appendOutput,
+      readBuffer: vi.fn().mockResolvedValue(''),
+      deleteSession: vi.fn().mockResolvedValue(undefined),
+      archiveBuffer: vi.fn().mockResolvedValue({ filePath: '/tmp/archive.txt' }),
+    };
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      historyStore,
+    });
+    const session = await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude',
+    });
+
+    runtime.dataHandlers.get(session.id)?.('first');
+    await vi.waitFor(() => {
+      expect(appendOutput).toHaveBeenCalledTimes(1);
+    });
+    runtime.dataHandlers.get(session.id)?.(' second');
+    runtime.dataHandlers.get(session.id)?.(' third');
+    expect(appendOutput).toHaveBeenCalledTimes(1);
+
+    releaseAppend?.();
+    await vi.waitFor(() => {
+      expect(appendOutput).toHaveBeenCalledTimes(2);
+    });
+    expect(appendOutput).toHaveBeenNthCalledWith(1, session.id, 'first');
+    expect(appendOutput).toHaveBeenNthCalledWith(2, session.id, ' second third');
   });
 
   it('passes only non-secret session metadata to workspace context', async () => {

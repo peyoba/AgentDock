@@ -99,6 +99,55 @@ describe('workspaceContextStore', () => {
     expect(sharedContext).toContain('[REDACTED]');
   });
 
+  it('prefers session summaries over large transcript tails in shared context', async () => {
+    const store = createWorkspaceContextStore({
+      clock: { now: () => new Date('2026-07-04T00:00:00.000Z') },
+    });
+    const files = await store.startSession({ workspace, session });
+    await mkdir(path.join(tempDir, '.agentdock/context/summaries'), { recursive: true });
+    await writeFile(
+      path.join(tempDir, '.agentdock/context/summaries/session-1.md'),
+      [
+        '# AgentDock Session Summary',
+        '',
+        '## Current Goal',
+        'summarized-current-goal',
+        '',
+        '## Decisions',
+        '- summary decision',
+        '',
+        '## Files And Areas Touched',
+        '- src/main/workspaceContextStore.ts',
+        '',
+        '## Commands And Verification',
+        '- npm run typecheck',
+        '',
+        '## Problems And Risks',
+        '- summary risk',
+        '',
+        '## Next Steps',
+        '- summary next step',
+        '',
+        '## Source',
+        'Transcript: .agentdock/context/sessions/session-1.md',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    await store.appendOutput({
+      workspace,
+      sessionId: 'session-1',
+      data: `transcript-only-marker ${'x'.repeat(1000)}`,
+    });
+    await store.flush?.();
+
+    const sharedContext = await readFile(files.sharedContextFile, 'utf-8');
+    expect(sharedContext).toContain('## Session Summaries');
+    expect(sharedContext).toContain('summarized-current-goal');
+    expect(sharedContext).not.toContain('transcript-only-marker');
+  });
+
   it('throttles shared context rebuilds while output streams and flushes the tail', async () => {
     const store = createWorkspaceContextStore({
       clock: { now: () => new Date('2026-07-04T00:00:00.000Z') },
