@@ -24,6 +24,9 @@ type LegacySessionHistoryEntry = SessionHistoryEntry & {
 export type SessionHistoryStore = {
   listSessions(): Promise<AgentSession[]>;
   saveSession(session: AgentSession): Promise<void>;
+  closeView(sessionId: string, viewId: string): Promise<void>;
+  archiveSession(sessionId: string): Promise<void>;
+  deleteRecord(sessionId: string): Promise<void>;
   appendOutput(sessionId: string, data: string): Promise<{ limitReached: boolean }>;
   readBuffer(sessionId: string): Promise<string>;
   deleteSession(sessionId: string): Promise<void>;
@@ -280,6 +283,30 @@ export function createSessionHistoryStore(
       return enqueue(() => saveSession(session));
     },
 
+    closeView(sessionId: string, viewId: string): Promise<void> {
+      return enqueue(async () => {
+        await updateSession(sessionId, (entry) => ({
+          ...entry,
+          session: {
+            ...entry.session,
+            closedViewIds: Array.from(new Set([...(entry.session.closedViewIds ?? []), viewId])),
+          },
+        }));
+      });
+    },
+
+    archiveSession(sessionId: string): Promise<void> {
+      return enqueue(async () => {
+        await updateSession(sessionId, (entry) => ({
+          ...entry,
+          session: {
+            ...entry.session,
+            archived: true,
+          },
+        }));
+      });
+    },
+
     async appendOutput(sessionId: string, data: string): Promise<{ limitReached: boolean }> {
       return enqueue(async () => {
         const entries = await listEntries();
@@ -305,12 +332,16 @@ export function createSessionHistoryStore(
       return enqueue(async () => (await transcriptStore.readTail(sessionId)).content);
     },
 
-    async deleteSession(sessionId: string): Promise<void> {
+    async deleteRecord(sessionId: string): Promise<void> {
       return enqueue(async () => {
         const entries = await listEntries();
         await saveEntries(entries.filter((entry) => entry.id !== sessionId));
         await transcriptStore.deleteTranscript(sessionId);
       });
+    },
+
+    deleteSession(sessionId: string): Promise<void> {
+      return this.deleteRecord(sessionId);
     },
 
     async archiveBuffer(sessionId: string): Promise<{ filePath: string }> {

@@ -4,10 +4,13 @@ import type {
   AgentSession,
   ApiProfile,
   ClaudeLaunchMode,
+  CloseSessionViewRequest,
+  RuntimeOwner,
   SessionContextPressureRequest,
   SessionContextPressureResult,
   SessionHistoryArchiveRequest,
   SessionHistoryArchiveResult,
+  SessionRecordRequest,
   SessionSummaryRequest,
   SessionSummaryResult,
   TerminalBufferRequest,
@@ -64,6 +67,12 @@ type SummaryJobDelegate = (request: {
   continueAfterSummary: boolean;
 }) => Promise<SessionSummaryResult>;
 
+export type RuntimeOwnerRegistry = {
+  claim(sessionId: string, owner: RuntimeOwner): boolean;
+  get(sessionId: string): RuntimeOwner | undefined;
+  release(sessionId: string, ownerId: string): void;
+};
+
 type CreateSessionServiceOptions = {
   clock?: Clock;
   keychain?: KeychainAdapter;
@@ -78,6 +87,8 @@ type CreateSessionServiceOptions = {
   restoreHistory?: boolean;
   /** 多窗口时注入每窗口唯一前缀，避免共享 workspace 上下文里的 session ID 冲突 */
   sessionIdPrefix?: string;
+  runtimeOwnerId?: string;
+  runtimeOwnerRegistry?: RuntimeOwnerRegistry;
   /** 解析 statusLine 使用的 ccline 命令；默认 PATH 已安装版本优先、内嵌二进制兜底 */
   resolveCclineCommand?: () => string;
   summaryJob?: SummaryJobDelegate;
@@ -106,6 +117,9 @@ export type SessionService = {
   writeTerminal(request: TerminalWriteRequest): Promise<void>;
   resizeTerminal(request: TerminalResizeRequest): Promise<void>;
   killTerminal(request: TerminalKillRequest): Promise<AgentSession>;
+  closeSessionView(request: CloseSessionViewRequest): Promise<AgentSession>;
+  archiveSessionRecord(request: SessionRecordRequest): Promise<AgentSession>;
+  deleteSessionRecord(request: SessionRecordRequest): Promise<void>;
   readTerminalBuffer(request: TerminalBufferRequest): Promise<string>;
   archiveSessionHistory(request: SessionHistoryArchiveRequest): Promise<SessionHistoryArchiveResult>;
   getContextPressure(request: SessionContextPressureRequest): Promise<SessionContextPressureResult>;
@@ -118,6 +132,33 @@ export type SessionService = {
 const MAX_TERMINAL_BUFFER_LENGTH = 5_000_000;
 
 const defaultClock: Clock = { now: () => new Date() };
+
+export function createRuntimeOwnerRegistry(): RuntimeOwnerRegistry {
+  const owners = new Map<string, RuntimeOwner>();
+
+  return {
+    claim(sessionId: string, owner: RuntimeOwner): boolean {
+      const existingOwner = owners.get(sessionId);
+      if (existingOwner && existingOwner.ownerId !== owner.ownerId) {
+        return false;
+      }
+
+      owners.set(sessionId, { ...owner });
+      return true;
+    },
+
+    get(sessionId: string): RuntimeOwner | undefined {
+      const owner = owners.get(sessionId);
+      return owner ? { ...owner } : undefined;
+    },
+
+    release(sessionId: string, ownerId: string): void {
+      if (owners.get(sessionId)?.ownerId === ownerId) {
+        owners.delete(sessionId);
+      }
+    },
+  };
+}
 
 function defaultEnsureDirectory(directoryPath: string): void {
   fs.mkdirSync(directoryPath, { recursive: true });
@@ -279,6 +320,8 @@ function normalizeOptions(
       historyStore: undefined,
       restoreHistory: true,
       sessionIdPrefix: '',
+      runtimeOwnerId: 'default-window',
+      runtimeOwnerRegistry: createRuntimeOwnerRegistry(),
       resolveCclineCommand: () => locateCclineCommand({ homeDir }),
       summaryJob: undefined,
     };
@@ -300,6 +343,8 @@ function normalizeOptions(
     historyStore: options.historyStore,
     restoreHistory: options.restoreHistory ?? true,
     sessionIdPrefix: options.sessionIdPrefix ?? '',
+    runtimeOwnerId: options.runtimeOwnerId ?? 'default-window',
+    runtimeOwnerRegistry: options.runtimeOwnerRegistry ?? createRuntimeOwnerRegistry(),
     resolveCclineCommand:
       options.resolveCclineCommand ?? (() => locateCclineCommand({ homeDir })),
     summaryJob: options.summaryJob,
@@ -353,6 +398,8 @@ export function createSessionService(
     historyStore,
     restoreHistory,
     sessionIdPrefix,
+    runtimeOwnerId,
+    runtimeOwnerRegistry,
     resolveCclineCommand,
     summaryJob,
   } = normalizeOptions(optionsOrClock);
@@ -386,8 +433,15 @@ export function createSessionService(
     for (const persistedSession of persistedSessions) {
       const session = { ...persistedSession };
       if (session.status === 'running' || session.status === 'starting') {
-        session.status = 'interrupted';
-        await historyStore?.saveSession(session);
+        const activeOwner = runtimeOwnerRegistry.get(session.id);
+        if (activeOwner) {
+          session.status = 'running';
+          session.runtimeOwner = activeOwner;
+        } else {
+          session.status = 'interrupted';
+          delete session.runtimeOwner;
+          await historyStore?.saveSession(session);
+        }
       }
       sessions.push(session);
       terminalBuffers.set(session.id, await historyStore?.readBuffer(session.id) ?? '');
@@ -504,6 +558,11 @@ export function createSessionService(
     if (ptySessions.has(session.id)) {
       throw new Error('会话仍在运行，无法重启');
     }
+    const startedAt = clock.now().toISOString();
+    const owner: RuntimeOwner = { ownerId: runtimeOwnerId, startedAt };
+    if (!runtimeOwnerRegistry.claim(session.id, owner)) {
+      throw new Error('该会话正在另一窗口运行');
+    }
 
     const effectiveClaudeLaunchMode =
       profile.toolType === 'claude' && !isLocalShellCommand(command)
@@ -520,7 +579,8 @@ export function createSessionService(
       delete session.claudeLaunchMode;
     }
     session.status = 'starting';
-    session.startedAt = clock.now().toISOString();
+    session.startedAt = startedAt;
+    session.runtimeOwner = owner;
     workspacesBySessionId.set(session.id, { ...workspace });
     delete session.exitedAt;
     delete session.exitCode;
@@ -609,6 +669,8 @@ export function createSessionService(
         ptyUnsubscribers.delete(session.id);
         ptySessions.delete(session.id);
         session.status = 'exited';
+        runtimeOwnerRegistry.release(session.id, runtimeOwnerId);
+        delete session.runtimeOwner;
         session.exitCode = event.exitCode;
         session.exitSignal = event.signal;
         session.exitedAt = clock.now().toISOString();
@@ -627,9 +689,12 @@ export function createSessionService(
         unsubscribeExit?.();
       });
       session.status = 'running';
+      session.runtimeOwner = owner;
       persistSession(session);
       return cloneSession(session);
     } catch (error) {
+      runtimeOwnerRegistry.release(session.id, runtimeOwnerId);
+      delete session.runtimeOwner;
       session.status = 'failed';
       persistSession(session);
       if (isSecretReadError(error)) {
@@ -760,7 +825,8 @@ export function createSessionService(
         throw new Error('未找到指定的终端会话');
       }
 
-      // 进程自行退出后 PTY 已被清理；关闭标签页时只需收尾状态和缓冲
+      // Stop only affects the active PTY process. The long-lived Session Record
+      // and transcript stay available for later resume or deletion.
       const ptySession = ptySessions.get(sessionId);
       if (ptySession) {
         ptySession.kill();
@@ -768,11 +834,62 @@ export function createSessionService(
         ptyUnsubscribers.delete(sessionId);
         ptySessions.delete(sessionId);
       }
-      terminalBuffers.delete(sessionId);
       pendingHistoryOutput.delete(sessionId);
       session.status = 'stopped';
-      await historyStore?.deleteSession(sessionId);
+      runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
+      delete session.runtimeOwner;
+      await historyStore?.saveSession(session);
+      publishSessionChanged(session);
       return cloneSession(session);
+    },
+
+    async closeSessionView({ sessionId, viewId }: CloseSessionViewRequest): Promise<AgentSession> {
+      await loadHistory();
+      const session = findSession(sessionId);
+      if (!session) {
+        throw new Error('未找到指定的终端会话');
+      }
+
+      session.closedViewIds = Array.from(new Set([...(session.closedViewIds ?? []), viewId]));
+      await historyStore?.closeView(sessionId, viewId);
+      publishSessionChanged(session);
+      return cloneSession(session);
+    },
+
+    async archiveSessionRecord({ sessionId }: SessionRecordRequest): Promise<AgentSession> {
+      await loadHistory();
+      const session = findSession(sessionId);
+      if (!session) {
+        throw new Error('未找到指定的终端会话');
+      }
+
+      session.archived = true;
+      await historyStore?.archiveSession(sessionId);
+      publishSessionChanged(session);
+      return cloneSession(session);
+    },
+
+    async deleteSessionRecord({ sessionId }: SessionRecordRequest): Promise<void> {
+      await loadHistory();
+      const sessionIndex = sessions.findIndex((session) => session.id === sessionId);
+      if (sessionIndex === -1) {
+        throw new Error('未找到指定的终端会话');
+      }
+
+      const ptySession = ptySessions.get(sessionId);
+      if (ptySession) {
+        ptySession.kill();
+        ptyUnsubscribers.get(sessionId)?.();
+        ptyUnsubscribers.delete(sessionId);
+        ptySessions.delete(sessionId);
+      }
+      runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
+      sessions.splice(sessionIndex, 1);
+      terminalBuffers.delete(sessionId);
+      pendingHistoryOutput.delete(sessionId);
+      historyOutputFlushes.delete(sessionId);
+      workspacesBySessionId.delete(sessionId);
+      await historyStore?.deleteRecord(sessionId);
     },
 
     async readTerminalBuffer({ sessionId }: TerminalBufferRequest): Promise<string> {
@@ -871,6 +988,8 @@ export function createSessionService(
         const session = findSession(sessionId);
         if (session) {
           session.status = historyStore ? 'interrupted' : 'stopped';
+          runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
+          delete session.runtimeOwner;
           await historyStore?.saveSession(session);
         }
       }

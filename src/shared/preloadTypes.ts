@@ -1,6 +1,7 @@
 import type {
   AgentSession,
   ApiProfile,
+  CloseSessionViewRequest,
   LaunchRequest,
   ProfileModelsFetchRequest,
   ProfileSecretReadRequest,
@@ -10,6 +11,7 @@ import type {
   SessionContextPressureResult,
   SessionHistoryArchiveRequest,
   SessionHistoryArchiveResult,
+  SessionRecordRequest,
   SessionSummaryRequest,
   SessionSummaryResult,
   TerminalBufferRequest,
@@ -36,6 +38,9 @@ export type AgentDockApi = {
   launchSession(request: LaunchRequest): Promise<AgentSession>;
   restartSession(request: RestartSessionRequest): Promise<AgentSession>;
   listSessions(): Promise<AgentSession[]>;
+  closeSessionView(request: CloseSessionViewRequest): Promise<AgentSession>;
+  archiveSessionRecord(request: SessionRecordRequest): Promise<AgentSession>;
+  deleteSessionRecord(request: SessionRecordRequest): Promise<void>;
   writeTerminal(request: TerminalWriteRequest): Promise<void>;
   resizeTerminal(request: TerminalResizeRequest): Promise<void>;
   killTerminal(request: TerminalKillRequest): Promise<AgentSession>;
@@ -64,6 +69,9 @@ export const AGENT_DOCK_API_METHODS = [
   'launchSession',
   'restartSession',
   'listSessions',
+  'closeSessionView',
+  'archiveSessionRecord',
+  'deleteSessionRecord',
   'writeTerminal',
   'resizeTerminal',
   'killTerminal',

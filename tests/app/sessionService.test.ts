@@ -2,7 +2,10 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { createSessionService } from '../../src/main/sessionService';
+import {
+  createRuntimeOwnerRegistry,
+  createSessionService,
+} from '../../src/main/sessionService';
 import type { KeychainAdapter } from '../../src/main/adapters/keychainAdapter';
 import type { PtyAdapter, PtySpawnRequest } from '../../src/main/adapters/ptyAdapter';
 import type { WorkspaceContextStore } from '../../src/main/workspaceContextStore';
@@ -102,6 +105,10 @@ describe('sessionService', () => {
       command: 'claude',
       status: 'running',
       startedAt: '2026-07-01T00:00:00.000Z',
+      runtimeOwner: {
+        ownerId: 'default-window',
+        startedAt: '2026-07-01T00:00:00.000Z',
+      },
     });
     expect(await service.list()).toEqual([session]);
     expect(runtime.spawnRequests).toEqual([
@@ -777,6 +784,201 @@ describe('sessionService', () => {
     );
   });
 
+  it('stops a running PTY without deleting the session record', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-stop-keeps-record-'));
+    const runtime = createFakeRuntime();
+    try {
+      const historyStore = createSessionHistoryStore(tempDir);
+      const service = createSessionService({
+        clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+        keychain: runtime.keychain,
+        pty: runtime.pty,
+        appDataPath: '/tmp/agentdock-test-data',
+        historyStore,
+      });
+
+      const session = await service.launch({
+        profile: {
+          id: 'profile-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://example.invalid/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'profile-a',
+        },
+        workspace: {
+          id: 'workspace-a',
+          name: 'AgentDock',
+          path: '/Users/example/Desktop/web/AgentDock',
+        },
+        command: 'claude',
+      });
+
+      await service.killTerminal({ sessionId: session.id });
+
+      await expect(service.list()).resolves.toEqual([
+        expect.objectContaining({ id: session.id, status: 'stopped' }),
+      ]);
+      await expect(historyStore.listSessions()).resolves.toEqual([
+        expect.objectContaining({ id: session.id, status: 'stopped' }),
+      ]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('closes a view without deleting the session record', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-close-view-'));
+    const runtime = createFakeRuntime();
+    try {
+      const historyStore = createSessionHistoryStore(tempDir);
+      const service = createSessionService({
+        clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+        keychain: runtime.keychain,
+        pty: runtime.pty,
+        appDataPath: '/tmp/agentdock-test-data',
+        historyStore,
+      });
+      const session = await service.launch({
+        profile: {
+          id: 'profile-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://example.invalid/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'profile-a',
+        },
+        workspace: {
+          id: 'workspace-a',
+          name: 'AgentDock',
+          path: '/Users/example/Desktop/web/AgentDock',
+        },
+        command: 'claude',
+      });
+
+      await service.closeSessionView({ sessionId: session.id, viewId: 'window-1' });
+
+      await expect(service.list()).resolves.toEqual([
+        expect.objectContaining({ id: session.id, closedViewIds: ['window-1'] }),
+      ]);
+      await expect(historyStore.listSessions()).resolves.toEqual([
+        expect.objectContaining({ id: session.id, closedViewIds: ['window-1'] }),
+      ]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('archives and deletes session records through explicit record operations', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-record-ops-'));
+    const runtime = createFakeRuntime();
+    try {
+      const historyStore = createSessionHistoryStore(tempDir);
+      const service = createSessionService({
+        clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+        keychain: runtime.keychain,
+        pty: runtime.pty,
+        appDataPath: '/tmp/agentdock-test-data',
+        historyStore,
+      });
+      const session = await service.launch({
+        profile: {
+          id: 'profile-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://example.invalid/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'profile-a',
+        },
+        workspace: {
+          id: 'workspace-a',
+          name: 'AgentDock',
+          path: '/Users/example/Desktop/web/AgentDock',
+        },
+        command: 'claude',
+      });
+
+      const archived = await service.archiveSessionRecord({ sessionId: session.id });
+      expect(archived).toEqual(expect.objectContaining({ id: session.id, archived: true }));
+      await expect(historyStore.listSessions()).resolves.toEqual([
+        expect.objectContaining({ id: session.id, archived: true }),
+      ]);
+
+      await service.deleteSessionRecord({ sessionId: session.id });
+
+      await expect(service.list()).resolves.toEqual([]);
+      await expect(historyStore.listSessions()).resolves.toEqual([]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('prevents another window from continuing a session owned by a running PTY', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-runtime-owner-'));
+    const ownerRegistry = createRuntimeOwnerRegistry();
+    const ownerRuntime = createFakeRuntime();
+    const observerRuntime = createFakeRuntime();
+    try {
+      const historyStore = createSessionHistoryStore(tempDir);
+      const ownerService = createSessionService({
+        clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+        keychain: ownerRuntime.keychain,
+        pty: ownerRuntime.pty,
+        appDataPath: '/tmp/agentdock-test-data',
+        historyStore,
+        runtimeOwnerId: 'window-a',
+        runtimeOwnerRegistry: ownerRegistry,
+      });
+      const observerService = createSessionService({
+        clock: { now: () => new Date('2026-07-01T00:01:00.000Z') },
+        keychain: observerRuntime.keychain,
+        pty: observerRuntime.pty,
+        appDataPath: '/tmp/agentdock-test-data',
+        historyStore,
+        runtimeOwnerId: 'window-b',
+        runtimeOwnerRegistry: ownerRegistry,
+      });
+      const profile = {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude' as const,
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      };
+      const workspace = {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      };
+
+      const session = await ownerService.launch({ profile, workspace, command: 'claude' });
+      await vi.waitFor(async () => {
+        await expect(historyStore.listSessions()).resolves.toEqual([
+          expect.objectContaining({
+            id: session.id,
+            status: 'running',
+            runtimeOwner: expect.objectContaining({ ownerId: 'window-a' }),
+          }),
+        ]);
+      });
+
+      await expect(observerService.list()).resolves.toEqual([
+        expect.objectContaining({
+          id: session.id,
+          status: 'running',
+          runtimeOwner: expect.objectContaining({ ownerId: 'window-a' }),
+        }),
+      ]);
+      await expect(
+        observerService.restart({ sessionId: session.id, profile, workspace, command: 'claude' }),
+      ).rejects.toThrow('该会话正在另一窗口运行');
+      expect(observerRuntime.spawnRequests).toHaveLength(0);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('does not estimate continuation-material pressure from raw terminal replay bytes', async () => {
     const runtime = createFakeRuntime();
     const service = createSessionService({
@@ -978,6 +1180,10 @@ describe('sessionService', () => {
           command: 'claude',
           status: 'starting',
           startedAt: '2026-07-01T00:00:00.000Z',
+          runtimeOwner: {
+            ownerId: 'default-window',
+            startedAt: '2026-07-01T00:00:00.000Z',
+          },
         },
       },
     ]);

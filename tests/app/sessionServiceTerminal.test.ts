@@ -135,7 +135,11 @@ describe('sessionService terminal controls', () => {
     expect(runtime.resizes).toEqual([{ cols: 120, rows: 32 }]);
     expect(runtime.killed).toBe(true);
     expect(stopped.status).toBe('stopped');
-    expect(await service.list()).toEqual([{ ...session, status: 'stopped' }]);
+    const stoppedSessions = await service.list();
+    expect(stoppedSessions).toEqual([
+      expect.objectContaining({ id: session.id, status: 'stopped' }),
+    ]);
+    expect(stoppedSessions[0]).not.toHaveProperty('runtimeOwner');
     expect(outputEvents).toEqual([
       { sessionId: session.id, data: 'hello from fake pty' },
     ]);
@@ -183,10 +187,13 @@ describe('sessionService terminal controls', () => {
     await expect(
       service.writeTerminal({ sessionId: first.id, input: 'help\n' }),
     ).rejects.toThrow('未找到指定的终端会话');
-    await expect(service.list()).resolves.toEqual([
-      { ...first, status: 'stopped' },
-      { ...second, status: 'stopped' },
+    const disposedSessions = await service.list();
+    expect(disposedSessions).toEqual([
+      expect.objectContaining({ id: first.id, status: 'stopped' }),
+      expect.objectContaining({ id: second.id, status: 'stopped' }),
     ]);
+    expect(disposedSessions[0]).not.toHaveProperty('runtimeOwner');
+    expect(disposedSessions[1]).not.toHaveProperty('runtimeOwner');
   });
 
 

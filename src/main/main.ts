@@ -11,7 +11,7 @@ import {
 } from './adapters/secretVaultAdapter.js';
 import { fetchProfileModels } from './modelFetchService.js';
 import type { SessionService } from './sessionService.js';
-import { createSessionService } from './sessionService.js';
+import { createRuntimeOwnerRegistry, createSessionService } from './sessionService.js';
 import { installSingleInstanceGuard } from './singleInstanceGuard.js';
 import { createSessionSummaryStore } from './sessionSummaryStore.js';
 import { createProfileStore } from './stores/profileStore.js';
@@ -28,6 +28,7 @@ import { defaultApiProfiles, isDefaultApiProfileId } from '../shared/defaultApiP
 import { defaultWorkspaces } from '../shared/defaultWorkspaces.js';
 import type {
   ApiProfile,
+  CloseSessionViewRequest,
   LaunchRequest,
   ProfileModelsFetchRequest,
   ProfileSecretReadRequest,
@@ -35,6 +36,7 @@ import type {
   RestartSessionRequest,
   SessionContextPressureRequest,
   SessionHistoryArchiveRequest,
+  SessionRecordRequest,
   SessionSummaryRequest,
   TerminalBufferRequest,
   TerminalKillRequest,
@@ -57,6 +59,7 @@ const userDataPath = app.getPath('userData');
 const profileStore = createProfileStore(userDataPath);
 const workspaceStore = createWorkspaceStore(userDataPath);
 const sessionHistoryStore = createSessionHistoryStore(userDataPath);
+const runtimeOwnerRegistry = createRuntimeOwnerRegistry();
 // vault 永远是唯一写入与首选读取来源；仅当 vault 未命中时读一次 legacy Keychain
 // 并回写 vault（升级迁移，老 Key 至多触发一次系统弹窗）。keytar 原生模块缺失时降级纯 vault。
 function createSecretAdapter(dataPath: string): KeychainAdapter {
@@ -87,6 +90,8 @@ const sessionRegistry = createWindowSessionRegistry((windowId) => {
     restoreHistory: windowRestoreHistory.get(windowId) ?? true,
     // 每窗口唯一前缀，避免多窗口在同一 workspace 下 transcript 文件互相覆盖
     sessionIdPrefix: `w${windowId}-`,
+    runtimeOwnerId: `window-${windowId}`,
+    runtimeOwnerRegistry,
     summaryJob: async ({ session, workspace, continueAfterSummary }) => {
       const profile = (await listProfiles()).find((item) => item.id === session.profileId);
       if (!profile) {
@@ -372,6 +377,15 @@ function registerIpcHandlers(): void {
     return workspace;
   });
   ipcMain.handle('sessions:list', (event) => sessionServiceForWebContents(event.sender).list());
+  ipcMain.handle('sessions:closeView', (event, request: CloseSessionViewRequest) =>
+    sessionServiceForWebContents(event.sender).closeSessionView(request),
+  );
+  ipcMain.handle('sessions:archiveRecord', (event, request: SessionRecordRequest) =>
+    sessionServiceForWebContents(event.sender).archiveSessionRecord(request),
+  );
+  ipcMain.handle('sessions:deleteRecord', (event, request: SessionRecordRequest) =>
+    sessionServiceForWebContents(event.sender).deleteSessionRecord(request),
+  );
   ipcMain.handle('terminal:write', (event, request: TerminalWriteRequest) =>
     sessionServiceForWebContents(event.sender).writeTerminal(request),
   );

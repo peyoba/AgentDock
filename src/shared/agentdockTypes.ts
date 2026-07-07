@@ -54,6 +54,11 @@ export type MemoryRestoreState = {
   error?: string;
 };
 
+export type RuntimeOwner = {
+  ownerId: string;
+  startedAt: string;
+};
+
 export type AgentSession = {
   id: string;
   title: string;
@@ -62,6 +67,9 @@ export type AgentSession = {
   command: string;
   claudeLaunchMode?: ClaudeLaunchMode;
   status: SessionStatus;
+  archived?: boolean;
+  closedViewIds?: string[];
+  runtimeOwner?: RuntimeOwner;
   startedAt: string;
   exitedAt?: string;
   exitCode?: number;
@@ -118,6 +126,15 @@ export type TerminalResizeRequest = {
 };
 
 export type TerminalKillRequest = {
+  sessionId: string;
+};
+
+export type CloseSessionViewRequest = {
+  sessionId: string;
+  viewId: string;
+};
+
+export type SessionRecordRequest = {
   sessionId: string;
 };
 
