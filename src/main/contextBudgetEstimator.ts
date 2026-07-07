@@ -13,7 +13,6 @@ export type ContextPressure = {
   score: number;
 };
 
-const HISTORY_LIMIT_BYTES = 5_000_000;
 const TRANSCRIPT_WARNING_BYTES = 2_500_000;
 const SHARED_CONTEXT_WARNING_BYTES = 1_000_000;
 const OUTPUT_RATE_WARNING_BYTES_PER_MINUTE = 60_000;
@@ -40,12 +39,7 @@ function pressureLevel(score: number): ContextPressureLevel {
 }
 
 export function estimateContextPressure(input: ContextPressureInput): ContextPressure {
-  if (input.historyLimitReached) {
-    return { level: 'full', score: 100 };
-  }
-
   const score = Math.max(
-    normalizedScore(input.historyBufferBytes, HISTORY_LIMIT_BYTES),
     normalizedScore(input.transcriptBytes, TRANSCRIPT_WARNING_BYTES),
     normalizedScore(input.sharedContextBytes, SHARED_CONTEXT_WARNING_BYTES),
     normalizedScore(input.recentOutputBytesPerMinute, OUTPUT_RATE_WARNING_BYTES_PER_MINUTE),

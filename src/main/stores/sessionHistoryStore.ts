@@ -2,13 +2,22 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentSession } from '../../shared/agentdockTypes.js';
 import { createJsonStore } from './jsonStore.js';
+import {
+  createSessionTranscriptStore,
+  SESSION_TRANSCRIPT_TAIL_BYTES,
+  type SessionTranscriptStore,
+} from './sessionTranscriptStore.js';
 
 export const SESSION_HISTORY_BUFFER_LIMIT_BYTES = 5_000_000;
 export const SESSION_HISTORY_COUNT_LIMIT = 50;
+export const SESSION_TRANSCRIPT_TOTAL_LIMIT_BYTES = 1_000_000_000;
 
 type SessionHistoryEntry = {
   id: string;
   session: AgentSession;
+};
+
+type LegacySessionHistoryEntry = SessionHistoryEntry & {
   terminalBuffer: string;
 };
 
@@ -24,6 +33,8 @@ export type SessionHistoryStore = {
 type CreateSessionHistoryStoreOptions = {
   maxBufferBytes?: number;
   maxSessions?: number;
+  maxTranscriptBytes?: number;
+  transcriptStore?: SessionTranscriptStore;
 };
 
 function sortRecentFirst(entries: SessionHistoryEntry[]): SessionHistoryEntry[] {
@@ -32,15 +43,6 @@ function sortRecentFirst(entries: SessionHistoryEntry[]): SessionHistoryEntry[] 
     const bTime = Date.parse(b.session.exitedAt ?? b.session.startedAt);
     return bTime - aTime;
   });
-}
-
-function trimBufferToBytes(buffer: string, maxBytes: number): string {
-  const bytes = Buffer.from(buffer, 'utf-8');
-  if (bytes.length <= maxBytes) {
-    return buffer;
-  }
-
-  return bytes.subarray(0, maxBytes).toString('utf-8');
 }
 
 function safeArchiveFileName(sessionId: string): string {
@@ -85,7 +87,7 @@ function findFirstJsonArrayEnd(text: string): number | undefined {
   return undefined;
 }
 
-async function recoverSessionHistoryEntries(filePath: string): Promise<SessionHistoryEntry[]> {
+async function recoverSessionHistoryEntries(filePath: string): Promise<Array<SessionHistoryEntry | LegacySessionHistoryEntry>> {
   let text: string;
   try {
     text = await readFile(filePath, 'utf-8');
@@ -101,7 +103,7 @@ async function recoverSessionHistoryEntries(filePath: string): Promise<SessionHi
     if (!Array.isArray(parsed)) {
       throw new Error(`Expected array in ${filePath}`);
     }
-    return parsed as SessionHistoryEntry[];
+    return parsed as Array<SessionHistoryEntry | LegacySessionHistoryEntry>;
   } catch (error) {
     const backupPath = path.join(
       path.dirname(filePath),
@@ -122,15 +124,16 @@ async function recoverSessionHistoryEntries(filePath: string): Promise<SessionHi
 
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, `${JSON.stringify(recovered, null, 2)}\n`, 'utf-8');
-    return recovered as SessionHistoryEntry[];
+    return recovered as Array<SessionHistoryEntry | LegacySessionHistoryEntry>;
   }
 }
 
 export function createSessionHistoryStore(
   rootDir: string,
   {
-    maxBufferBytes = SESSION_HISTORY_BUFFER_LIMIT_BYTES,
     maxSessions = SESSION_HISTORY_COUNT_LIMIT,
+    maxTranscriptBytes = SESSION_TRANSCRIPT_TOTAL_LIMIT_BYTES,
+    transcriptStore = createSessionTranscriptStore(rootDir),
   }: CreateSessionHistoryStoreOptions = {},
 ): SessionHistoryStore {
   const sessionsFilePath = path.join(rootDir, 'sessions.json');
@@ -147,12 +150,91 @@ export function createSessionHistoryStore(
     return run;
   }
 
+  async function sessionWithTranscriptMetadata(session: AgentSession): Promise<AgentSession> {
+    const tail = await transcriptStore.readTail(session.id);
+    return {
+      ...session,
+      historyLimitReached: false,
+      transcript: {
+        filePath: tail.filePath,
+        byteSize: tail.byteSize,
+        tailBytes: SESSION_TRANSCRIPT_TAIL_BYTES,
+        tailTruncated: tail.truncated,
+      },
+    };
+  }
+
+  async function migrateLegacyEntries(
+    entries: Array<SessionHistoryEntry | LegacySessionHistoryEntry>,
+  ): Promise<SessionHistoryEntry[]> {
+    const migratedEntries: SessionHistoryEntry[] = [];
+    let changed = false;
+
+    for (const entry of entries) {
+      const legacyBuffer = 'terminalBuffer' in entry ? entry.terminalBuffer : undefined;
+      if (legacyBuffer) {
+        const existingTail = await transcriptStore.readTail(entry.id);
+        if (existingTail.byteSize === 0) {
+          await transcriptStore.appendOutput(entry.id, legacyBuffer);
+        }
+        changed = true;
+      }
+
+      const session = await sessionWithTranscriptMetadata(entry.session);
+      migratedEntries.push({ id: entry.id, session });
+      if ('terminalBuffer' in entry || JSON.stringify(entry.session.transcript) !== JSON.stringify(session.transcript)) {
+        changed = true;
+      }
+    }
+
+    const sortedEntries = sortRecentFirst(migratedEntries).slice(0, maxSessions);
+    if (changed || sortedEntries.length !== entries.length) {
+      await saveEntries(sortedEntries);
+    }
+    return sortedEntries;
+  }
+
+  function canDeleteSession(session: AgentSession): boolean {
+    return session.status !== 'running' && session.status !== 'starting';
+  }
+
+  function totalTranscriptBytes(entries: SessionHistoryEntry[]): number {
+    return entries.reduce((total, entry) => total + (entry.session.transcript?.byteSize ?? 0), 0);
+  }
+
+  async function cleanupEntries(entries: SessionHistoryEntry[]): Promise<SessionHistoryEntry[]> {
+    const nextEntries = sortRecentFirst(entries);
+    const deletedEntries: SessionHistoryEntry[] = [];
+
+    function deleteOldestCandidate(): boolean {
+      for (let index = nextEntries.length - 1; index >= 0; index -= 1) {
+        if (canDeleteSession(nextEntries[index].session)) {
+          deletedEntries.push(nextEntries[index]);
+          nextEntries.splice(index, 1);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    while (nextEntries.length > maxSessions && deleteOldestCandidate()) {
+      // Keep deleting until the count limit is satisfied or only running sessions remain.
+    }
+
+    while (totalTranscriptBytes(nextEntries) > maxTranscriptBytes && deleteOldestCandidate()) {
+      // Keep deleting until the byte limit is satisfied or only running sessions remain.
+    }
+
+    await Promise.all(deletedEntries.map((entry) => transcriptStore.deleteTranscript(entry.id)));
+    return nextEntries;
+  }
+
   async function listEntries(): Promise<SessionHistoryEntry[]> {
-    return sortRecentFirst(await recoverSessionHistoryEntries(sessionsFilePath)).slice(0, maxSessions);
+    return migrateLegacyEntries(await recoverSessionHistoryEntries(sessionsFilePath));
   }
 
   async function saveEntries(entries: SessionHistoryEntry[]): Promise<void> {
-    await store.replaceAll(sortRecentFirst(entries).slice(0, maxSessions));
+    await store.replaceAll(await cleanupEntries(entries));
   }
 
   async function saveSession(session: AgentSession): Promise<void> {
@@ -160,8 +242,10 @@ export function createSessionHistoryStore(
     const existingEntry = entries.find((entry) => entry.id === session.id);
     const nextEntry: SessionHistoryEntry = {
       id: session.id,
-      session: { ...session },
-      terminalBuffer: existingEntry?.terminalBuffer ?? '',
+      session: await sessionWithTranscriptMetadata({
+        ...existingEntry?.session,
+        ...session,
+      }),
     };
     await saveEntries([
       nextEntry,
@@ -203,39 +287,29 @@ export function createSessionHistoryStore(
         if (!currentEntry) {
           return { limitReached: false };
         }
-        if (currentEntry.session.historyLimitReached) {
-          return { limitReached: true };
-        }
-
-        const appendedBuffer = `${currentEntry.terminalBuffer}${data}`;
-        const limitReached = Buffer.byteLength(appendedBuffer, 'utf-8') > maxBufferBytes;
-        const nextEntry: SessionHistoryEntry = {
+        await transcriptStore.appendOutput(sessionId, data);
+        const nextEntry = {
           ...currentEntry,
-          session: {
-            ...currentEntry.session,
-            historyLimitReached: limitReached,
-          },
-          terminalBuffer: trimBufferToBytes(appendedBuffer, maxBufferBytes),
+          session: await sessionWithTranscriptMetadata(currentEntry.session),
         };
 
         await saveEntries([
           nextEntry,
           ...entries.filter((entry) => entry.id !== sessionId),
         ]);
-        return { limitReached };
+        return { limitReached: false };
       });
     },
 
     async readBuffer(sessionId: string): Promise<string> {
-      return enqueue(async () =>
-        (await listEntries()).find((entry) => entry.id === sessionId)?.terminalBuffer ?? '',
-      );
+      return enqueue(async () => (await transcriptStore.readTail(sessionId)).content);
     },
 
     async deleteSession(sessionId: string): Promise<void> {
       return enqueue(async () => {
         const entries = await listEntries();
         await saveEntries(entries.filter((entry) => entry.id !== sessionId));
+        await transcriptStore.deleteTranscript(sessionId);
       });
     },
 
@@ -247,9 +321,11 @@ export function createSessionHistoryStore(
           throw new Error('未找到指定的历史会话');
         }
 
+        const output = (await transcriptStore.readTail(sessionId)).content;
         await mkdir(archiveDir, { recursive: true });
         const filePath = path.join(archiveDir, safeArchiveFileName(sessionId));
-        await writeFile(filePath, existingEntry.terminalBuffer, 'utf-8');
+        await writeFile(filePath, output, 'utf-8');
+        await transcriptStore.deleteTranscript(sessionId);
         await updateSession(sessionId, (entry) => ({
           ...entry,
           session: {
@@ -257,7 +333,6 @@ export function createSessionHistoryStore(
             historyLimitReached: false,
             historyArchivePath: filePath,
           },
-          terminalBuffer: '',
         }));
 
         return { filePath };

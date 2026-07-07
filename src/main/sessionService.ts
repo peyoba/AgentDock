@@ -23,6 +23,12 @@ import type { PtyAdapter, PtySession } from './adapters/ptyAdapter.js';
 import { createUnavailablePtyAdapter } from './adapters/ptyAdapter.js';
 import { resolveCclineCommand as locateCclineCommand } from './cclineLocator.js';
 import { estimateContextPressure } from './contextBudgetEstimator.js';
+import {
+  createRestoreContextStore,
+  type RestoreContextResult,
+} from './restoreContextStore.js';
+import { createSessionSummaryStore } from './sessionSummaryStore.js';
+import { sanitizePersistedTerminalOutput } from './terminalOutputSanitizer.js';
 import type { SessionHistoryStore } from './stores/sessionHistoryStore.js';
 import {
   buildClaudeOptionalEnvironment,
@@ -157,6 +163,20 @@ function positiveInteger(value: number | undefined): number | undefined {
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function restoreInstructionToInitialPrompt(instruction: string): string {
+  return instruction.replace(/\r+$/g, '').trim();
+}
+
+function appendInitialPromptCommand(command: string, initialPrompt: string | undefined): string {
+  const prompt = initialPrompt?.trim();
+  return prompt ? `${command} ${shellQuote(prompt)}` : command;
+}
+
+function appendClaudeSystemPromptCommand(command: string, systemPrompt: string | undefined): string {
+  const prompt = systemPrompt?.trim();
+  return prompt ? `${command} --append-system-prompt ${shellQuote(prompt)}` : command;
 }
 
 // statusLine.command 由 Claude Code 交给 shell 解析，绝对路径含特殊字符时需要引号
@@ -343,6 +363,8 @@ export function createSessionService(
   const workspacesBySessionId = new Map<string, Workspace>();
   const pendingHistoryOutput = new Map<string, string>();
   const historyOutputFlushes = new Map<string, Promise<void>>();
+  const restoreContextStore = createRestoreContextStore();
+  const sessionSummaryStore = createSessionSummaryStore();
   const terminalOutputListeners = new Set<TerminalOutputListener>();
   const sessionChangedListeners = new Set<SessionChangedListener>();
   let historyLoaded = false;
@@ -424,7 +446,15 @@ export function createSessionService(
       return;
     }
 
-    pendingHistoryOutput.set(sessionId, `${pendingHistoryOutput.get(sessionId) ?? ''}${data}`);
+    const persistedOutput = sanitizePersistedTerminalOutput(data);
+    if (!persistedOutput) {
+      return;
+    }
+
+    pendingHistoryOutput.set(
+      sessionId,
+      `${pendingHistoryOutput.get(sessionId) ?? ''}${persistedOutput}`,
+    );
     if (!historyOutputFlushes.has(sessionId)) {
       const flush = flushHistoryOutput(sessionId);
       historyOutputFlushes.set(sessionId, flush);
@@ -461,22 +491,34 @@ export function createSessionService(
     workspace,
     command,
     claudeLaunchMode,
+    initialPrompt,
   }: {
     session: AgentSession;
     profile: ApiProfile;
     workspace: Workspace;
     command: string;
     claudeLaunchMode?: ClaudeLaunchMode;
+    initialPrompt?: string;
   }): Promise<AgentSession> => {
     ensureWorkspaceAvailable(workspace);
     if (ptySessions.has(session.id)) {
       throw new Error('会话仍在运行，无法重启');
     }
 
+    const effectiveClaudeLaunchMode =
+      profile.toolType === 'claude' && !isLocalShellCommand(command)
+        ? claudeLaunchMode ?? session.claudeLaunchMode
+        : undefined;
+
     session.title = `${profile.name} · ${workspace.name}`;
     session.profileId = profile.id;
     session.workspaceId = workspace.id;
     session.command = command;
+    if (effectiveClaudeLaunchMode) {
+      session.claudeLaunchMode = effectiveClaudeLaunchMode;
+    } else {
+      delete session.claudeLaunchMode;
+    }
     session.status = 'starting';
     session.startedAt = clock.now().toISOString();
     workspacesBySessionId.set(session.id, { ...workspace });
@@ -525,7 +567,7 @@ export function createSessionService(
           spawnCommand = appendClaudeSettingsCommand(command, settingsPath);
         }
 
-        if (claudeLaunchMode === 'lite') {
+        if (effectiveClaudeLaunchMode === 'lite') {
           const mcpConfigDirectory = path.join(appDataPath, 'claude-mcp');
           const mcpConfigPath = path.join(mcpConfigDirectory, 'empty.json');
           await ensureDirectory(mcpConfigDirectory);
@@ -534,6 +576,10 @@ export function createSessionService(
           spawnCommand = appendClaudeMcpConfigCommand(spawnCommand, mcpConfigPath);
         }
       }
+
+      spawnCommand = profile.toolType === 'claude' && !isLocalShellCommand(command)
+        ? appendClaudeSystemPromptCommand(spawnCommand, initialPrompt)
+        : appendInitialPromptCommand(spawnCommand, initialPrompt);
 
       const ptySession = await pty.spawn({
         sessionId: session.id,
@@ -545,9 +591,14 @@ export function createSessionService(
       ptySessions.set(session.id, ptySession);
       const unsubscribeData = ptySession.onData((data) => {
         publishTerminalOutput({ sessionId: session.id, data });
-        void workspaceContext?.appendOutput({ workspace, sessionId: session.id, data }).catch(
-          () => undefined,
-        );
+        const persistedOutput = sanitizePersistedTerminalOutput(data);
+        if (persistedOutput) {
+          void workspaceContext?.appendOutput({
+            workspace,
+            sessionId: session.id,
+            data: persistedOutput,
+          }).catch(() => undefined);
+        }
       });
       const unsubscribeExit = ptySession.onExit?.((event) => {
         // killTerminal/dispose 已经清理过的会话不再处理（kill 也会触发 onExit）
@@ -588,6 +639,40 @@ export function createSessionService(
     }
   };
 
+  async function restoreContextForRestart({
+    session,
+    profile,
+    workspace,
+    command,
+  }: {
+    session: AgentSession;
+    profile: ApiProfile;
+    workspace: Workspace;
+    command: string;
+  }): Promise<RestoreContextResult | undefined> {
+    if (isLocalShellCommand(command) || !['claude', 'codex'].includes(profile.toolType)) {
+      return undefined;
+    }
+
+    const transcriptTail = terminalBuffers.get(session.id) ?? await historyStore?.readBuffer(session.id) ?? '';
+    const latestSummary = await sessionSummaryStore.readLatestSummary({
+      workspacePath: workspace.path,
+      sessionId: session.id,
+    });
+    const summaryMarkdown = latestSummary?.handoffMarkdown ?? latestSummary?.summaryMarkdown;
+
+    return restoreContextStore.writeRestoreContext({
+      workspacePath: workspace.path,
+      session,
+      summaryMarkdown,
+      transcriptTail,
+    }).catch((error: unknown) => ({
+      status: 'failed' as const,
+      summary: '记忆恢复失败',
+      error: error instanceof Error ? error.message : '未知错误',
+    }));
+  }
+
   return {
     async launch({
       profile,
@@ -624,13 +709,35 @@ export function createSessionService(
         throw new Error('未找到指定的终端会话');
       }
 
-      return startSessionPty({
+      const nextCommand = command ?? session.command;
+      const memoryRestore = await restoreContextForRestart({
+        session: cloneSession(session),
+        profile,
+        workspace,
+        command: nextCommand,
+      });
+      const initialPrompt = memoryRestore?.status === 'loaded' && memoryRestore.instruction
+        ? restoreInstructionToInitialPrompt(memoryRestore.instruction)
+        : undefined;
+      await startSessionPty({
         session,
         profile,
         workspace,
-        command: command ?? session.command,
+        command: nextCommand,
         claudeLaunchMode,
+        initialPrompt,
       });
+      if (memoryRestore) {
+        session.memoryRestore = {
+          status: memoryRestore.status,
+          summary: memoryRestore.summary,
+          contextFile: memoryRestore.contextFile,
+          error: memoryRestore.error,
+        };
+        persistSession(session);
+        publishSessionChanged(session);
+      }
+      return cloneSession(session);
     },
 
     async list(): Promise<AgentSession[]> {
@@ -675,7 +782,7 @@ export function createSessionService(
         throw new Error('未找到指定的终端会话');
       }
 
-      return terminalBuffers.get(sessionId) ?? '';
+      return terminalBuffers.get(sessionId) ?? await historyStore?.readBuffer(sessionId) ?? '';
     },
 
     async archiveSessionHistory({

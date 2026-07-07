@@ -49,6 +49,10 @@ function buildCodexConfig(profile: ApiProfile, workspace: Workspace): string {
   ].join('\n');
 }
 
+function buildEmptyClaudeMcpConfig(): string {
+  return `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`;
+}
+
 async function defaultEnsureDirectory(directoryPath: string): Promise<void> {
   await mkdir(directoryPath, { recursive: true });
 }
@@ -122,13 +126,17 @@ function buildSummaryPrompt({
   ].join('\n');
 }
 
-function claudeSummaryCommand(prompt: string): string {
+function claudeSummaryCommand(prompt: string, mcpConfigPath: string): string {
   return [
     'claude',
     '--print',
     '--output-format text',
     '--no-session-persistence',
     '--permission-mode plan',
+    '--effort high',
+    '--setting-sources project,local',
+    `--mcp-config ${shellQuote(mcpConfigPath)}`,
+    '--strict-mcp-config',
     shellQuote(prompt),
   ].join(' ');
 }
@@ -138,7 +146,6 @@ function codexSummaryCommand(prompt: string, workspace: Workspace): string {
     'codex exec',
     `--cd ${shellQuote(workspace.path)}`,
     '--sandbox read-only',
-    '--ask-for-approval never',
     '--skip-git-repo-check',
     '--ephemeral',
     '--color never',
@@ -146,10 +153,17 @@ function codexSummaryCommand(prompt: string, workspace: Workspace): string {
   ].join(' ');
 }
 
-function commandForProfile(profile: ApiProfile, input: SummaryRunnerInput): string {
+function commandForProfile(
+  profile: ApiProfile,
+  input: SummaryRunnerInput,
+  options: { claudeMcpConfigPath?: string } = {},
+): string {
   const prompt = buildSummaryPrompt(input);
   if (profile.toolType === 'claude') {
-    return claudeSummaryCommand(prompt);
+    if (!options.claudeMcpConfigPath) {
+      throw new Error('Claude 摘要 MCP 配置不可用');
+    }
+    return claudeSummaryCommand(prompt, options.claudeMcpConfigPath);
   }
 
   if (profile.toolType === 'codex') {
@@ -265,6 +279,28 @@ async function prepareCodexHome({
   );
 }
 
+async function prepareClaudeLiteMcpConfig({
+  profile,
+  appDataPath,
+  ensureDirectory,
+  writeTextFile,
+}: {
+  profile: ApiProfile;
+  appDataPath: string;
+  ensureDirectory: DirectoryEnsurer;
+  writeTextFile: FileWriter;
+}): Promise<string | undefined> {
+  if (profile.toolType !== 'claude') {
+    return undefined;
+  }
+
+  const mcpConfigDirectory = path.join(appDataPath, 'claude-mcp');
+  const mcpConfigPath = path.join(mcpConfigDirectory, 'empty.json');
+  await ensureDirectory(mcpConfigDirectory);
+  await writeTextFile(mcpConfigPath, buildEmptyClaudeMcpConfig());
+  return mcpConfigPath;
+}
+
 export function createProfileSummaryRunner({
   profile,
   keychain,
@@ -291,8 +327,14 @@ export function createProfileSummaryRunner({
       ensureDirectory,
       writeTextFile,
     });
+    const claudeMcpConfigPath = await prepareClaudeLiteMcpConfig({
+      profile,
+      appDataPath,
+      ensureDirectory,
+      writeTextFile,
+    });
 
-    const command = commandForProfile(profile, input);
+    const command = commandForProfile(profile, input, { claudeMcpConfigPath });
     return runPtyToCompletion({
       pty,
       sessionId: `summary-${safeSessionId(profile.id)}-${safeSessionId(input.session.id)}`,

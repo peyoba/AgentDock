@@ -1,6 +1,9 @@
 import React from 'react';
 import { Terminal } from '@xterm/xterm';
-import { preserveTerminalHistoryOutput } from '../terminalOutput';
+import {
+  preserveLiveAgentOutput,
+  preserveTerminalHistoryOutput,
+} from '../terminalOutput';
 
 type TerminalPaneProps = {
   sessionId?: string;
@@ -15,6 +18,7 @@ const FALLBACK_CELL_HEIGHT = 18;
 const MIN_COLS = 20;
 const MIN_ROWS = 8;
 const SCROLLBAR_HIDE_DELAY_MS = 900;
+const AGENT_OSC_QUERY_IDS = [4, 10, 11, 12] as const;
 
 function numberFromCssPixel(value: string): number {
   const parsed = Number.parseFloat(value);
@@ -68,6 +72,25 @@ function calculateTerminalFit(container: HTMLElement): { cols: number; rows: num
 
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function isTerminalAtScrollbackBottom(terminal: Terminal): boolean {
+  const activeBuffer = terminal.buffer.active;
+  return activeBuffer.viewportY >= activeBuffer.baseY - 1;
+}
+
+function isOscColorQueryPayload(data: string): boolean {
+  return data.split(';').some((part) => part.trim() === '?');
+}
+
+function installAgentOscQueryGuards(terminal: Terminal): () => void {
+  const disposables = AGENT_OSC_QUERY_IDS.map((ident) =>
+    terminal.parser.registerOscHandler(ident, (data) => isOscColorQueryPayload(data)),
+  );
+
+  return () => {
+    disposables.forEach((disposable) => disposable.dispose());
+  };
 }
 
 function installTerminalDragScrollbar(container: HTMLElement): () => void {
@@ -225,6 +248,15 @@ export function TerminalPane({
   readOnly = false,
 }: TerminalPaneProps): React.JSX.Element {
   const terminalElementRef = React.useRef<HTMLDivElement>(null);
+  const terminalInstanceRef = React.useRef<Terminal | null>(null);
+
+  const scrollToTop = React.useCallback((): void => {
+    terminalInstanceRef.current?.scrollToTop();
+  }, []);
+
+  const scrollToBottom = React.useCallback((): void => {
+    terminalInstanceRef.current?.scrollToBottom();
+  }, []);
 
   React.useEffect(() => {
     if (!sessionId || !terminalElementRef.current || !window.agentDock) {
@@ -242,7 +274,10 @@ export function TerminalPane({
     });
 
     terminal.open(terminalElementRef.current);
+    terminalInstanceRef.current = terminal;
     const cleanupScrollbar = installTerminalDragScrollbar(terminalElementRef.current);
+    const cleanupOscQueryGuards =
+      preserveHistory && !readOnly ? installAgentOscQueryGuards(terminal) : () => undefined;
 
     const fitTerminal = (): void => {
       const container = terminalElementRef.current;
@@ -289,12 +324,52 @@ export function TerminalPane({
       passive: false,
     });
 
+    // 终端右键约定：有选中文本时复制，否则把剪贴板内容粘贴进终端；
+    // preventDefault 同时阻止主进程 context-menu 事件，避免弹出编辑菜单
+    const contextMenuListener = (event: MouseEvent): void => {
+      event.preventDefault();
+      const selection = terminal.getSelection();
+      if (selection) {
+        void navigator.clipboard?.writeText(selection).catch(() => undefined);
+        terminal.clearSelection();
+        return;
+      }
+      if (readOnly) {
+        return;
+      }
+      void navigator.clipboard
+        ?.readText()
+        .then((text) => {
+          if (text) {
+            terminal.paste(text);
+          }
+        })
+        .catch(() => undefined);
+    };
+    terminalElementRef.current.addEventListener('contextmenu', contextMenuListener);
+
     const writeReplayedOutput = (data: string): void => {
-      terminal.write(preserveHistory && readOnly ? preserveTerminalHistoryOutput(data) : data);
+      const pinnedToBottom = preserveHistory && isTerminalAtScrollbackBottom(terminal);
+      const output = preserveHistory
+        ? readOnly
+          ? preserveTerminalHistoryOutput(data)
+          : preserveLiveAgentOutput(data)
+        : data;
+      terminal.write(output, () => {
+        if (!disposed && pinnedToBottom) {
+          terminal.scrollToBottom();
+        }
+      });
     };
 
     const writeLiveOutput = (data: string): void => {
-      terminal.write(data);
+      const pinnedToBottom = preserveHistory && isTerminalAtScrollbackBottom(terminal);
+      const output = preserveHistory ? preserveLiveAgentOutput(data) : data;
+      terminal.write(output, () => {
+        if (!disposed && pinnedToBottom) {
+          terminal.scrollToBottom();
+        }
+      });
     };
 
     // 回放完成前先暂存实时输出：主进程先写入快照缓冲再推送事件（同一 IPC 管道按序到达），
@@ -355,10 +430,15 @@ export function TerminalPane({
       fitTimers.forEach((timer) => window.clearTimeout(timer));
       resizeObserver?.disconnect();
       cleanupScrollbar();
+      cleanupOscQueryGuards();
       terminalElementRef.current?.removeEventListener('wheel', wheelListener, true);
+      terminalElementRef.current?.removeEventListener('contextmenu', contextMenuListener);
       dataSubscription?.dispose();
       resizeSubscription.dispose();
       unsubscribeOutput();
+      if (terminalInstanceRef.current === terminal) {
+        terminalInstanceRef.current = null;
+      }
       terminal.dispose();
     };
   }, [preserveHistory, readOnly, sessionId]);
@@ -388,6 +468,15 @@ export function TerminalPane({
       aria-label="终端输出"
       className="terminal-preview terminal-surface"
       role="region"
-    />
+    >
+      <div className="terminal-jump-controls" aria-label="终端快速跳转">
+        <button type="button" aria-label="滚到顶部" title="滚到顶部" onClick={scrollToTop}>
+          ↑
+        </button>
+        <button type="button" aria-label="滚到底部" title="滚到底部" onClick={scrollToBottom}>
+          ↓
+        </button>
+      </div>
+    </div>
   );
 }

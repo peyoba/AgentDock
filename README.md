@@ -35,7 +35,7 @@ MVP 基础能力已进入可打包验证阶段。
 当前可复测包：
 
 ```text
-release/packages/20260706-010227/AgentDock-darwin-arm64/AgentDock.app
+release/packages/20260706-190128/AgentDock-darwin-arm64/AgentDock.app
 ```
 
 下一批计划：

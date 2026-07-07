@@ -1,22 +1,27 @@
 # Agent Workflow State
 
 ## 当前任务
-2026-07-06 Context Budget Guard + 手动总结/续开 Phase 2：真实 Claude/Codex one-shot summary runner 已接入主进程总结路径。
+2026-07-07 AgentDock 长期会话库与终端优先布局重构 Batch 0：审阅当前恢复相关 dirty diff，完成基线验证，等待用户确认是否提交基线。
 
 ## 风险等级
 L3
 
-触发原因：Electron IPC、LLM summary runner 边界、API Key/环境变量安全边界、workspace `.agentdock/context/` 写入、会话历史和终端会话。
+触发原因：完整目标将涉及会话持久化、PTY 生命周期、Claude/Codex 原生 resume、Renderer 主界面、文件系统读取、IPC 边界和 secret 脱敏边界。当前 Batch 0 仅做基线审阅、验证和记录，不进入新功能实现。
 
 ## 当前 Hook
-delivery_hook
+plan_review_hook
 
 ## 当前阶段
-delivery
+plan
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
 |------|------|------|
+| 主 Agent | PASS | Batch 0 基线验证记录：`.agent-workflow/verification/2026-07-07-session-library-baseline.md`；workflow/test/typecheck/build/secret scan 通过；等待用户确认是否按建议范围提交 |
+| 主 Agent | PASS | 长期会话库与终端优先布局实施计划：`docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md`；包含 Batch 0 基线、Batch 1 native resume 探针、Batch 2-6 分批实现 |
+| 主 Agent | PASS | 长期会话库与终端优先布局中文 SPEC：`docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md`；等待用户审阅 |
+| 主 Agent | PASS | 终端控制序列乱码修复：RED/GREEN 测试、agent-only OSC query guard、live/replay color reply 过滤、真实 xterm smoke、workflow/typecheck/build 验证；交付报告 `.agent-workflow/delivery/2026-07-07-terminal-control-sequence-garbled-output-delivery-report.md` |
+| 主 Agent | PASS | 记忆恢复输入框注入根因定位、TDD 修复、node-pty 真实 smoke、workflow/typecheck/build 验证 |
 | 主 Agent | PASS | 项目骨架、文档、工作流配置、GitHub 仓库 |
 | ⑦文档工程师 | PASS | docs/PROJECT_REQUIREMENTS.md、README.md、PROJECT_PROFILE.md、DECISIONS.md |
 | ⑧集成工程师 | PASS | workflow doctor、workflow tests、typecheck、build |
@@ -83,6 +88,11 @@ delivery
 | ⑨部署工程师 | PASS | 新产物 `release/packages/20260705-223035/AgentDock-darwin-arm64/AgentDock.app`，交付报告 `.agent-workflow/delivery/2026-07-05-terminal-live-replay-control-sequences-delivery-report.md` |
 | 主 Agent | PASS | Context Budget Auto Summary Phase 1：pressure estimator、summary store/job service、SessionService/IPC/preload、shared-context 摘要优先、renderer summary actions；验证记录 `.agent-workflow/verification/2026-07-06-context-budget-auto-summary.md` |
 | 主 Agent | PASS | Context Budget Auto Summary Phase 2：真实 Claude `--print` / Codex `exec` summary runner、主进程接线、错误脱敏、Codex config 无密钥写入；新产物 `release/packages/20260706-010227/AgentDock-darwin-arm64/AgentDock.app`；交付报告 `.agent-workflow/delivery/2026-07-06-context-budget-auto-summary-runner-delivery-report.md` |
+| 主 Agent | PASS | 总结并续开 prompt 注入修复：新 session 启动后自动写入 handoff prompt 到 PTY；新产物 `release/packages/20260706-190128/AgentDock-darwin-arm64/AgentDock.app`；验证记录 `.agent-workflow/verification/2026-07-06-summary-continuation-prompt-injection.md`；交付报告 `.agent-workflow/delivery/2026-07-06-summary-continuation-prompt-injection-delivery-report.md` |
+| 主 Agent | PASS | Claude lite / summary runner 高优先级审查修复：`claudeLaunchMode` 写入 session 元数据并在续开/恢复/重启保留；Claude summary runner 使用空 MCP strict + project/local settings + `--effort high`；Codex runner 移除当前 CLI 不支持的旧参数；总结入口仅 Claude/Codex agent 会话显示；Codex 真实 summary smoke PASS，Claude 可用 profile `claude-custom-5` 真实 summary smoke PASS；新包 `release/packages/20260706-211053/AgentDock-darwin-arm64/AgentDock.app` codesign/marker/ccline 验证 PASS；验证记录 `.agent-workflow/verification/2026-07-06-claude-lite-summary-review-fixes.md`；交付报告 `.agent-workflow/delivery/2026-07-06-claude-lite-summary-review-fixes-delivery-report.md` |
+| 主 Agent | PASS | Context restore TUI/restart fix：退出态历史回放和恢复 prompt 统一转为可读文本，保留运行中 TUI 原始控制序列；重启操作显示即时状态；新包 `release/packages/20260706-224846/AgentDock-darwin-arm64/AgentDock.app` codesign/marker/ccline/node-pty restore smoke 通过；验证记录 `.agent-workflow/verification/2026-07-06-context-restore-tui-restart-fix.md`；交付报告 `.agent-workflow/delivery/2026-07-06-context-restore-tui-restart-fix-delivery-report.md` |
+| 主 Agent | PASS | AgentDock 分层记忆恢复：本地 restore context 文件、短读取指令注入、一句话恢复摘要、secret/正文不暴露；新包 `release/packages/20260707-062838/AgentDock-darwin-arm64/AgentDock.app`；验证记录 `.agent-workflow/verification/2026-07-07-agentdock-memory-restore-layering.md`；交付报告 `.agent-workflow/delivery/2026-07-07-agentdock-memory-restore-layering-delivery-report.md` |
+| 主 Agent | PASS | 恢复体验与终端历史修复：去除自动继续任务指令、restore 文件只保留简短摘要、过滤 alternate-screen、修复 transcript append queue unhandled rejection |
 
 状态只能使用：`READY / RUNNING / PASS / FAIL / BLOCKED / SKIPPED`
 
@@ -90,10 +100,10 @@ delivery
 无
 
 ## 用户待确认
-无
+Batch 0 基线验证已完成。请确认是否按 `.agent-workflow/verification/2026-07-07-session-library-baseline.md` 的建议范围提交基线；不要提交 `index-D3wM5j2Q.js` 和 `docs/superpowers/specs_副本/`。
 
 ## 下一步
-用户可用新包复测 summary/handoff；如明确授权消耗本机 API 额度，再做真实 Claude/Codex summary API smoke。
+用户确认后提交 Batch 0 基线，再进入 Batch 1 native resume 真机探针；未确认前不进入新功能实现。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -119,10 +129,90 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-05 | macOS 打包使用 `AgentDock Codesign` 自签名证书 | 避免 ad-hoc 签名 cdhash 每次变化导致 TCC 权限反复弹窗 |
 | 2026-07-05 | 清理第一阶段执行后保留 `.agent-workflow/` 和 `docs/requirements/` | workflow CLI/测试仍依赖 `.agent-workflow/`；requirements 仍作为产品与架构背景 |
 | 2026-07-05 | ccline 状态栏二进制随 App 内嵌，PATH 已安装版本优先 | 勾选状态栏后零依赖可用，无需手动 `npm install -g`；用户自装新版仍然优先生效；`optionalDependencies` 固定 1.1.2 保证非 darwin-arm64 环境安装不失败 |
+| 2026-07-06 | 移除底部 5MB 本地回放提示，终端输出改为 per-session transcript 文件并使用 summary + 最近脱敏 tail 做续接材料 | 5MB 是本地存储保护不是 AI 上下文；大输出放在 `sessions.json` 中脆弱且容易误导用户；AI 续接应由摘要和近期上下文显式注入 |
+| 2026-07-06 | 本项目 SPEC/PRD/设计文档/实施计划/交付报告默认中文优先；若先生成英文，必须同步 `.zh-CN.md` 中文版 | 用户明确要求后续每次写 SPEC 都提供中文文档，且中文版作为评审和实施依据 |
+| 2026-07-07 | 记忆恢复采用分层存储：短期 transcript tail 快速保存，长期 summary/handoff 压缩落盘，重启时后台生成 restore context 文件并只注入短读取指令 | 用户明确要求输入窗口不要显示长提示词，只展示加载/恢复状态；恢复后摘要只用一句话 |
+| 2026-07-07 | 长期会话库恢复策略采用 verified-native-first：Claude 优先探针 `--session-id`/`--resume`，Codex 必须先验证稳定 id 来源；不可验证时显式降级到 AgentDock restore context | 原生 resume 不能依赖脆弱 TUI 文本解析；Codex 当前 CLI 未暴露启动时指定 session id；必须避免静默伪装成原生恢复 |
+| 2026-07-07 | 同一 Session Record 的 running PTY 同时只能有一个 owner window；其他窗口只能只读观察，不能抢占或启动第二个 PTY | 保留当前多窗口隔离安全边界，避免多个窗口同时写同一 Claude/Codex TUI |
+| 2026-07-07 | 用户主动停止 PTY 使用正式 `stopped` 运行状态；`archived` 是独立归档标记，不是运行状态 | 现有 `SessionStatus` 已包含 `stopped`；主动停止、自然退出 `exited`、异常/重启中断 `interrupted` 在会话库中需要可区分 |
 
 ## 验证记录
 | 时间 | 命令 | 结果 |
 |------|------|------|
+| 2026-07-07 | Batch 0 baseline：`git status --short` / `git diff --stat` / `git diff --check` / `npm run workflow:doctor` / `npm run test:workflow` / `npm run typecheck` / `npm test` / `npm run build` / secret-like scan | PASS：dirty worktree 已审阅；diff check 无输出；doctor PASS；workflow pytest 8 passed；typecheck PASS；Vitest 42 files / 271 tests PASS；build PASS，仅 Vite chunk size warning；源码限定 secret scan 无命中；需排除 `index-D3wM5j2Q.js` 和 `docs/superpowers/specs_副本/` |
+| 2026-07-07 | `claude --version` / `claude --help \| rg -- '--session-id\|--resume'` / `codex --version` / `codex resume --help` / `codex exec resume --help` | PASS：Claude CLI 2.1.201 暴露 `--session-id` 与 `--resume`；Codex CLI 0.142.5 暴露 `resume` / `exec resume`，但未暴露启动时指定 session id 参数；SPEC 已要求 Batch 1 真机探针 |
+| 2026-07-07 | `rg -n "TBD\|TODO\|待定\|稍后\|以后再\|implement later\|fill in\|placeholder\|FIXME\|四个批次\|五个批次\|interupted" docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md` / `git diff --check -- docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md .agent-workflow/state.md` | PASS：状态枚举一致性修复后无占位词/旧批次数/`interupted` 拼写命中；diff check 无输出 |
+| 2026-07-07 | `npm run test:workflow` / `npm run build` | PASS：workflow pytest 8 passed；build 通过，仅 Vite chunk size warning |
+| 2026-07-07 | `rg -n "TBD\|TODO\|待定\|稍后\|以后再\|implement later\|fill in\|placeholder\|FIXME\|四个批次\|五个批次" docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md` / `git diff --check -- docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md .agent-workflow/state.md` | PASS：SPEC 和实施计划无占位词/旧批次数命中；diff check 无输出 |
+| 2026-07-07 | `npm run workflow:doctor` / `npm run test:workflow` / `npm run typecheck` / `npm run build` | PASS：doctor 全绿；workflow pytest 8 passed；typecheck 通过；build 通过，仅 Vite chunk size warning |
+| 2026-07-07 | `rg -n "TBD\|TODO\|待定\|稍后\|以后再\|implement later\|fill in\|placeholder\|FIXME\|四个批次" docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md` / `git diff --check -- docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md .agent-workflow/state.md` | PASS：SPEC 无占位词和已知矛盾词命中；本轮文件 diff check 无输出 |
+| 2026-07-07 | `npm run workflow:doctor` / `npm run test:workflow` / `npm run typecheck` / `npm run build` | PASS：doctor 全绿；workflow pytest 8 passed；typecheck 通过；build 通过，仅 Vite chunk size warning |
+| 2026-07-07 | `npx vitest run tests/app/TerminalPane.test.tsx -t "OSC query\|color replies"` / `npx vitest run tests/app/TerminalPane.test.tsx` | PASS：3 focused tests；TerminalPane 24 tests，覆盖 agent-only OSC query guard 和 live/replay color reply 过滤 |
+| 2026-07-07 | real `@xterm/xterm@5.5.0` + JSDOM `Terminal.open()` OSC smoke | PASS：未加 guard 时 `OSC 10/11 ; ?` 产生 `ESC]10/11;rgb...ST`；加 guard 后 `onData` 输出为空数组 |
+| 2026-07-07 | `npm test` / `npm run workflow:doctor` / `npm run typecheck` / `npm run build` / `git diff --check` | PASS：42 files / 271 tests；doctor/typecheck/build 通过；build 仅 Vite chunk size warning；diff check 无输出 |
+| 2026-07-07 | `npx vitest run tests/app/restoreContextStore.test.ts tests/app/sessionService.test.ts tests/app/sessionSecurity.test.ts tests/app/App.test.tsx tests/app/TerminalPane.test.tsx` | PASS：5 files / 114 tests，覆盖短恢复指令、context 文件不含 transcript tail、UI 不暴露 restore prompt、agent 输出过滤 alternate-screen |
+| 2026-07-07 | real xterm buffer script with `CSI ?1049h` before/after filtering | PASS：未过滤 `{baseY:0, viewportY:0}`；过滤后 `{baseY:30, viewportY:30}`，证明旧 scrollback 不再被 alternate buffer 隐藏 |
+| 2026-07-07 | `npx vitest run tests/app/sessionTranscriptStore.test.ts` | PASS：1 file / 3 tests，覆盖 append 失败后队列恢复且无悬空 rejected tracking promise |
+| 2026-07-07 | `npm run workflow:doctor` / `npm run test:workflow` | PASS：doctor 全绿；pytest 8 passed |
+| 2026-07-07 | `npm test` | PASS：42 files / 266 tests，无 unhandled rejection |
+| 2026-07-07 | `npm run typecheck` / `npm run build` | PASS：typecheck 通过；build 仅 Vite chunk size warning |
+| 2026-07-07 | `git diff --check` | PASS |
+| 2026-07-07 | `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm run package:mac` | PASS：`release/packages/20260707-070932/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-07 | `codesign --verify --deep --strict --verbose=2 release/packages/20260707-070932/AgentDock-darwin-arm64/AgentDock.app` / packaged marker scan | PASS：codesign valid；包内 restore prompt 等待用户、无 `continue the current task`；renderer 包含 alternate-screen filter |
+| 2026-07-07 | `npx vitest run tests/app/sessionService.test.ts tests/app/sessionSecurity.test.ts -t "restore prompt\|restore context\|restore memory\|same session id"` | PASS：2 files / 6 tests，覆盖 Claude 使用 `--append-system-prompt` 且不再 `PTY.write` |
+| 2026-07-07 | `npx vitest run tests/app/sessionService.test.ts -t "Codex restarts"` | PASS：1 file / 1 test，覆盖 Codex 仍走 CLI 初始 prompt 且不写 stdin |
+| 2026-07-07 | `npx vitest run tests/app/restoreContextStore.test.ts tests/app/sessionService.test.ts tests/app/App.test.tsx tests/app/preloadTypes.test.ts tests/app/sessionSecurity.test.ts` | PASS：5 files / 95 tests |
+| 2026-07-07 | `npm run workflow:doctor` / `npm test` / `npm run typecheck` / `npm run build` | PASS：doctor 全绿；42 files / 264 tests；typecheck 通过；build 仅 Vite chunk size warning |
+| 2026-07-07 | real `node-pty` smoke using `dist/main/sessionService.js` + `createNodePtyAdapter()` | PASS：Claude 类型恢复 prompt 通过 `--append-system-prompt` 进入 argv；stdin 未出现恢复指令；memoryRestore status 为 `loaded` |
+| 2026-07-07 | `git diff --check` | PASS |
+| 2026-07-07 | `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm run package:mac` | PASS：`release/packages/20260707-065311/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-07 | `codesign --verify --deep --strict --verbose=2 release/packages/20260707-065311/AgentDock-darwin-arm64/AgentDock.app` / packaged marker scan | PASS：codesign valid；包内包含 `appendClaudeSystemPromptCommand`、`--append-system-prompt`、`appendInitialPromptCommand` 和 `restoreInstructionToInitialPrompt` |
+| 2026-07-07 | `npx vitest run tests/app/restoreContextStore.test.ts tests/app/sessionService.test.ts tests/app/App.test.tsx tests/app/preloadTypes.test.ts tests/app/sessionSecurity.test.ts` | PASS：5 files / 94 tests |
+| 2026-07-07 | `npm run workflow:doctor` / `npm run test:workflow` | PASS：doctor 全绿；pytest 8 passed |
+| 2026-07-07 | `npm run typecheck` / `npm run build` | PASS：build 仅 Vite chunk size warning |
+| 2026-07-07 | real `node-pty` restore context smoke using `dist/main/sessionService.js` + `createNodePtyAdapter()` | PASS：旧分层恢复批次验证；后续已由上方 `--append-system-prompt` / Codex 初始 prompt 验证取代 |
+| 2026-07-07 | 本次相关文件 secret-like scan | PASS：仅命中固定环境变量名、短指令字符串和测试中模板拼接的假 key；无完整真实 key |
+| 2026-07-07 | `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm run package:mac` | PASS：`release/packages/20260707-062838/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-07 | `codesign --verify --deep --strict --verbose=2 release/packages/20260707-062838/AgentDock-darwin-arm64/AgentDock.app` / packaged marker scan | PASS：codesign valid；包内包含 restore context 与 memory restore markers |
+| 2026-07-06 | `npx vitest run tests/app/contextRestore.test.ts tests/app/TerminalPane.test.tsx tests/app/sessionService.test.ts` RED | PASS：实现前 4 个预期失败，覆盖 TUI 控制序列进入 restore prompt、退出态历史乱码、重启注入不可读 |
+| 2026-07-06 | `npx vitest run tests/app/App.test.tsx -t "shows immediate feedback while restarting"` RED | PASS：实现前点击退出态重新启动没有即时状态反馈 |
+| 2026-07-06 | `npx vitest run tests/app/App.test.tsx tests/app/contextRestore.test.ts tests/app/TerminalPane.test.tsx tests/app/sessionService.test.ts` | PASS：4 files / 105 tests |
+| 2026-07-06 | `npm run workflow:doctor` / `npm run test:workflow` | PASS：doctor 全绿；pytest 8 passed |
+| 2026-07-06 | `npm test` | PASS：41 files / 254 tests |
+| 2026-07-06 | `npm run typecheck` / `npm run build` | PASS：build 仅 Vite chunk size warning |
+| 2026-07-06 | `git diff --check` | PASS |
+| 2026-07-06 | `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm run package:mac` | PASS：`release/packages/20260706-224846/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-06 | `codesign --verify --deep --strict --verbose=2 release/packages/20260706-224846/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-06 | packaged app.asar marker scan / packaged ccline smoke | PASS：包内包含 `dist/shared/terminalText.js`、`contextRestore`、`sessionService`；`ccline 1.1.2` |
+| 2026-07-06 | real `node-pty` restore prompt smoke with raw TUI transcript tail | PASS：真实 PTY 收到可读中文最近对话，不包含 ESC、ANSI 色码或 `Working(9s)` 临时状态 |
+| 2026-07-06 | `npx vitest run tests/app/sessionService.test.ts tests/app/summaryContinuation.test.ts tests/app/summaryRunner.test.ts tests/app/App.test.tsx` RED | PASS：实现前 9 个预期失败，覆盖 lite 模式丢失、summary runner 隔离缺失和 UI 过滤缺失 |
+| 2026-07-06 | `npx vitest run tests/app/sessionService.test.ts tests/app/summaryContinuation.test.ts tests/app/summaryRunner.test.ts tests/app/App.test.tsx` | PASS：4 files / 82 tests |
+| 2026-07-06 | `npx vitest run tests/app/summaryRunner.test.ts` RED | PASS：实现前因 Codex runner 仍拼接当前 CLI 不支持的 `--ask-for-approval` 失败 |
+| 2026-07-06 | `npx vitest run tests/app/summaryRunner.test.ts` RED | PASS：实现前因 Claude runner 缺少 provider 兼容的 `--effort high` 失败 |
+| 2026-07-06 | `npx vitest run tests/app/summaryRunner.test.ts` | PASS：1 file / 3 tests |
+| 2026-07-06 | `npm run workflow:doctor` / `npm run test:workflow` | PASS：doctor 全绿；pytest 8 passed |
+| 2026-07-06 | `npm test` | PASS：最终复跑 39 files / 243 tests |
+| 2026-07-06 | `npm run typecheck` / `npm run build` | PASS：build 仅 Vite chunk size warning |
+| 2026-07-06 | `claude --help` / `codex exec --help` | PASS：Claude 支持 lite 隔离参数和 `--effort`；Codex 当前不支持 `--ask-for-approval`，旧参数已移除 |
+| 2026-07-06 | Real Codex summary smoke (`codex-openai`) | PASS：summary validated OK，outputChars 3202，包含 `# AgentDock Session Summary` |
+| 2026-07-06 | Real Claude direct CLI smoke (`claude-custom-5`) | PASS：同等 lite flags 5.2s 返回 `AGENTDOCK_OK` |
+| 2026-07-06 | Real Claude summary smoke (`claude-custom-5`) | PASS：`createProfileSummaryRunner` 21.2s 返回合法 Markdown，`validateSummaryMarkdown` ok，outputChars 1700 |
+| 2026-07-06 | Real Claude unavailable profile diagnostics | FAIL：`claude-custom-1` 返回 403 上游额度不足；`claude-anyrouter`、`claude-custom-2`、`claude-custom-3`、`claude-custom-4` 75s 无输出超时，需后续定位 provider/CLI |
+| 2026-07-06 | `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm run package:mac` | PASS：`release/packages/20260706-211053/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-06 | `codesign --verify --deep --strict --verbose=2 release/packages/20260706-211053/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-06 | packaged app.asar marker scan / packaged ccline smoke | PASS：summary runner strict MCP、summaryContinuation、terminalOutputSanitizer、sessionService sanitizer markers 存在；`ccline 1.1.2` |
+| 2026-07-06 | `git diff --check` / 文档旧口径扫描 / touched 文件 key-like scan | PASS：无空白错误；聚焦旧矛盾口径无命中，宽扫描仅命中历史说明/验证记录文本；本次 touched 文件无真实 key-like 命中 |
+| 2026-07-06 | `npx vitest run tests/app/summaryContinuation.test.ts` RED | PASS：实现前因 `src/main/summaryContinuation` 不存在而失败 |
+| 2026-07-06 | `npx vitest run tests/app/summaryContinuation.test.ts` | PASS：1 file / 1 test |
+| 2026-07-06 | `npx vitest run tests/app/summaryJobService.test.ts tests/app/sessionService.test.ts tests/app/App.test.tsx` | PASS：3 files / 79 tests |
+| 2026-07-06 | `npm test` | PASS：38 files / 235 tests |
+| 2026-07-06 | `npm run workflow:doctor` / `npm run test:workflow` | PASS：doctor 全绿；pytest 8 passed |
+| 2026-07-06 | `npm run typecheck` / `npm run build` | PASS：build 仅 Vite chunk size warning |
+| 2026-07-06 | `git diff --check` / summary continuation key-like scan | PASS：无空白错误；本次相关文件无 key-like 命中 |
+| 2026-07-06 | real `node-pty` continuation prompt smoke using `dist/main/summaryContinuation.js` + `cat` | PASS：PTY output 包含 `/tmp/agentdock-handoff-smoke.md` |
+| 2026-07-06 | `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm run package:mac` | PASS：`release/packages/20260706-190128/AgentDock-darwin-arm64/AgentDock.app` |
+| 2026-07-06 | `codesign --verify --deep --strict --verbose=2 release/packages/20260706-190128/AgentDock-darwin-arm64/AgentDock.app` | PASS |
+| 2026-07-06 | packaged `app.asar` marker scan / packaged ccline smoke | PASS：包内包含 `summaryContinuation` / `launchContinuationWithPrompt`；`ccline 1.1.2` |
 | 2026-07-06 | `claude --help` / `codex exec --help` | PASS：本机 CLI 存在，支持 one-shot summary runner 所需参数 |
 | 2026-07-06 | `npx vitest run tests/app/summaryRunner.test.ts` RED | PASS：实现前因 `src/main/summaryRunner` 不存在而失败 |
 | 2026-07-06 | `npx vitest run tests/app/summaryRunner.test.ts` | PASS：1 file / 3 tests |

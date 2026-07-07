@@ -1,0 +1,1188 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AgentDock Session Library Mockup</title>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      document.documentElement.dataset.panel =
+        params.get('panel') === 'expanded' ? 'expanded' : 'rail';
+    </script>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f4;
+        --surface: #ffffff;
+        --surface-soft: #f3f5f1;
+        --line: #dfe4dc;
+        --line-strong: #c8d1c5;
+        --text: #17201c;
+        --muted: #66736d;
+        --faint: #97a19b;
+        --sidebar: #d8eef5;
+        --sidebar-strong: #b9dce8;
+        --terminal: #101817;
+        --terminal-soft: #172321;
+        --terminal-line: #2b3a36;
+        --green: #258f67;
+        --amber: #b87515;
+        --red: #c24a3d;
+        --blue: #2f6f9f;
+        --shadow: 0 16px 44px rgba(36, 45, 40, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        letter-spacing: 0;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .app {
+        width: 100vw;
+        height: 100vh;
+        display: grid;
+        grid-template-columns: 256px minmax(920px, 1fr) 56px;
+        overflow: hidden;
+      }
+
+      html[data-panel="expanded"] .app {
+        grid-template-columns: 256px minmax(920px, 1fr) 360px;
+      }
+
+      .sidebar {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid rgba(116, 139, 133, 0.28);
+        background: linear-gradient(180deg, var(--sidebar), #e6f1ee 100%);
+      }
+
+      .traffic {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 16px;
+      }
+
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+      }
+
+      .dot.red {
+        background: #ff605c;
+      }
+
+      .dot.yellow {
+        background: #ffbd44;
+      }
+
+      .dot.green {
+        background: #00ca4e;
+      }
+
+      .sidebar-actions {
+        padding: 4px 12px 14px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .action-row {
+        height: 34px;
+        display: grid;
+        grid-template-columns: 20px 1fr;
+        align-items: center;
+        gap: 10px;
+        padding: 0 10px;
+        border-radius: 7px;
+        color: #20302c;
+        font-size: 14px;
+      }
+
+      .action-row.primary {
+        background: rgba(255, 255, 255, 0.52);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.56);
+        font-weight: 650;
+      }
+
+      .icon-box {
+        width: 16px;
+        height: 16px;
+        display: inline-grid;
+        place-items: center;
+        border: 1.5px solid currentColor;
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 1;
+      }
+
+      .icon-line {
+        width: 16px;
+        height: 16px;
+        position: relative;
+      }
+
+      .icon-line::before,
+      .icon-line::after {
+        content: "";
+        position: absolute;
+        border: 1.5px solid currentColor;
+      }
+
+      .icon-line.search::before {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        left: 1px;
+        top: 1px;
+      }
+
+      .icon-line.search::after {
+        width: 7px;
+        border-width: 1.5px 0 0;
+        transform: rotate(45deg);
+        right: 1px;
+        bottom: 2px;
+      }
+
+      .library {
+        padding: 0 10px 12px;
+        overflow: auto;
+      }
+
+      .section-title {
+        margin: 14px 8px 7px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: #6a7b78;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .project {
+        margin-bottom: 8px;
+      }
+
+      .project-head {
+        height: 30px;
+        display: grid;
+        grid-template-columns: 18px 1fr auto;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px;
+        color: #253531;
+        font-size: 14px;
+        font-weight: 650;
+      }
+
+      .project-count {
+        min-width: 20px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        border-radius: 999px;
+        background: rgba(49, 83, 91, 0.1);
+        color: #4f676a;
+        font-size: 12px;
+      }
+
+      .session {
+        min-height: 44px;
+        display: grid;
+        grid-template-columns: 12px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 8px 7px 22px;
+        border-radius: 8px;
+        color: #263532;
+      }
+
+      .session.active {
+        background: rgba(81, 119, 128, 0.16);
+      }
+
+      .session-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 14px;
+        font-weight: 560;
+      }
+
+      .session-sub {
+        margin-top: 3px;
+        color: #627772;
+        font-size: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--faint);
+      }
+
+      .status-dot.running {
+        background: var(--green);
+        box-shadow: 0 0 0 3px rgba(37, 143, 103, 0.12);
+      }
+
+      .status-dot.paused {
+        background: var(--amber);
+      }
+
+      .status-dot.exited {
+        background: #8d9a94;
+      }
+
+      .age {
+        color: #6b7e7a;
+        font-size: 12px;
+      }
+
+      .session-actions {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .session-menu {
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        border: 1px solid rgba(73, 100, 99, 0.18);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.42);
+        color: #4e6563;
+        font-size: 16px;
+        line-height: 1;
+      }
+
+      .sidebar-footer {
+        margin-top: auto;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 16px;
+        border-top: 1px solid rgba(116, 139, 133, 0.18);
+      }
+
+      .avatar {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border-radius: 999px;
+        background: #d8d7ff;
+        color: #4050a5;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .main {
+        min-width: 0;
+        display: grid;
+        grid-template-rows: 50px 54px 1fr;
+        background: var(--surface);
+      }
+
+      .topbar {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 12px;
+        padding: 0 16px 0 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .session-heading {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .heading-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 15px;
+        font-weight: 740;
+      }
+
+      .pill {
+        height: 24px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fbfcfa;
+        color: #4d5c57;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .pill.green {
+        border-color: rgba(37, 143, 103, 0.24);
+        background: #edf8f3;
+        color: #19684b;
+      }
+
+      .pill.amber {
+        border-color: rgba(184, 117, 21, 0.24);
+        background: #fff6e7;
+        color: #8a520c;
+      }
+
+      .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .ghost-button,
+      .solid-button {
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border-radius: 7px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        background: #fbfcfa;
+        color: #263532;
+        font-size: 13px;
+        font-weight: 620;
+      }
+
+      .danger-button {
+        width: 32px;
+        height: 32px;
+        display: inline-grid;
+        place-items: center;
+        border: 1px solid #f0b7b2;
+        border-radius: 7px;
+        background: #fff4f2;
+        color: var(--red);
+        font-size: 16px;
+        font-weight: 800;
+      }
+
+      .more-button {
+        width: 32px;
+        height: 32px;
+        display: inline-grid;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: #fbfcfa;
+        color: #34433e;
+        font-size: 18px;
+        font-weight: 800;
+      }
+
+      .solid-button {
+        border-color: #1f2926;
+        background: #1f2926;
+        color: #fff;
+      }
+
+      .command-bar {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(150px, 1.1fr) minmax(150px, 1.1fr) minmax(170px, 1.2fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 18px;
+        border-bottom: 1px solid var(--line);
+        background: #fbfcfa;
+      }
+
+      .select-like {
+        min-width: 0;
+        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: #fff;
+        color: #273632;
+        font-size: 13px;
+      }
+
+      .select-like span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .terminal-wrap {
+        min-height: 0;
+        display: grid;
+        grid-template-rows: 1fr;
+        padding: 14px 18px 18px;
+        background: #f7f8f4;
+      }
+
+      .terminal {
+        min-height: 0;
+        overflow: hidden;
+        border: 1px solid #1e2e2a;
+        border-radius: 8px;
+        background: var(--terminal);
+        box-shadow: var(--shadow);
+      }
+
+      .terminal-toolbar {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--terminal-line);
+        background: #15211f;
+        color: #c8d8d2;
+        font-size: 12px;
+      }
+
+      .terminal-body {
+        height: calc(100% - 34px);
+        overflow: hidden;
+        padding: 16px 18px;
+        color: #cfe6dc;
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 13px;
+        line-height: 1.62;
+      }
+
+      .terminal-line {
+        white-space: pre-wrap;
+      }
+
+      .terminal-line.muted {
+        color: #7d9089;
+      }
+
+      .terminal-line.green {
+        color: #73d7a1;
+      }
+
+      .terminal-line.amber {
+        color: #f2c37a;
+      }
+
+      .terminal-line.blue {
+        color: #8fc4ff;
+      }
+
+      .prompt {
+        color: #f5e6a7;
+      }
+
+      .right-panel {
+        min-width: 0;
+        display: grid;
+        grid-template-rows: 1fr;
+        border-left: 1px solid var(--line);
+        background: #fafbf8;
+        position: relative;
+      }
+
+      html[data-panel="expanded"] .right-panel {
+        grid-template-rows: 50px 1fr;
+      }
+
+      .panel-rail {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 6px;
+        color: #5f6d68;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      html[data-panel="expanded"] .panel-rail {
+        display: none;
+      }
+
+      .rail-button {
+        width: 38px;
+        min-height: 44px;
+        display: grid;
+        place-items: center;
+        gap: 3px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: #62716c;
+        font-size: 12px;
+        font-weight: 760;
+        position: relative;
+      }
+
+      .rail-button.active {
+        border-color: #d8e0da;
+        background: #ffffff;
+        color: #20302b;
+      }
+
+      .rail-badge {
+        position: absolute;
+        top: 4px;
+        right: 3px;
+        min-width: 17px;
+        height: 17px;
+        display: grid;
+        place-items: center;
+        border-radius: 999px;
+        background: #2f6f9f;
+        color: white;
+        font-size: 10px;
+      }
+
+      .rail-label {
+        writing-mode: vertical-rl;
+        letter-spacing: 0;
+        color: #82908b;
+        font-size: 12px;
+      }
+
+      .vertical-resizer {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -5px;
+        width: 10px;
+        cursor: col-resize;
+      }
+
+      html[data-panel="rail"] .vertical-resizer,
+      html[data-panel="rail"] .panel-head,
+      html[data-panel="rail"] .panel-tabs,
+      html[data-panel="rail"] .panel-content {
+        display: none;
+      }
+
+      .vertical-resizer::before {
+        content: "";
+        position: absolute;
+        top: 48%;
+        left: 4px;
+        width: 2px;
+        height: 44px;
+        border-radius: 999px;
+        background: #c8d2cc;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-title {
+        font-size: 14px;
+        font-weight: 760;
+      }
+
+      .panel-tabs {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      html[data-panel="expanded"] .panel-tabs {
+        display: none;
+      }
+
+      .tab {
+        height: 30px;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: transparent;
+        color: #63726d;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .tab.active {
+        border-color: var(--line);
+        background: #ffffff;
+        color: #1d2824;
+      }
+
+      .panel-content {
+        min-height: 0;
+        display: grid;
+        grid-template-rows: minmax(440px, 1fr) 8px minmax(130px, 0.28fr);
+        padding: 12px;
+      }
+
+      .lower-panel {
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .horizontal-resizer {
+        margin: 3px 0;
+        height: 8px;
+        cursor: row-resize;
+        position: relative;
+      }
+
+      .horizontal-resizer::before {
+        content: "";
+        position: absolute;
+        left: 33%;
+        right: 33%;
+        top: 3px;
+        height: 2px;
+        border-radius: 999px;
+        background: #cbd4ce;
+      }
+
+      .info-block,
+      .tree-block {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        min-height: 0;
+        overflow: hidden;
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+      }
+
+      .info-block + .info-block,
+      .tree-block + .info-block {
+        margin-top: 10px;
+      }
+
+      .block-head {
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 0 10px;
+        border-bottom: 1px solid var(--line);
+        font-size: 13px;
+        font-weight: 720;
+      }
+
+      .block-body {
+        padding: 10px;
+      }
+
+      .kv {
+        display: grid;
+        grid-template-columns: 78px minmax(0, 1fr);
+        gap: 7px 8px;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .kv dt {
+        color: #76837e;
+      }
+
+      .kv dd {
+        min-width: 0;
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: #283733;
+      }
+
+      .tree-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .tree-search {
+        width: 100%;
+        height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 0 9px;
+        color: #34433e;
+        background: #fbfcfa;
+        font-size: 12px;
+      }
+
+      .tree-note {
+        color: #8b9792;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .tree {
+        padding: 8px 4px 10px;
+        font-size: 13px;
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .tree-row {
+        height: 28px;
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 6px;
+        padding: 0 7px;
+        border-radius: 6px;
+        color: #273632;
+      }
+
+      .tree-row:hover,
+      .tree-row.selected {
+        background: #eef3ec;
+      }
+
+      .tree-row .name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tree-row .meta {
+        color: #8a9691;
+        font-size: 11px;
+      }
+
+      .change-badge {
+        min-width: 18px;
+        height: 18px;
+        display: inline-grid;
+        place-items: center;
+        border-radius: 5px;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .change-badge.modified {
+        background: #fff2d6;
+        color: #9a600e;
+      }
+
+      .change-badge.added {
+        background: #e5f7ec;
+        color: #1d7a4d;
+      }
+
+      .change-badge.session-change {
+        background: #e5f0ff;
+        color: #2365a8;
+      }
+
+      .change-badge.empty {
+        opacity: 0;
+      }
+
+      .indent-1 {
+        padding-left: 22px;
+      }
+
+      .indent-2 {
+        padding-left: 42px;
+      }
+
+      .file-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .mini-button {
+        height: 28px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: #fbfcfa;
+        color: #34433e;
+        padding: 0 9px;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .summary-line {
+        color: #3f4e49;
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .right-panel.collapsed-preview {
+        display: none;
+      }
+
+      html[data-panel="expanded"] .rail-only,
+      html[data-panel="rail"] .expanded-only {
+        display: none;
+      }
+
+      @media (max-width: 1180px) {
+        .app {
+          grid-template-columns: 260px minmax(560px, 1fr);
+        }
+
+        .right-panel {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar" aria-label="会话记录">
+        <div class="traffic" aria-hidden="true">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green"></span>
+        </div>
+
+        <div class="sidebar-actions">
+          <div class="action-row primary">
+            <span class="icon-box">+</span>
+            <span>新会话</span>
+          </div>
+          <div class="action-row">
+            <span class="icon-line search"></span>
+            <span>搜索会话</span>
+          </div>
+        </div>
+
+        <div class="library">
+          <div class="section-title">
+            <span>项目</span>
+            <span>全部记录</span>
+          </div>
+
+          <div class="project">
+            <div class="project-head">
+              <span>▾</span>
+              <span>AgentDock</span>
+              <span class="project-count">5</span>
+            </div>
+            <div class="session active">
+              <span class="status-dot running"></span>
+              <div>
+                <div class="session-title">会话记录库与恢复重构</div>
+                <div class="session-sub">Claude · anyrouter · 可原生继续</div>
+              </div>
+              <div class="session-actions">
+                <span class="age">现在</span>
+                <button class="session-menu" type="button" aria-label="会话菜单">…</button>
+              </div>
+            </div>
+            <div class="session">
+              <span class="status-dot paused"></span>
+              <div>
+                <div class="session-title">终端控制序列乱码修复</div>
+                <div class="session-sub">Codex · openai · 摘要恢复</div>
+              </div>
+              <span class="age">6h</span>
+            </div>
+            <div class="session">
+              <span class="status-dot exited"></span>
+              <div>
+                <div class="session-title">Context Budget 自动总结</div>
+                <div class="session-sub">Claude · exited · transcript 已保存</div>
+              </div>
+              <span class="age">1d</span>
+            </div>
+          </div>
+
+          <div class="project">
+            <div class="project-head">
+              <span>▾</span>
+              <span>chipwise</span>
+              <span class="project-count">3</span>
+            </div>
+            <div class="session">
+              <span class="status-dot running"></span>
+              <div>
+                <div class="session-title">goal 主任务</div>
+                <div class="session-sub">Codex · 4 个文件已更改</div>
+              </div>
+              <span class="age">7d</span>
+            </div>
+            <div class="session">
+              <span class="status-dot exited"></span>
+              <div>
+                <div class="session-title">codex 录屏功能怎么使用</div>
+                <div class="session-sub">Claude · 只读历史</div>
+              </div>
+              <span class="age">2d</span>
+            </div>
+            <div class="session">
+              <span class="status-dot exited"></span>
+              <div>
+                <div class="session-title">多 agent 团队开发工作流</div>
+                <div class="session-sub">Codex · 已归档</div>
+              </div>
+              <span class="age">1w</span>
+            </div>
+          </div>
+
+          <div class="project">
+            <div class="project-head">
+              <span>▸</span>
+              <span>Obsidian Vault</span>
+              <span class="project-count">4</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-footer">
+          <div class="avatar">设</div>
+          <div>
+            <div class="session-title">设置</div>
+            <div class="session-sub">账户 · API 配置 · 工作区</div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="session-heading">
+            <span class="heading-title">会话记录库与恢复重构</span>
+            <span class="pill green"><span class="status-dot running"></span>运行中</span>
+            <span class="pill">AgentDock</span>
+            <span class="pill amber">Claude 原生继续</span>
+          </div>
+          <div class="top-actions">
+            <button class="danger-button" type="button" aria-label="停止当前会话">■</button>
+            <button class="more-button" type="button" aria-label="更多当前会话操作">…</button>
+          </div>
+        </header>
+
+        <section class="command-bar" aria-label="启动栏">
+          <div class="select-like">
+            <span>Claude · anyrouter</span>
+            <span>⌄</span>
+          </div>
+          <div class="select-like">
+            <span>Workspace · AgentDock</span>
+            <span>⌄</span>
+          </div>
+          <div class="select-like">
+            <span>claude --dangerously-skip-permissions</span>
+            <span>⌄</span>
+          </div>
+          <button class="solid-button" type="button">启动</button>
+        </section>
+
+        <section class="terminal-wrap">
+          <div class="terminal" aria-label="终端">
+            <div class="terminal-toolbar">
+              <span>AgentDock · session-w1-18</span>
+              <span class="rail-only">120 x 32 · live</span>
+              <span class="expanded-only">104 x 32 · live</span>
+            </div>
+            <div class="terminal-body">
+              <div class="terminal-line muted">[AgentDock] 已恢复原生 Claude 会话，终端记录从本地 transcript 回放。</div>
+              <div class="terminal-line"><span class="prompt">$</span> npm run workflow:doctor</div>
+              <div class="terminal-line green">PASS workflow wiring ok</div>
+              <div class="terminal-line"><span class="prompt">$</span> npm run typecheck</div>
+              <div class="terminal-line green">PASS TypeScript checks completed</div>
+              <div class="terminal-line blue">正在设计长期会话记录库：</div>
+              <div class="terminal-line">- session record 长期保存，不随标签关闭删除</div>
+              <div class="terminal-line">- open tab 只是当前窗口视图</div>
+              <div class="terminal-line">- native resume 优先，summary fallback 后置</div>
+              <div class="terminal-line amber">下一步：写中文 SPEC，并拆分 Phase 1 实施计划。</div>
+              <div class="terminal-line"><span class="prompt">AgentDock</span> 等待下一条指令...</div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="right-panel" aria-label="项目面板">
+        <div class="panel-rail" aria-label="项目面板入口">
+          <button class="rail-button" type="button" aria-label="会话信息">
+            <span>会</span>
+          </button>
+          <button class="rail-button active" type="button" aria-label="文件树">
+            <span>文</span>
+            <span class="rail-badge">5</span>
+          </button>
+          <button class="rail-button" type="button" aria-label="恢复摘要">
+            <span>恢</span>
+          </button>
+          <div class="rail-label">项目面板</div>
+        </div>
+        <div class="vertical-resizer" aria-label="拖动调整项目面板宽度"></div>
+        <div class="panel-head">
+          <div class="panel-title">项目面板</div>
+          <button class="ghost-button" type="button">收起</button>
+        </div>
+        <div class="panel-tabs">
+          <button class="tab" type="button">会话</button>
+          <button class="tab active" type="button">文件</button>
+          <button class="tab" type="button">恢复</button>
+        </div>
+
+        <div class="panel-content">
+          <section class="tree-block">
+            <div class="block-head">
+              <span>AgentDock</span>
+              <span class="pill">只读</span>
+            </div>
+            <div class="tree-toolbar">
+              <input class="tree-search" value="src/main" aria-label="文件过滤" readonly />
+              <span class="tree-note">懒加载</span>
+            </div>
+            <div class="tree">
+              <div class="tree-row selected">
+                <span>▾</span>
+                <span class="name">src</span>
+                <span class="meta">目录</span>
+                <span class="change-badge empty">-</span>
+              </div>
+              <div class="tree-row indent-1">
+                <span>▾</span>
+                <span class="name">main</span>
+                <span class="meta">目录</span>
+                <span class="change-badge session-change">●</span>
+              </div>
+              <div class="tree-row indent-2">
+                <span>TS</span>
+                <span class="name">sessionService.ts</span>
+                <span class="meta">72KB</span>
+                <span class="change-badge modified">M</span>
+              </div>
+              <div class="tree-row indent-2">
+                <span>TS</span>
+                <span class="name">restoreContextStore.ts</span>
+                <span class="meta">5KB</span>
+                <span class="change-badge added">A</span>
+              </div>
+              <div class="tree-row indent-2">
+                <span>TS</span>
+                <span class="name">terminalOutputSanitizer.ts</span>
+                <span class="meta">3KB</span>
+                <span class="change-badge modified">M</span>
+              </div>
+              <div class="tree-row indent-1">
+                <span>▾</span>
+                <span class="name">renderer</span>
+                <span class="meta">目录</span>
+                <span class="change-badge session-change">●</span>
+              </div>
+              <div class="tree-row indent-2">
+                <span>TSX</span>
+                <span class="name">App.tsx</span>
+                <span class="meta">46KB</span>
+                <span class="change-badge modified">M</span>
+              </div>
+              <div class="tree-row indent-2">
+                <span>TSX</span>
+                <span class="name">TerminalPane.tsx</span>
+                <span class="meta">18KB</span>
+                <span class="change-badge modified">M</span>
+              </div>
+              <div class="tree-row">
+                <span>▸</span>
+                <span class="name">tests</span>
+                <span class="meta">目录</span>
+                <span class="change-badge session-change">●</span>
+              </div>
+              <div class="tree-row">
+                <span>MD</span>
+                <span class="name">PROJECT_PROFILE.md</span>
+                <span class="meta">文档</span>
+                <span class="change-badge empty">-</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="horizontal-resizer" aria-label="拖动调整文件树高度"></div>
+
+          <div class="lower-panel">
+            <section class="info-block">
+              <div class="block-head">
+                <span>选中文件</span>
+                <span class="pill amber">M 本轮修改</span>
+              </div>
+              <div class="block-body">
+                <div class="file-actions">
+                  <button class="mini-button" type="button">复制路径</button>
+                  <button class="mini-button" type="button">打开位置</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="info-block">
+              <div class="block-head">
+                <span>当前会话</span>
+                <span class="pill green">运行中</span>
+              </div>
+              <div class="block-body">
+                <dl class="kv">
+                  <dt>Profile</dt>
+                  <dd>Claude · anyrouter</dd>
+                  <dt>Workspace</dt>
+                  <dd>/Users/peyoba/Desktop/web/AgentDock</dd>
+                  <dt>恢复</dt>
+                  <dd>原生 resume 可用</dd>
+                  <dt>记录</dt>
+                  <dd>transcript 已保存</dd>
+                </dl>
+              </div>
+            </section>
+
+            <section class="info-block">
+              <div class="block-head">
+                <span>恢复摘要</span>
+              </div>
+              <div class="block-body">
+                <div class="summary-line">
+                  已加载长期会话记录；下一步是写 SPEC 并拆 Phase 1。
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

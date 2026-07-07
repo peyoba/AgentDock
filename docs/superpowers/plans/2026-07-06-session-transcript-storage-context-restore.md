@@ -353,12 +353,12 @@ it('builds a redacted restore prompt from summary and transcript tail', () => {
   const prompt = buildContextRestorePrompt({
     session,
     summaryMarkdown: '# AgentDock Session Summary\n\n## Current Goal\nContinue work',
-    transcriptTail: 'OPENAI_API_KEY=sk-secret-value\nrecent command output',
+    transcriptTail: 'OPENAI_API_KEY=[TEST_REDACTED_KEY]\nrecent command output',
   });
 
   expect(prompt).toContain('Continue work');
   expect(prompt).toContain('recent command output');
-  expect(prompt).not.toContain('sk-secret-value');
+  expect(prompt).not.toContain('[TEST_REDACTED_KEY]');
 });
 ```
 

@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AgentDock 终端优先 v2 · 展开态（项目面板打开）</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f4;
+        --surface: #ffffff;
+        --surface-soft: #f3f5f1;
+        --line: #e3e7df;
+        --line-soft: #edf0ea;
+        --text: #17201c;
+        --muted: #66736d;
+        --faint: #97a19b;
+        --sidebar: #d8eef5;
+        --terminal: #0e1514;
+        --terminal-line: #26332f;
+        --green: #258f67;
+        --amber: #b87515;
+        --red: #c24a3d;
+        --blue: #2f6f9f;
+        --shadow: 0 10px 30px rgba(36, 45, 40, 0.08);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      button, input { font: inherit; }
+
+      /* 展开态：右侧项目面板 360px；终端仍保证 ≥100 列（此处窗口足够宽） */
+      .app {
+        width: 100vw;
+        height: 100vh;
+        display: grid;
+        grid-template-columns: 250px minmax(720px, 1fr) 360px;
+        overflow: hidden;
+      }
+
+      /* ---------- 左栏 会话库 ---------- */
+      .sidebar {
+        min-width: 0; display: flex; flex-direction: column;
+        border-right: 1px solid rgba(116, 139, 133, 0.24);
+        background: linear-gradient(180deg, var(--sidebar), #e6f1ee 100%);
+      }
+      .traffic { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
+      .dot { width: 12px; height: 12px; border-radius: 999px; }
+      .dot.red { background: #ff605c; }
+      .dot.yellow { background: #ffbd44; }
+      .dot.green { background: #00ca4e; }
+      .sidebar-actions { padding: 4px 12px 12px; display: grid; gap: 8px; }
+      .action-row {
+        height: 34px; display: grid; grid-template-columns: 20px 1fr; align-items: center;
+        gap: 10px; padding: 0 10px; border-radius: 7px; color: #20302c; font-size: 14px;
+      }
+      .action-row.primary { background: rgba(255,255,255,0.52); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.56); font-weight: 650; }
+      .icon-box { width: 16px; height: 16px; display: inline-grid; place-items: center; border: 1.5px solid currentColor; border-radius: 4px; font-size: 12px; line-height: 1; }
+      .icon-line { width: 16px; height: 16px; position: relative; }
+      .icon-line.search::before { content: ""; position: absolute; width: 9px; height: 9px; border: 1.5px solid currentColor; border-radius: 999px; left: 1px; top: 1px; }
+      .icon-line.search::after { content: ""; position: absolute; width: 7px; border-top: 1.5px solid currentColor; transform: rotate(45deg); right: 1px; bottom: 2px; }
+      .library { padding: 0 10px 12px; overflow: auto; }
+      .section-title { margin: 14px 8px 7px; display: flex; align-items: center; justify-content: space-between; color: #6a7b78; font-size: 12px; font-weight: 700; }
+      .project { margin-bottom: 8px; }
+      .project-head { height: 30px; display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px; padding: 0 8px; color: #253531; font-size: 14px; font-weight: 650; }
+      .project-count { min-width: 20px; height: 20px; display: grid; place-items: center; border-radius: 999px; background: rgba(49,83,91,0.1); color: #4f676a; font-size: 12px; }
+      .session { min-height: 44px; display: grid; grid-template-columns: 12px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 7px 8px 7px 22px; border-radius: 8px; color: #263532; }
+      .session.active { background: rgba(81,119,128,0.16); }
+      .session-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 560; }
+      .session-sub { margin-top: 3px; color: #627772; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .status-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--faint); }
+      .status-dot.running { background: var(--green); box-shadow: 0 0 0 3px rgba(37,143,103,0.12); }
+      .status-dot.paused { background: var(--amber); }
+      .status-dot.exited { background: #8d9a94; }
+      .age { color: #6b7e7a; font-size: 12px; }
+      .sidebar-footer { margin-top: auto; height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-top: 1px solid rgba(116,139,133,0.18); }
+      .avatar { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 999px; background: #d8d7ff; color: #4050a5; font-size: 12px; font-weight: 800; }
+
+      /* ---------- 中间 终端主区 ---------- */
+      .main { min-width: 0; display: grid; grid-template-rows: 48px 50px 1fr; background: var(--surface); }
+      .topbar { min-width: 0; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 0 14px 0 18px; border-bottom: 1px solid var(--line-soft); }
+      .session-heading { min-width: 0; display: flex; align-items: center; gap: 10px; }
+      .heading-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 740; }
+      .pill { height: 23px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border: 1px solid var(--line); border-radius: 999px; background: #fbfcfa; color: #4d5c57; font-size: 12px; white-space: nowrap; }
+      .pill.green { border-color: rgba(37,143,103,0.22); background: #eef8f3; color: #1c6b4e; }
+      .top-actions { display: flex; align-items: center; gap: 6px; }
+      .icon-btn { width: 30px; height: 30px; display: inline-grid; place-items: center; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #5c6b66; font-size: 13px; }
+      .icon-btn.stop::before { content: ""; width: 11px; height: 11px; border-radius: 2px; background: #c24a3d; }
+      .icon-btn.more { font-weight: 800; letter-spacing: 1px; }
+      .icon-btn.panel-toggle { color: #1d2824; border-color: var(--line); background: #fff; }
+
+      .command-bar {
+        min-width: 0; display: grid;
+        grid-template-columns: minmax(140px, 1.1fr) minmax(140px, 1.1fr) minmax(180px, 1.4fr) auto;
+        align-items: center; gap: 10px; padding: 9px 18px; border-bottom: 1px solid var(--line-soft); background: #fafbf7;
+      }
+      .select-like { min-width: 0; height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 10px; border: 1px solid var(--line-soft); border-radius: 7px; background: #fff; color: #45534f; font-size: 13px; }
+      .select-like span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .select-like .caret { color: #9aa7a1; }
+      .run-button { height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 7px; padding: 0 16px; border: 1px solid #1f2926; background: #1f2926; color: #fff; font-size: 13px; font-weight: 640; }
+
+      .terminal-wrap { min-height: 0; display: grid; grid-template-rows: 1fr; padding: 10px 12px 12px; background: #f7f8f4; }
+      .terminal { min-height: 0; overflow: hidden; border: 1px solid #1a2624; border-radius: 9px; background: var(--terminal); box-shadow: var(--shadow); }
+      .terminal-toolbar { height: 32px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid var(--terminal-line); background: #131e1c; color: #b8ccc5; font-size: 12px; }
+      .terminal-toolbar .left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .term-meta { color: #7f938c; }
+      .terminal-body { height: calc(100% - 32px); overflow: hidden; padding: 16px 24px; color: #cfe6dc; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 13px; line-height: 1.64; }
+      .terminal-line { white-space: pre-wrap; }
+      .terminal-line.muted { color: #7d9089; }
+      .terminal-line.green { color: #73d7a1; }
+      .terminal-line.amber { color: #f2c37a; }
+      .terminal-line.blue { color: #8fc4ff; }
+      .prompt { color: #f5e6a7; }
+
+      /* ---------- 右侧 展开态项目面板：文件树为主 + 下方折叠信息区 ---------- */
+      .panel {
+        min-width: 0; display: grid;
+        grid-template-rows: 46px 1fr auto; /* 头部 / 文件树(占主) / 折叠信息区 */
+        border-left: 1px solid var(--line); background: #fbfcf9;
+      }
+      .panel-head {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0 12px 0 14px; border-bottom: 1px solid var(--line-soft);
+      }
+      .panel-head .title { font-size: 13px; font-weight: 720; color: #223029; }
+      .panel-head .actions { display: flex; align-items: center; gap: 4px; }
+      .mini-btn { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #6a7a74; font-size: 12px; }
+      .mini-btn.collapse { color: #4a5852; }
+
+      /* 文件树主区（约 75%，可滚动） */
+      .filetree { min-height: 0; overflow: auto; padding: 8px 8px 10px; }
+      .ft-group-label { margin: 8px 8px 4px; color: #7c8b85; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; }
+      .ft-row {
+        display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 8px;
+        padding: 5px 8px; border-radius: 6px; color: #2b3a34; font-size: 13px;
+      }
+      .ft-row.dir { color: #34443d; font-weight: 600; }
+      .ft-row.active { background: rgba(81,119,128,0.13); }
+      .ft-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ft-indent { padding-left: 18px; }
+      .ft-indent2 { padding-left: 34px; }
+      .ft-ico { width: 14px; height: 14px; display: inline-grid; place-items: center; color: #8b9a93; font-size: 11px; }
+      /* 安静的状态标记：M/A/● 不刺眼 */
+      .badge { min-width: 15px; height: 16px; padding: 0 4px; display: inline-grid; place-items: center; border-radius: 4px; font-size: 11px; font-weight: 700; }
+      .badge.m { color: #9a7112; background: rgba(184,117,21,0.12); }
+      .badge.a { color: #2c7d59; background: rgba(37,143,103,0.12); }
+      .badge.dot { color: #4a7ba3; background: transparent; font-size: 13px; }
+
+      /* 下方折叠信息区：默认只展开「选中文件」 */
+      .accordions { border-top: 1px solid var(--line-soft); background: #fafbf7; }
+      .acc { border-bottom: 1px solid var(--line-soft); }
+      .acc:last-child { border-bottom: none; }
+      .acc-head {
+        height: 38px; display: flex; align-items: center; justify-content: space-between;
+        padding: 0 14px; color: #33423c; font-size: 12.5px; font-weight: 680; cursor: default;
+      }
+      .acc-head .caret { color: #9aa7a1; font-size: 11px; }
+      .acc-body { padding: 2px 14px 12px; }
+      .acc.collapsed .acc-body { display: none; }
+      .kv { display: grid; grid-template-columns: 68px 1fr; gap: 4px 10px; font-size: 12.5px; }
+      .kv dt { color: #6c7b75; }
+      .kv dd { margin: 0; color: #29352f; }
+      .file-meta { font-size: 12.5px; color: #37453f; line-height: 1.7; }
+      .file-meta .path { font-family: "SFMono-Regular", Menlo, monospace; color: #24504f; }
+      .diffbar { margin-top: 8px; height: 6px; border-radius: 999px; overflow: hidden; display: flex; }
+      .diffbar .add { background: rgba(37,143,103,0.5); }
+      .diffbar .del { background: rgba(194,74,61,0.5); }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <!-- ================= 左栏 会话库 ================= -->
+      <aside class="sidebar" aria-label="会话记录">
+        <div class="traffic" aria-hidden="true">
+          <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+        </div>
+        <div class="sidebar-actions">
+          <div class="action-row primary"><span class="icon-box">+</span><span>新会话</span></div>
+          <div class="action-row"><span class="icon-line search"></span><span>搜索会话</span></div>
+        </div>
+        <div class="library">
+          <div class="section-title"><span>项目</span><span>全部记录</span></div>
+          <div class="project">
+            <div class="project-head"><span>▾</span><span>AgentDock</span><span class="project-count">5</span></div>
+            <div class="session active">
+              <span class="status-dot running"></span>
+              <div><div class="session-title">会话记录库与恢复重构</div><div class="session-sub">Claude · anyrouter · 可原生继续</div></div>
+              <span class="age">现在</span>
+            </div>
+            <div class="session">
+              <span class="status-dot paused"></span>
+              <div><div class="session-title">终端控制序列乱码修复</div><div class="session-sub">Codex · openai · 摘要恢复</div></div>
+              <span class="age">6h</span>
+            </div>
+            <div class="session">
+              <span class="status-dot exited"></span>
+              <div><div class="session-title">Context Budget 自动总结</div><div class="session-sub">Claude · exited · transcript 已保存</div></div>
+              <span class="age">1d</span>
+            </div>
+          </div>
+          <div class="project">
+            <div class="project-head"><span>▾</span><span>chipwise</span><span class="project-count">3</span></div>
+            <div class="session">
+              <span class="status-dot running"></span>
+              <div><div class="session-title">goal 主任务</div><div class="session-sub">Codex · 4 个文件已更改</div></div>
+              <span class="age">7d</span>
+            </div>
+          </div>
+          <div class="project">
+            <div class="project-head"><span>▸</span><span>Obsidian Vault</span><span class="project-count">4</span></div>
+          </div>
+        </div>
+        <div class="sidebar-footer">
+          <div class="avatar">设</div>
+          <div><div class="session-title">设置</div><div class="session-sub">账户 · API 配置 · 工作区</div></div>
+        </div>
+      </aside>
+
+      <!-- ================= 中间 终端主区 ================= -->
+      <main class="main">
+        <header class="topbar">
+          <div class="session-heading">
+            <span class="heading-title">会话记录库与恢复重构</span>
+            <span class="pill green"><span class="status-dot running"></span>运行中</span>
+            <span class="pill">Claude · anyrouter</span>
+          </div>
+          <div class="top-actions">
+            <button class="icon-btn stop" type="button" aria-label="停止会话"></button>
+            <button class="icon-btn more" type="button" aria-label="更多">…</button>
+            <button class="icon-btn panel-toggle" type="button" aria-label="收起项目面板">⇥</button>
+          </div>
+        </header>
+
+        <section class="command-bar" aria-label="启动栏">
+          <div class="select-like"><span>Claude · anyrouter</span><span class="caret">⌄</span></div>
+          <div class="select-like"><span>Workspace · AgentDock</span><span class="caret">⌄</span></div>
+          <div class="select-like"><span>claude --dangerously-skip-permissions</span><span class="caret">⌄</span></div>
+          <button class="run-button" type="button">启动</button>
+        </section>
+
+        <section class="terminal-wrap">
+          <div class="terminal" aria-label="终端">
+            <div class="terminal-toolbar">
+              <div class="left"><span>AgentDock · session-w1-18</span></div>
+              <span class="term-meta">104 x 32 · live</span>
+            </div>
+            <div class="terminal-body">
+              <div class="terminal-line muted">[AgentDock] 已恢复原生 Claude 会话，终端记录从本地 transcript 回放。</div>
+              <div class="terminal-line"><span class="prompt">$</span> git status --short</div>
+              <div class="terminal-line amber"> M src/renderer/App.tsx</div>
+              <div class="terminal-line amber"> M src/renderer/styles.css</div>
+              <div class="terminal-line green">?? src/renderer/contextRestore.ts</div>
+              <div class="terminal-line blue">展开态：右侧文件树为主，下方折叠信息区（默认只展开选中文件）。</div>
+              <div class="terminal-line">- 面板 360px 时终端仍保证 ≥100 列（此处 104 列）</div>
+              <div class="terminal-line">- 顶部无第二个「新会话」；启动只在 command bar</div>
+              <div class="terminal-line"><span class="prompt">AgentDock</span> 等待下一条指令...</div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- ================= 右侧 展开态项目面板 ================= -->
+      <aside class="panel" aria-label="项目面板">
+        <div class="panel-head">
+          <span class="title">项目文件</span>
+          <div class="actions">
+            <button class="mini-btn" type="button" aria-label="刷新">⟳</button>
+            <button class="mini-btn collapse" type="button" aria-label="收起面板">⇥</button>
+          </div>
+        </div>
+
+        <!-- 文件树：右侧主角，只读，占主区域 -->
+        <div class="filetree">
+          <div class="ft-group-label">AGENTDOCK</div>
+          <div class="ft-row dir"><span class="ft-ico">▾</span><span class="name">src</span><span></span></div>
+          <div class="ft-row dir ft-indent"><span class="ft-ico">▾</span><span class="name">renderer</span><span></span></div>
+          <div class="ft-row active ft-indent2"><span class="ft-ico">›</span><span class="name">App.tsx</span><span class="badge m">M</span></div>
+          <div class="ft-row ft-indent2"><span class="ft-ico">›</span><span class="name">styles.css</span><span class="badge m">M</span></div>
+          <div class="ft-row ft-indent2"><span class="ft-ico">›</span><span class="name">contextRestore.ts</span><span class="badge a">A</span></div>
+          <div class="ft-row ft-indent2"><span class="ft-ico">›</span><span class="name">terminalOutput.ts</span><span class="badge dot">●</span></div>
+          <div class="ft-row dir ft-indent"><span class="ft-ico">▾</span><span class="name">main</span><span></span></div>
+          <div class="ft-row ft-indent2"><span class="ft-ico">›</span><span class="name">sessionService.ts</span><span class="badge m">M</span></div>
+          <div class="ft-row ft-indent2"><span class="ft-ico">›</span><span class="name">summaryRunner.ts</span><span class="badge m">M</span></div>
+          <div class="ft-row dir ft-indent"><span class="ft-ico">▸</span><span class="name">shared</span><span></span></div>
+          <div class="ft-row dir"><span class="ft-ico">▸</span><span class="name">tests</span><span></span></div>
+          <div class="ft-row"><span class="ft-ico">›</span><span class="name">CLAUDE.md</span><span></span></div>
+          <div class="ft-row"><span class="ft-ico">›</span><span class="name">package.json</span><span></span></div>
+        </div>
+
+        <!-- 下方折叠信息区：默认只展开「选中文件」 -->
+        <div class="accordions">
+          <div class="acc">
+            <div class="acc-head"><span>选中文件</span><span class="caret">▾</span></div>
+            <div class="acc-body">
+              <div class="file-meta">
+                <div class="path">src/renderer/App.tsx</div>
+                <div>已修改 · +148 / −37 · 未暂存</div>
+                <div class="diffbar"><span class="add" style="width:80%"></span><span class="del" style="width:20%"></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="acc collapsed">
+            <div class="acc-head"><span>当前会话</span><span class="caret">▸</span></div>
+            <div class="acc-body">
+              <dl class="kv">
+                <dt>Profile</dt><dd>Claude · anyrouter</dd>
+                <dt>Workspace</dt><dd>AgentDock</dd>
+                <dt>恢复</dt><dd>原生 resume</dd>
+                <dt>记录</dt><dd>transcript 已保存</dd>
+              </dl>
+            </div>
+          </div>
+          <div class="acc collapsed">
+            <div class="acc-head"><span>恢复摘要</span><span class="caret">▸</span></div>
+            <div class="acc-body">
+              <div class="file-meta">上次会话结束于「设计长期会话记录库」，已产出中文 SPEC 草稿，待拆分 Phase 1。</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </body>
+</html>

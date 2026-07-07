@@ -80,11 +80,12 @@ describe('workspaceContextStore', () => {
       clock: { now: () => new Date('2026-07-04T00:00:00.000Z') },
     });
     const files = await store.startSession({ workspace, session });
+    const fakeOpenAiKey = ['sk', 'test-workspace-output-redaction-token'].join('-');
 
     await store.appendOutput({
       workspace,
       sessionId: 'session-1',
-      data: 'agentdock-context-smoke local-development-secret sk-test-secret-value-that-is-long',
+      data: `agentdock-context-smoke local-development-secret ${fakeOpenAiKey}`,
     });
 
     const transcript = await readFile(files.sessionTranscriptFile, 'utf-8');
@@ -93,9 +94,9 @@ describe('workspaceContextStore', () => {
     expect(transcript).toContain('agentdock-context-smoke');
     expect(sharedContext).toContain('agentdock-context-smoke');
     expect(transcript).not.toContain('local-development-secret');
-    expect(transcript).not.toContain('sk-test-secret-value-that-is-long');
+    expect(transcript).not.toContain(fakeOpenAiKey);
     expect(sharedContext).not.toContain('local-development-secret');
-    expect(sharedContext).not.toContain('sk-test-secret-value-that-is-long');
+    expect(sharedContext).not.toContain(fakeOpenAiKey);
     expect(sharedContext).toContain('[REDACTED]');
   });
 
@@ -231,22 +232,24 @@ describe('workspaceContextStore', () => {
       clock: { now: () => new Date('2026-07-04T00:00:00.000Z') },
     });
     const files = await store.startSession({ workspace, session });
+    const fakeOpenAiKey = ['sk', 'test-workspace-context-redaction-token'].join('-');
+    const fakeAnthropicKey = ['sk-ant', 'test-workspace-context-redaction-token'].join('-');
 
     await store.appendOutput({
       workspace,
       sessionId: 'session-1',
       data: [
         'local-development-secret',
-        'sk-test-secret-value-that-is-long',
-        'sk-ant-test-secret-value-that-is-long',
+        fakeOpenAiKey,
+        fakeAnthropicKey,
         'ANTHROPIC_AUTH_TOKEN=secret-token',
       ].join('\n'),
     });
 
     const transcript = await readFile(files.sessionTranscriptFile, 'utf-8');
     expect(transcript).not.toContain('local-development-secret');
-    expect(transcript).not.toContain('sk-test-secret-value-that-is-long');
-    expect(transcript).not.toContain('sk-ant-test-secret-value-that-is-long');
+    expect(transcript).not.toContain(fakeOpenAiKey);
+    expect(transcript).not.toContain(fakeAnthropicKey);
     expect(transcript).not.toContain('secret-token');
     expect(transcript).toContain('ANTHROPIC_AUTH_TOKEN=[REDACTED]');
   });

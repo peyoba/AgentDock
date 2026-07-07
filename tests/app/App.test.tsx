@@ -27,7 +27,7 @@ type TestAgentDockApi = AgentDockApi & {
   onMetadataChanged: ReturnType<typeof vi.fn<[(listener: () => void) => () => void]>>;
   onSessionChanged: ReturnType<typeof vi.fn<[(listener: (session: AgentSession) => void) => () => void]>>;
   archiveSessionHistory: ReturnType<typeof vi.fn<[(request: { sessionId: string }) => Promise<{ filePath: string }>]>>;
-  restartSession: ReturnType<typeof vi.fn<[(request: { sessionId: string; command?: string }) => Promise<AgentSession>]>>;
+  restartSession: ReturnType<typeof vi.fn<[(request: { sessionId: string; command?: string; claudeLaunchMode?: 'lite' | 'full' }) => Promise<AgentSession>]>>;
   getSessionContextPressure: ReturnType<typeof vi.fn<[(request: { sessionId: string }) => Promise<{ sessionId: string; level: 'low' | 'medium' | 'high' | 'full'; score: number }>]>>;
   summarizeSession: ReturnType<typeof vi.fn<[(request: { sessionId: string; continueAfterSummary?: boolean }) => Promise<{ status: 'success'; summaryFile: string; handoffFile: string; handoffPrompt: string; continuationSession?: AgentSession }>]>>;
 };
@@ -413,6 +413,7 @@ describe('AgentDock session launch flow', () => {
           profileId: 'profile-a',
           workspaceId: 'workspace-a',
           command: 'claude --dangerously-skip-permissions',
+          claudeLaunchMode: 'lite',
           status: 'exited',
           startedAt: '2026-07-02T00:00:00.000Z',
           exitCode: 0,
@@ -452,6 +453,7 @@ describe('AgentDock session launch flow', () => {
       expect(api.restartSession).toHaveBeenCalledWith({
         sessionId: 'session-1',
         command: 'claude --resume c4bf-b857',
+        claudeLaunchMode: 'lite',
       });
     });
     expect(api.launchSession).not.toHaveBeenCalled();
@@ -467,6 +469,7 @@ describe('AgentDock session launch flow', () => {
           profileId: 'profile-a',
           workspaceId: 'workspace-a',
           command: 'claude --dangerously-skip-permissions',
+          claudeLaunchMode: 'lite',
           status: 'interrupted',
           startedAt: '2026-07-02T00:00:00.000Z',
         },
@@ -492,6 +495,7 @@ describe('AgentDock session launch flow', () => {
       expect(api.restartSession).toHaveBeenCalledWith({
         sessionId: 'session-1',
         command: 'claude --dangerously-skip-permissions',
+        claudeLaunchMode: 'lite',
       });
     });
     expect(api.launchSession).not.toHaveBeenCalled();
@@ -506,6 +510,7 @@ describe('AgentDock session launch flow', () => {
           profileId: 'profile-a',
           workspaceId: 'workspace-a',
           command: 'claude --dangerously-skip-permissions',
+          claudeLaunchMode: 'lite',
           status: 'exited',
           startedAt: '2026-07-02T00:00:00.000Z',
           exitCode: 1,
@@ -539,10 +544,189 @@ describe('AgentDock session launch flow', () => {
       expect(api.restartSession).toHaveBeenCalledWith({
         sessionId: 'session-1',
         command: 'claude --dangerously-skip-permissions',
+        claudeLaunchMode: 'lite',
       });
     });
     expect(api.launchSession).not.toHaveBeenCalled();
     expect(screen.getByLabelText('终端输出')).toHaveAttribute('data-session-id', 'session-1');
+  });
+
+  it('shows immediate feedback while restarting an exited session from the action bar', async () => {
+    let resolveRestart: ((session: AgentSession) => void) | undefined;
+    const api = installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Claude A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude --dangerously-skip-permissions',
+          claudeLaunchMode: 'lite',
+          status: 'exited',
+          startedAt: '2026-07-02T00:00:00.000Z',
+          exitCode: 0,
+        },
+      ]),
+      restartSession: vi.fn().mockImplementation(
+        () =>
+          new Promise<AgentSession>((resolve) => {
+            resolveRestart = resolve;
+          }),
+      ),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('会话已退出 · exit code 0')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新启动' }));
+
+    expect(await screen.findByText('正在重新启动会话...')).toBeInTheDocument();
+
+    act(() => {
+      resolveRestart?.({
+        id: 'session-1',
+        title: 'Claude A · AgentDock',
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude --dangerously-skip-permissions',
+        claudeLaunchMode: 'lite',
+        status: 'running',
+        startedAt: '2026-07-02T00:02:00.000Z',
+      });
+    });
+
+    await waitFor(() => {
+      expect(api.restartSession).toHaveBeenCalled();
+    });
+  });
+
+  it('shows one-sentence memory restore summary after restarting a session', async () => {
+    let resolveRestart: ((session: AgentSession) => void) | undefined;
+    const api = installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Claude A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude --dangerously-skip-permissions',
+          claudeLaunchMode: 'lite',
+          status: 'interrupted',
+          startedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ]),
+      restartSession: vi.fn().mockImplementation(
+        () =>
+          new Promise<AgentSession>((resolve) => {
+            resolveRestart = resolve;
+          }),
+      ),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('会话已中断 · 可重新启动')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新启动' }));
+
+    expect(await screen.findByText('正在恢复记忆')).toBeInTheDocument();
+
+    act(() => {
+      resolveRestart?.({
+        id: 'session-1',
+        title: 'Claude A · AgentDock',
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude --dangerously-skip-permissions',
+        claudeLaunchMode: 'lite',
+        status: 'running',
+        startedAt: '2026-07-02T00:02:00.000Z',
+        memoryRestore: {
+          status: 'loaded',
+          summary: '记忆已恢复：上次会话确认采用分层记忆恢复。',
+          contextFile: '/tmp/workspace/.agentdock/context/restores/session-1.md',
+        },
+      });
+    });
+
+    expect(await screen.findByText('记忆已恢复：上次会话确认采用分层记忆恢复。')).toBeInTheDocument();
+    expect(screen.queryByText('/tmp/workspace/.agentdock/context/restores/session-1.md')).not.toBeInTheDocument();
+    expect(api.restartSession).toHaveBeenCalled();
+  });
+
+  it('sanitizes memory restore summary before showing it in the page status bar', async () => {
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Claude A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude',
+          status: 'interrupted',
+          startedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ]),
+      restartSession: vi.fn().mockResolvedValue({
+        id: 'session-1',
+        title: 'Claude A · AgentDock',
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude',
+        status: 'running',
+        startedAt: '2026-07-02T00:02:00.000Z',
+        memoryRestore: {
+          status: 'loaded',
+          summary: '\u001b[32m记忆已恢复：已加载最近会话背景。\u001b[0m\r\nWorking(9s • esc to interrupt)',
+          contextFile: '/tmp/workspace/.agentdock/context/restores/session-1.md',
+        },
+      }),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('会话已中断 · 可重新启动')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新启动' }));
+
+    expect(await screen.findByText('记忆已恢复：已加载最近会话背景。')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('\u001b');
+    expect(document.body).not.toHaveTextContent('Working(9s');
+  });
+
+  it('shows empty memory restore state without exposing restore prompt text', async () => {
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Claude A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude',
+          status: 'interrupted',
+          startedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ]),
+      restartSession: vi.fn().mockResolvedValue({
+        id: 'session-1',
+        title: 'Claude A · AgentDock',
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude',
+        status: 'running',
+        startedAt: '2026-07-02T00:02:00.000Z',
+        memoryRestore: {
+          status: 'empty',
+          summary: '未找到可恢复记忆',
+        },
+      }),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('会话已中断 · 可重新启动')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新启动' }));
+
+    expect(await screen.findByText('未找到可恢复记忆')).toBeInTheDocument();
+    expect(screen.queryByText(/Read the AgentDock restore context file/)).not.toBeInTheDocument();
   });
 
   it('closes an exited session from the action bar', async () => {
@@ -613,7 +797,7 @@ describe('AgentDock session launch flow', () => {
     expect(screen.getByText('输出已复制')).toBeInTheDocument();
   });
 
-  it('offers archive and new-session actions when terminal history reaches the save limit', async () => {
+  it('does not show the local 5MB replay storage warning or archive actions', async () => {
     const api = installAgentDockApi({
       listSessions: vi.fn().mockResolvedValue([
         {
@@ -627,40 +811,18 @@ describe('AgentDock session launch flow', () => {
           historyLimitReached: true,
         },
       ]),
-      launchSession: vi.fn().mockResolvedValue({
-        id: 'session-2',
-        title: 'Claude A · AgentDock',
-        profileId: 'profile-a',
-        workspaceId: 'workspace-a',
-        command: 'claude --dangerously-skip-permissions',
-        status: 'running',
-        startedAt: '2026-07-02T00:02:00.000Z',
-      }),
-      archiveSessionHistory: vi.fn().mockResolvedValue({
-        filePath: '/Users/example/Library/Application Support/AgentDock/session-archives/session-1.txt',
-      }),
     });
 
     render(<App />);
 
-    expect(await screen.findByText('历史保存已满 · 5MB')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '存档历史' }));
-    await waitFor(() => {
-      expect(api.archiveSessionHistory).toHaveBeenCalledWith({ sessionId: 'session-1' });
-    });
-    expect(await screen.findByText(/历史已存档/)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '新开会话' }));
-    await waitFor(() => {
-      expect(api.launchSession).toHaveBeenCalledWith({
-        profileId: 'profile-a',
-        workspaceId: 'workspace-a',
-        command: 'claude --dangerously-skip-permissions',
-      });
-    });
+    await screen.findByLabelText('终端输出');
+    expect(screen.queryByText('终端回放保存已达 5MB')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '存档历史' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '新开会话' })).not.toBeInTheDocument();
+    expect(api.archiveSessionHistory).not.toHaveBeenCalled();
   });
 
-  it('shows context pressure warning and summarizes the active session', async () => {
+  it('labels local continuation-material pressure without claiming the model context is full', async () => {
     const api = installAgentDockApi({
       listSessions: vi.fn().mockResolvedValue([
         {
@@ -675,8 +837,8 @@ describe('AgentDock session launch flow', () => {
       ]),
       getSessionContextPressure: vi.fn().mockResolvedValue({
         sessionId: 'session-1',
-        level: 'high',
-        score: 90,
+        level: 'full',
+        score: 100,
       }),
       summarizeSession: vi.fn().mockResolvedValue({
         status: 'success',
@@ -688,7 +850,8 @@ describe('AgentDock session launch flow', () => {
 
     render(<App />);
 
-    expect(await screen.findByText(/上下文压力高/)).toBeInTheDocument();
+    expect(await screen.findByText(/续接材料已达上限/)).toBeInTheDocument();
+    expect(screen.queryByText(/上下文已满/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '总结当前会话' }));
 
     await waitFor(() => {
@@ -775,6 +938,74 @@ describe('AgentDock session launch flow', () => {
     fireEvent.click(await screen.findByRole('button', { name: '总结当前会话' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('summary failed');
+  });
+
+  it('does not show summary actions for local shell sessions', async () => {
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'zsh · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'zsh',
+          status: 'running',
+          startedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ]),
+      getSessionContextPressure: vi.fn().mockResolvedValue({
+        sessionId: 'session-1',
+        level: 'high',
+        score: 90,
+      }),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('button', { name: /^zsh · AgentDock$/ })).toBeInTheDocument();
+    await expect(
+      screen.findByRole('button', { name: '总结当前会话' }, { timeout: 200 }),
+    ).rejects.toThrow();
+    expect(screen.queryByRole('button', { name: '总结并续开' })).not.toBeInTheDocument();
+  });
+
+  it('does not show summary actions for non Claude/Codex agent sessions', async () => {
+    installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'gemini-a',
+          name: 'Gemini A',
+          toolType: 'gemini',
+          baseUrl: 'https://gemini.example.invalid/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'gemini-a',
+        },
+      ]),
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Gemini A · AgentDock',
+          profileId: 'gemini-a',
+          workspaceId: 'workspace-a',
+          command: 'gemini',
+          status: 'running',
+          startedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ]),
+      getSessionContextPressure: vi.fn().mockResolvedValue({
+        sessionId: 'session-1',
+        level: 'high',
+        score: 90,
+      }),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('button', { name: /^Gemini A · AgentDock$/ })).toBeInTheDocument();
+    await expect(
+      screen.findByRole('button', { name: '总结当前会话' }, { timeout: 200 }),
+    ).rejects.toThrow();
+    expect(screen.queryByRole('button', { name: '总结并续开' })).not.toBeInTheDocument();
   });
 
   it('launches with the profile workspace and auto command selected in command controls', async () => {

@@ -45,20 +45,37 @@ export type SessionStatus =
   | 'exited'
   | 'interrupted';
 
+export type MemoryRestoreStatus = 'loaded' | 'empty' | 'failed';
+
+export type MemoryRestoreState = {
+  status: MemoryRestoreStatus;
+  summary: string;
+  contextFile?: string;
+  error?: string;
+};
+
 export type AgentSession = {
   id: string;
   title: string;
   profileId: string;
   workspaceId: string;
   command: string;
+  claudeLaunchMode?: ClaudeLaunchMode;
   status: SessionStatus;
   startedAt: string;
   exitedAt?: string;
   exitCode?: number;
   exitSignal?: number;
   resumeCommand?: string;
+  transcript?: {
+    filePath: string;
+    byteSize: number;
+    tailBytes: number;
+    tailTruncated: boolean;
+  };
   historyLimitReached?: boolean;
   historyArchivePath?: string;
+  memoryRestore?: MemoryRestoreState;
 };
 
 export type LaunchRequest = {

@@ -9,11 +9,13 @@ import { SessionDetailsDrawer } from './components/SessionDetailsDrawer';
 import { SessionTabs } from './components/SessionTabs';
 import { TerminalPane } from './components/TerminalPane';
 import { defaultApiProfiles } from '../shared/defaultApiProfiles';
+import { terminalOutputToPlainText } from '../shared/terminalText';
 import type {
   AgentSession,
   ApiProfile,
   ClaudeLaunchMode,
   LaunchRequest,
+  RestartSessionRequest,
   SessionContextPressureResult,
   Workspace,
 } from '../shared/agentdockTypes';
@@ -132,6 +134,38 @@ function isLiveSession(session: AgentSession | undefined): boolean {
   return session?.status === 'running' || session?.status === 'starting';
 }
 
+function commandExecutableName(command: string): string {
+  const executable = command.trim().split(/\s+/)[0] ?? '';
+  return executable.split('/').pop() ?? executable;
+}
+
+function isSummarySupportedAgentSession(
+  session: AgentSession | undefined,
+  profile: ApiProfile | undefined,
+): session is AgentSession {
+  if (!session || !profile) {
+    return false;
+  }
+
+  const executable = commandExecutableName(session.command);
+  return (
+    (profile.toolType === 'claude' && executable === 'claude') ||
+    (profile.toolType === 'codex' && executable === 'codex')
+  );
+}
+
+function claudeLaunchModeForSession(
+  session: AgentSession,
+  profile: ApiProfile | undefined,
+  fallbackLaunchMode: ClaudeLaunchMode,
+): ClaudeLaunchMode | undefined {
+  if (profile?.toolType !== 'claude' || commandExecutableName(session.command) !== 'claude') {
+    return undefined;
+  }
+
+  return session.claudeLaunchMode ?? fallbackLaunchMode;
+}
+
 function isRecoverableSession(session: AgentSession | undefined): session is AgentSession {
   return session?.status === 'exited' || session?.status === 'interrupted' || session?.status === 'failed';
 }
@@ -178,30 +212,6 @@ function SessionRecoveryBar({
   );
 }
 
-function SessionHistoryLimitBar({
-  archiveMessage,
-  onNewSession,
-  onArchive,
-}: {
-  archiveMessage?: string;
-  onNewSession(): void;
-  onArchive(): void;
-}): React.JSX.Element {
-  return (
-    <div className="session-history-limit-bar" role="status" aria-label="历史保存状态">
-      <span>{archiveMessage ?? '历史保存已满 · 5MB'}</span>
-      <div className="session-exit-actions">
-        <button type="button" onClick={onNewSession}>
-          新开会话
-        </button>
-        <button type="button" onClick={onArchive}>
-          存档历史
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function SessionContextBar({
   pressure,
   handoffPrompt,
@@ -222,7 +232,7 @@ function SessionContextBar({
   return (
     <div className="session-context-bar" role="status" aria-label="上下文压力状态">
       <span>
-        {pressure.level === 'full' ? '上下文已满' : '上下文压力高'} · {pressure.score}
+        {pressure.level === 'full' ? '续接材料已达上限' : '续接材料偏大'} · {pressure.score}
       </span>
       <div className="session-exit-actions">
         <button type="button" onClick={onSummarize}>
@@ -237,6 +247,30 @@ function SessionContextBar({
           </button>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function SessionMemoryRestoreBar({
+  restore,
+}: {
+  restore?: AgentSession['memoryRestore'];
+}): React.JSX.Element | null {
+  if (!restore) {
+    return null;
+  }
+
+  const className = restore.status === 'failed'
+    ? 'session-memory-restore session-memory-restore-error'
+    : 'session-memory-restore';
+  const summary = terminalOutputToPlainText(restore.summary)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)[0] ?? '记忆恢复状态不可读';
+
+  return (
+    <div className={className} role="status" aria-label="记忆恢复状态">
+      <span>{summary}</span>
     </div>
   );
 }
@@ -264,11 +298,11 @@ export default function App(): React.JSX.Element {
   const [launching, setLaunching] = React.useState(false);
   const [launchError, setLaunchError] = React.useState<string | null>(null);
   const [actionStatus, setActionStatus] = React.useState<string | null>(null);
-  const [historyArchiveMessage, setHistoryArchiveMessage] = React.useState<string | undefined>();
   const [contextPressureBySessionId, setContextPressureBySessionId] = React.useState<
     Record<string, SessionContextPressureResult>
   >({});
   const [summaryHandoffPrompt, setSummaryHandoffPrompt] = React.useState<string | undefined>();
+  const [pendingMemoryRestoreSessionId, setPendingMemoryRestoreSessionId] = React.useState<string | undefined>();
 
   const refreshMetadata = React.useCallback(async (): Promise<void> => {
     if (!api) {
@@ -355,6 +389,11 @@ export default function App(): React.JSX.Element {
   const activeSessionWorkspace = workspaces.find(
     (workspace) => workspace.id === activeSession?.workspaceId,
   );
+  const activeSessionSupportsSummary = isSummarySupportedAgentSession(
+    activeSession,
+    activeSessionProfile,
+  );
+  const visibleActionStatus = pendingMemoryRestoreSessionId ? '正在重新启动会话...' : actionStatus;
   const tabs = sessions.map((session) => ({
     id: session.id,
     title: session.title,
@@ -370,13 +409,12 @@ export default function App(): React.JSX.Element {
   };
 
   React.useEffect(() => {
-    setHistoryArchiveMessage(undefined);
     setActionStatus(null);
     setSummaryHandoffPrompt(undefined);
   }, [activeSessionId]);
 
   React.useEffect(() => {
-    if (!api || !activeSessionId) {
+    if (!api || !activeSessionId || !activeSessionSupportsSummary) {
       return undefined;
     }
 
@@ -395,7 +433,7 @@ export default function App(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [api, activeSessionId, activeSession?.historyLimitReached]);
+  }, [api, activeSessionId, activeSessionSupportsSummary]);
 
   const launchSession = async (commandOverride?: string): Promise<AgentSession | undefined> => {
     if (!selectedProfile || !selectedWorkspace) {
@@ -457,11 +495,22 @@ export default function App(): React.JSX.Element {
     setLaunchError(null);
     setActionStatus(null);
     try {
-      const session = await api.launchSession({
+      const sourceProfile = profiles.find((profile) => profile.id === sourceSession.profileId);
+      const launchRequest: LaunchRequest = {
         profileId: sourceSession.profileId,
         workspaceId: sourceSession.workspaceId,
         command,
-      });
+      };
+      const sourceLaunchMode = claudeLaunchModeForSession(
+        sourceSession,
+        sourceProfile,
+        claudeLaunchMode,
+      );
+      if (sourceLaunchMode) {
+        launchRequest.claudeLaunchMode = sourceLaunchMode;
+      }
+
+      const session = await api.launchSession(launchRequest);
       closedSessionIdsRef.current.delete(session.id);
       setSessions((current) => upsertSession(current, session));
       setActiveSessionId(session.id);
@@ -484,20 +533,34 @@ export default function App(): React.JSX.Element {
 
     setLaunching(true);
     setLaunchError(null);
-    setActionStatus(null);
+    setPendingMemoryRestoreSessionId(sourceSession.id);
+    setActionStatus('正在重新启动会话...');
     try {
-      const session = await api.restartSession({
+      const sourceProfile = profiles.find((profile) => profile.id === sourceSession.profileId);
+      const restartRequest: RestartSessionRequest = {
         sessionId: sourceSession.id,
         command,
-      });
+      };
+      const sourceLaunchMode = claudeLaunchModeForSession(
+        sourceSession,
+        sourceProfile,
+        claudeLaunchMode,
+      );
+      if (sourceLaunchMode) {
+        restartRequest.claudeLaunchMode = sourceLaunchMode;
+      }
+
+      const session = await api.restartSession(restartRequest);
       closedSessionIdsRef.current.delete(session.id);
       setSessions((current) => upsertSession(current, session));
       setActiveSessionId(session.id);
+      setActionStatus('会话已重新启动');
       return session;
     } catch (error) {
       setLaunchError(safeLaunchError(error));
       return undefined;
     } finally {
+      setPendingMemoryRestoreSessionId(undefined);
       setLaunching(false);
     }
   };
@@ -516,33 +579,8 @@ export default function App(): React.JSX.Element {
     }
   };
 
-  const archiveSessionHistory = async (sessionId: string): Promise<void> => {
-    if (!api) {
-      return;
-    }
-
-    try {
-      const archive = await api.archiveSessionHistory({ sessionId });
-      setActionStatus(null);
-      setSessions((current) =>
-        current.map((session) =>
-          session.id === sessionId
-            ? {
-                ...session,
-                historyLimitReached: false,
-                historyArchivePath: archive.filePath,
-              }
-            : session,
-        ),
-      );
-      setHistoryArchiveMessage(`历史已存档：${archive.filePath}`);
-    } catch (error) {
-      setLaunchError(safeLaunchError(error));
-    }
-  };
-
   const summarizeActiveSession = async (continueAfterSummary: boolean): Promise<void> => {
-    if (!api || !activeSession) {
+    if (!api || !activeSession || !activeSessionSupportsSummary) {
       return;
     }
 
@@ -730,7 +768,7 @@ export default function App(): React.JSX.Element {
             onLaunch={() => void launchSession()}
           />
           {launchError ? <p role="alert" className="launch-error">{launchError}</p> : null}
-          {actionStatus ? <p role="status" className="launch-status">{actionStatus}</p> : null}
+          {visibleActionStatus ? <p role="status" className="launch-status">{visibleActionStatus}</p> : null}
 
           <section className={detailsOpen ? 'workspace-grid details-open' : 'workspace-grid'}>
             <section className="terminal-card">
@@ -742,6 +780,13 @@ export default function App(): React.JSX.Element {
                 onAddSession={() => void launchSession()}
                 onCloseSession={(sessionId) => void closeSession(sessionId)}
               />
+              {pendingMemoryRestoreSessionId === activeSessionId ? (
+                <div className="session-memory-restore" role="status" aria-label="记忆恢复状态">
+                  <span>正在恢复记忆</span>
+                </div>
+              ) : (
+                <SessionMemoryRestoreBar restore={activeSession?.memoryRestore} />
+              )}
               <TerminalPane
                 sessionId={activeSessionId}
                 preserveHistory={activeSession ? !['zsh', 'bash'].includes(activeSession.command) : true}
@@ -756,20 +801,13 @@ export default function App(): React.JSX.Element {
                   onClose={() => void closeSession(activeSession.id)}
                 />
               ) : null}
-              {activeSession && contextPressureBySessionId[activeSession.id] ? (
+              {activeSession && activeSessionSupportsSummary && contextPressureBySessionId[activeSession.id] ? (
                 <SessionContextBar
                   pressure={contextPressureBySessionId[activeSession.id]}
                   handoffPrompt={summaryHandoffPrompt}
                   onSummarize={() => void summarizeActiveSession(false)}
                   onSummarizeAndContinue={() => void summarizeActiveSession(true)}
                   onCopyPrompt={() => void copySummaryHandoffPrompt()}
-                />
-              ) : null}
-              {activeSession && (activeSession.historyLimitReached || historyArchiveMessage) ? (
-                <SessionHistoryLimitBar
-                  archiveMessage={historyArchiveMessage}
-                  onNewSession={() => void launchFromSession(activeSession, activeSession.command)}
-                  onArchive={() => void archiveSessionHistory(activeSession.id)}
                 />
               ) : null}
             </section>

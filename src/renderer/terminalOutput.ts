@@ -1,7 +1,16 @@
-const destructiveAnsiPattern =
-  /\x1b\[\?(?:1049|1048|1047|1000|1002|1003|1005|1006|1015)[hl]|\x1b\[[0-3]?J|\x1b\[(?:\d{0,3}(?:;\d{0,3})*)?[Hf]|\x1bc/g;
-const oscPattern = /\x1b\][^\x07]*(?:\x07|\x1b\\)/g;
+import { terminalOutputToPlainText } from '../shared/terminalText';
+
+const rawTerminalColorReplyPattern =
+  /\x1b\](?:4;\d+|1[012]);rgb:[0-9a-fA-F]{1,4}\/[0-9a-fA-F]{1,4}\/[0-9a-fA-F]{1,4}(?:\x07|\x1b\\)/g;
+const echoedTerminalColorReplyPattern =
+  /\^\[\](?:4;\d+|1[012]);rgb:[0-9a-fA-F]{1,4}\/[0-9a-fA-F]{1,4}\/[0-9a-fA-F]{1,4}(?:\^G|\^\[\\)/g;
 
 export function preserveTerminalHistoryOutput(data: string): string {
-  return data.replace(oscPattern, '').replace(destructiveAnsiPattern, '');
+  return terminalOutputToPlainText(data);
+}
+
+export function preserveLiveAgentOutput(data: string): string {
+  return data
+    .replace(rawTerminalColorReplyPattern, '')
+    .replace(echoedTerminalColorReplyPattern, '');
 }

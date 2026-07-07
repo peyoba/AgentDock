@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AgentDock 终端优先 v2 · 默认态（右侧收起）</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f4;
+        --surface: #ffffff;
+        --surface-soft: #f3f5f1;
+        --line: #e3e7df;
+        --line-soft: #edf0ea;
+        --text: #17201c;
+        --muted: #66736d;
+        --faint: #97a19b;
+        --sidebar: #d8eef5;
+        --terminal: #0e1514;
+        --terminal-line: #26332f;
+        --green: #258f67;
+        --amber: #b87515;
+        --red: #c24a3d;
+        --blue: #2f6f9f;
+        --shadow: 0 10px 30px rgba(36, 45, 40, 0.08);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      button, input { font: inherit; }
+
+      /* 默认态：左栏会话库常驻，终端占绝对主导，右侧收起为窄 rail */
+      .app {
+        width: 100vw;
+        height: 100vh;
+        display: grid;
+        grid-template-columns: 250px minmax(820px, 1fr) 48px;
+        overflow: hidden;
+      }
+
+      /* ---------- 左栏 会话库 ---------- */
+      .sidebar {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid rgba(116, 139, 133, 0.24);
+        background: linear-gradient(180deg, var(--sidebar), #e6f1ee 100%);
+      }
+
+      .traffic { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
+      .dot { width: 12px; height: 12px; border-radius: 999px; }
+      .dot.red { background: #ff605c; }
+      .dot.yellow { background: #ffbd44; }
+      .dot.green { background: #00ca4e; }
+
+      .sidebar-actions { padding: 4px 12px 12px; display: grid; gap: 8px; }
+      .action-row {
+        height: 34px; display: grid; grid-template-columns: 20px 1fr;
+        align-items: center; gap: 10px; padding: 0 10px;
+        border-radius: 7px; color: #20302c; font-size: 14px;
+      }
+      .action-row.primary {
+        background: rgba(255, 255, 255, 0.52);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.56); font-weight: 650;
+      }
+      .icon-box {
+        width: 16px; height: 16px; display: inline-grid; place-items: center;
+        border: 1.5px solid currentColor; border-radius: 4px; font-size: 12px; line-height: 1;
+      }
+      .icon-line { width: 16px; height: 16px; position: relative; }
+      .icon-line.search::before {
+        content: ""; position: absolute; width: 9px; height: 9px;
+        border: 1.5px solid currentColor; border-radius: 999px; left: 1px; top: 1px;
+      }
+      .icon-line.search::after {
+        content: ""; position: absolute; width: 7px; border-top: 1.5px solid currentColor;
+        transform: rotate(45deg); right: 1px; bottom: 2px;
+      }
+
+      .library { padding: 0 10px 12px; overflow: auto; }
+      .section-title {
+        margin: 14px 8px 7px; display: flex; align-items: center; justify-content: space-between;
+        color: #6a7b78; font-size: 12px; font-weight: 700;
+      }
+      .project { margin-bottom: 8px; }
+      .project-head {
+        height: 30px; display: grid; grid-template-columns: 18px 1fr auto;
+        align-items: center; gap: 8px; padding: 0 8px; color: #253531; font-size: 14px; font-weight: 650;
+      }
+      .project-count {
+        min-width: 20px; height: 20px; display: grid; place-items: center; border-radius: 999px;
+        background: rgba(49, 83, 91, 0.1); color: #4f676a; font-size: 12px;
+      }
+      .session {
+        min-height: 44px; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto;
+        align-items: center; gap: 10px; padding: 7px 8px 7px 22px; border-radius: 8px; color: #263532;
+      }
+      .session.active { background: rgba(81, 119, 128, 0.16); }
+      .session-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 560; }
+      .session-sub { margin-top: 3px; color: #627772; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .status-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--faint); }
+      .status-dot.running { background: var(--green); box-shadow: 0 0 0 3px rgba(37, 143, 103, 0.12); }
+      .status-dot.paused { background: var(--amber); }
+      .status-dot.exited { background: #8d9a94; }
+      .age { color: #6b7e7a; font-size: 12px; }
+
+      .sidebar-footer {
+        margin-top: auto; height: 56px; display: flex; align-items: center; gap: 10px;
+        padding: 0 16px; border-top: 1px solid rgba(116, 139, 133, 0.18);
+      }
+      .avatar {
+        width: 28px; height: 28px; display: grid; place-items: center; border-radius: 999px;
+        background: #d8d7ff; color: #4050a5; font-size: 12px; font-weight: 800;
+      }
+
+      /* ---------- 中间 终端主区（占主导） ---------- */
+      .main {
+        min-width: 0;
+        display: grid;
+        grid-template-rows: 48px 50px 1fr;
+        background: var(--surface);
+      }
+
+      /* 顶部：只服务当前会话；无第二个「新会话」，破坏性动作降级为小图标 */
+      .topbar {
+        min-width: 0; display: grid; grid-template-columns: 1fr auto; align-items: center;
+        gap: 12px; padding: 0 14px 0 18px; border-bottom: 1px solid var(--line-soft);
+      }
+      .session-heading { min-width: 0; display: flex; align-items: center; gap: 10px; }
+      .heading-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 740; }
+      .pill {
+        height: 23px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px;
+        border: 1px solid var(--line); border-radius: 999px; background: #fbfcfa;
+        color: #4d5c57; font-size: 12px; white-space: nowrap;
+      }
+      .pill.green { border-color: rgba(37, 143, 103, 0.22); background: #eef8f3; color: #1c6b4e; }
+
+      .top-actions { display: flex; align-items: center; gap: 6px; }
+      .icon-btn {
+        width: 30px; height: 30px; display: inline-grid; place-items: center;
+        border: 1px solid transparent; border-radius: 7px; background: transparent;
+        color: #5c6b66; font-size: 13px;
+      }
+      .icon-btn.stop { color: #b0413440; color: #a83b2f; }
+      .icon-btn.stop::before {
+        content: ""; width: 11px; height: 11px; border-radius: 2px; background: #c24a3d;
+      }
+      .icon-btn.more { font-weight: 800; letter-spacing: 1px; }
+
+      /* command bar 更低调：弱背景、无粗边、启动是这里唯一的实心按钮 */
+      .command-bar {
+        min-width: 0; display: grid;
+        grid-template-columns: minmax(150px, 1.1fr) minmax(150px, 1.1fr) minmax(200px, 1.4fr) auto;
+        align-items: center; gap: 10px; padding: 9px 18px;
+        border-bottom: 1px solid var(--line-soft); background: #fafbf7;
+      }
+      .select-like {
+        min-width: 0; height: 32px; display: flex; align-items: center; justify-content: space-between;
+        gap: 10px; padding: 0 10px; border: 1px solid var(--line-soft); border-radius: 7px;
+        background: #fff; color: #45534f; font-size: 13px;
+      }
+      .select-like span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .select-like .caret { color: #9aa7a1; }
+      .run-button {
+        height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        border-radius: 7px; padding: 0 16px; border: 1px solid #1f2926; background: #1f2926;
+        color: #fff; font-size: 13px; font-weight: 640;
+      }
+
+      /* 终端：边框更弱、面积更大、阴影更轻 */
+      .terminal-wrap { min-height: 0; display: grid; grid-template-rows: 1fr; padding: 10px 12px 12px; background: #f7f8f4; }
+      .terminal {
+        min-height: 0; overflow: hidden; border: 1px solid #1a2624; border-radius: 9px;
+        background: var(--terminal); box-shadow: var(--shadow);
+      }
+      .terminal-toolbar {
+        height: 32px; display: flex; align-items: center; justify-content: space-between;
+        padding: 0 14px; border-bottom: 1px solid var(--terminal-line);
+        background: #131e1c; color: #b8ccc5; font-size: 12px;
+      }
+      .terminal-toolbar .left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .term-meta { color: #7f938c; }
+      .terminal-body {
+        height: calc(100% - 32px); overflow: hidden; padding: 16px 24px; color: #cfe6dc;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 13px; line-height: 1.64;
+      }
+      .terminal-line { white-space: pre-wrap; }
+      .terminal-line.muted { color: #7d9089; }
+      .terminal-line.green { color: #73d7a1; }
+      .terminal-line.amber { color: #f2c37a; }
+      .terminal-line.blue { color: #8fc4ff; }
+      .prompt { color: #f5e6a7; }
+
+      /* ---------- 右侧 收起态窄 rail（默认收起） ---------- */
+      .rail {
+        display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 12px;
+        border-left: 1px solid var(--line-soft); background: #fafbf8;
+      }
+      .rail-btn {
+        width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid transparent;
+        border-radius: 8px; background: transparent; color: #63736e; font-size: 12px; font-weight: 700; position: relative;
+      }
+      .rail-btn.active { border-color: var(--line); background: #fff; color: #1d2824; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+      .rail-badge {
+        position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; padding: 0 3px;
+        display: grid; place-items: center; border-radius: 999px; background: #93a29c; color: #fff;
+        font-size: 10px; font-weight: 800;
+      }
+      .rail-hint { margin-top: 8px; writing-mode: vertical-rl; color: #9aa7a1; font-size: 11px; letter-spacing: 2px; }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <!-- ================= 左栏 会话库（保留浅蓝） ================= -->
+      <aside class="sidebar" aria-label="会话记录">
+        <div class="traffic" aria-hidden="true">
+          <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+        </div>
+        <div class="sidebar-actions">
+          <div class="action-row primary"><span class="icon-box">+</span><span>新会话</span></div>
+          <div class="action-row"><span class="icon-line search"></span><span>搜索会话</span></div>
+        </div>
+        <div class="library">
+          <div class="section-title"><span>项目</span><span>全部记录</span></div>
+          <div class="project">
+            <div class="project-head"><span>▾</span><span>AgentDock</span><span class="project-count">5</span></div>
+            <div class="session active">
+              <span class="status-dot running"></span>
+              <div><div class="session-title">会话记录库与恢复重构</div><div class="session-sub">Claude · anyrouter · 可原生继续</div></div>
+              <span class="age">现在</span>
+            </div>
+            <div class="session">
+              <span class="status-dot paused"></span>
+              <div><div class="session-title">终端控制序列乱码修复</div><div class="session-sub">Codex · openai · 摘要恢复</div></div>
+              <span class="age">6h</span>
+            </div>
+            <div class="session">
+              <span class="status-dot exited"></span>
+              <div><div class="session-title">Context Budget 自动总结</div><div class="session-sub">Claude · exited · transcript 已保存</div></div>
+              <span class="age">1d</span>
+            </div>
+          </div>
+          <div class="project">
+            <div class="project-head"><span>▾</span><span>chipwise</span><span class="project-count">3</span></div>
+            <div class="session">
+              <span class="status-dot running"></span>
+              <div><div class="session-title">goal 主任务</div><div class="session-sub">Codex · 4 个文件已更改</div></div>
+              <span class="age">7d</span>
+            </div>
+            <div class="session">
+              <span class="status-dot exited"></span>
+              <div><div class="session-title">codex 录屏功能怎么使用</div><div class="session-sub">Claude · 只读历史</div></div>
+              <span class="age">2d</span>
+            </div>
+          </div>
+          <div class="project">
+            <div class="project-head"><span>▸</span><span>Obsidian Vault</span><span class="project-count">4</span></div>
+          </div>
+        </div>
+        <div class="sidebar-footer">
+          <div class="avatar">设</div>
+          <div><div class="session-title">设置</div><div class="session-sub">账户 · API 配置 · 工作区</div></div>
+        </div>
+      </aside>
+
+      <!-- ================= 中间 终端主区 ================= -->
+      <main class="main">
+        <header class="topbar">
+          <div class="session-heading">
+            <span class="heading-title">会话记录库与恢复重构</span>
+            <span class="pill green"><span class="status-dot running"></span>运行中</span>
+            <span class="pill">Claude · anyrouter</span>
+          </div>
+          <!-- 顶部只服务当前会话：停止（小图标） + 更多。无第二个「新会话」 -->
+          <div class="top-actions">
+            <button class="icon-btn stop" type="button" aria-label="停止会话"></button>
+            <button class="icon-btn more" type="button" aria-label="更多">…</button>
+          </div>
+        </header>
+
+        <section class="command-bar" aria-label="启动栏">
+          <div class="select-like"><span>Claude · anyrouter</span><span class="caret">⌄</span></div>
+          <div class="select-like"><span>Workspace · AgentDock</span><span class="caret">⌄</span></div>
+          <div class="select-like"><span>claude --dangerously-skip-permissions</span><span class="caret">⌄</span></div>
+          <button class="run-button" type="button">启动</button>
+        </section>
+
+        <section class="terminal-wrap">
+          <div class="terminal" aria-label="终端">
+            <div class="terminal-toolbar">
+              <div class="left"><span>AgentDock · session-w1-18</span></div>
+              <span class="term-meta">120 x 32 · live</span>
+            </div>
+            <div class="terminal-body">
+              <div class="terminal-line muted">[AgentDock] 已恢复原生 Claude 会话，终端记录从本地 transcript 回放。</div>
+              <div class="terminal-line"><span class="prompt">$</span> npm run workflow:doctor</div>
+              <div class="terminal-line green">PASS workflow wiring ok</div>
+              <div class="terminal-line"><span class="prompt">$</span> npm run typecheck</div>
+              <div class="terminal-line green">PASS TypeScript checks completed &nbsp;·&nbsp; 42 files / 271 tests</div>
+              <div class="terminal-line blue">默认态：右侧项目面板收起为窄 rail，终端拿到 120 列。</div>
+              <div class="terminal-line">- 终端宽度硬约束：默认接近 120 列，最低不低于 100 列</div>
+              <div class="terminal-line">- 窗口变窄时先收右栏 / 浮出，不硬挤终端</div>
+              <div class="terminal-line">- 右栏用户没固定过 → 进入会话保持收起</div>
+              <div class="terminal-line amber">点击右侧「文」可展开文件树（见展开态效果图）。</div>
+              <div class="terminal-line"><span class="prompt">AgentDock</span> 等待下一条指令...</div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- ================= 右侧 收起态窄 rail ================= -->
+      <aside class="rail" aria-label="项目面板（已收起）">
+        <button class="rail-btn active" type="button" aria-label="文件树">文<span class="rail-badge">5</span></button>
+        <button class="rail-btn" type="button" aria-label="当前会话">会</button>
+        <button class="rail-btn" type="button" aria-label="恢复摘要">恢</button>
+        <div class="rail-hint">项目面板</div>
+      </aside>
+    </div>
+  </body>
+</html>

@@ -87,7 +87,7 @@ describe('restoreContextStore', () => {
         workspacePath,
         session,
         summaryMarkdown: '# AgentDock Session Summary\n\n## Current Goal\n修复 AgentDock 会话恢复。',
-        transcriptTail: `OPENAI_API_KEY=sk-${'1'.repeat(24)}\n用户确认采用分层记忆恢复。`,
+        transcriptTail: 'OPENAI_API_KEY=[TEST_REDACTED_KEY]\n用户确认采用分层记忆恢复。',
       });
 
       expect(result.status).toBe('loaded');

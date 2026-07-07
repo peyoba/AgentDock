@@ -12,10 +12,10 @@ describe('estimateContextPressure', () => {
     })).toMatchObject({ level: 'low', score: 2 });
   });
 
-  it('returns medium and high pressure from normalized local size signals', () => {
+  it('returns medium and high pressure from normalized continuation material signals', () => {
     expect(estimateContextPressure({
       historyBufferBytes: 2_750_000,
-      transcriptBytes: 500_000,
+      transcriptBytes: 1_300_000,
       sharedContextBytes: 120_000,
       recentOutputBytesPerMinute: 5_000,
       historyLimitReached: false,
@@ -30,13 +30,13 @@ describe('estimateContextPressure', () => {
     }).level).toBe('high');
   });
 
-  it('returns full pressure when history limit is reached', () => {
+  it('does not report model context as full when only local terminal history reaches its save limit', () => {
     expect(estimateContextPressure({
-      historyBufferBytes: 100,
+      historyBufferBytes: 5_000_000,
       transcriptBytes: 100,
       sharedContextBytes: 100,
       recentOutputBytesPerMinute: 0,
       historyLimitReached: true,
-    })).toMatchObject({ level: 'full', score: 100 });
+    })).toMatchObject({ level: 'low' });
   });
 });

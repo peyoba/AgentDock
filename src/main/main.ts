@@ -18,6 +18,7 @@ import { createProfileStore } from './stores/profileStore.js';
 import { createSessionHistoryStore } from './stores/sessionHistoryStore.js';
 import { createWorkspaceStore } from './stores/workspaceStore.js';
 import { createSummaryJobService } from './summaryJobService.js';
+import { launchContinuationWithPrompt } from './summaryContinuation.js';
 import { createProfileSummaryRunner } from './summaryRunner.js';
 import { createWindowSessionRegistry } from './windowSessionRegistry.js';
 import { createWorkspaceContextStore } from './workspaceContextStore.js';
@@ -101,13 +102,14 @@ const sessionRegistry = createWindowSessionRegistry((windowId) => {
           homeDir: process.env.HOME ?? app.getPath('home'),
         }),
         readTranscript: () => service.readTerminalBuffer({ sessionId: session.id }),
-        launchContinuation: async ({ sourceSession }) => {
-          return service.launch({
+        launchContinuation: async ({ sourceSession, handoffPrompt }) =>
+          launchContinuationWithPrompt({
+            service,
             profile,
             workspace,
-            command: sourceSession.command,
-          });
-        },
+            sourceSession,
+            handoffPrompt,
+          }),
       });
       return job.summarizeSession({
         session,
@@ -285,6 +287,30 @@ function hardenWebContents(
     if (!isDevNavigation && !url.startsWith('file://')) {
       event.preventDefault();
     }
+  });
+}
+
+// 输入框和选中文本的右键编辑菜单；终端区域由 renderer 侧 contextmenu preventDefault 接管，不会走到这里
+function installEditContextMenu(contents: Electron.WebContents): void {
+  contents.on('context-menu', (_event, params) => {
+    const hasSelection = params.selectionText.trim().length > 0;
+    if (!params.isEditable && !hasSelection) {
+      return;
+    }
+
+    const template: Electron.MenuItemConstructorOptions[] = params.isEditable
+      ? [
+          { role: 'cut', label: '剪切', enabled: params.editFlags.canCut },
+          { role: 'copy', label: '复制', enabled: params.editFlags.canCopy },
+          { role: 'paste', label: '粘贴', enabled: params.editFlags.canPaste },
+          { type: 'separator' },
+          { role: 'selectAll', label: '全选' },
+        ]
+      : [{ role: 'copy', label: '复制' }];
+
+    Menu.buildFromTemplate(template).popup({
+      window: BrowserWindow.fromWebContents(contents) ?? undefined,
+    });
   });
 }
 
@@ -477,6 +503,7 @@ function createMainWindow({
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
   hardenWebContents(window.webContents, devServerUrl);
+  installEditContextMenu(window.webContents);
   if (devServerUrl) {
     void window.loadURL(devServerUrl);
     window.webContents.openDevTools({ mode: 'detach' });
@@ -514,6 +541,7 @@ function installApplicationMenu(): void {
         { role: 'cut' },
         { role: 'copy' },
         { role: 'paste' },
+        { role: 'selectAll' },
       ],
     },
   ];

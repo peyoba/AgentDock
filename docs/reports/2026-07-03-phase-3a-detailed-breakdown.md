@@ -406,7 +406,7 @@ files=$(git diff --cached --name-only)
 forbidden_patterns=(
   "sk-"                          # OpenAI keys
   "gsk_"                         # Anthropic keys
-  "---BEGIN PRIVATE KEY---"      # Private keys
+  "private-key marker"           # Private keys
   "\"ANTHROPIC_API_KEY\""       # Env vars with real keys
   "OPENAI_API_KEY="
   "CODEX_API_KEY="

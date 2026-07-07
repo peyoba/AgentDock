@@ -130,7 +130,7 @@ Create `tests/app/workspaceContextStore.test.ts` with tests for:
 - `startSession()` creates `.agentdock/context/shared-context.md`, `index.json`, and `sessions/<sessionId>.md`.
 - `appendOutput()` writes redacted PTY output into transcript and shared context.
 - `ensureGitExcluded()` appends `.agentdock/` to `.git/info/exclude` exactly once.
-- Secret-like strings such as `local-development-secret`, `sk-test-secret-value-that-is-long`, `sk-ant-test-secret-value-that-is-long`, and `ANTHROPIC_AUTH_TOKEN=` are redacted.
+- Secret-like strings such as `local-development-secret`, runtime-built `sk`/`sk-ant` test tokens, and `ANTHROPIC_AUTH_TOKEN=` are redacted.
 
 Use temp directories through `fs.mkdtempSync(path.join(os.tmpdir(), 'agentdock-context-'))` and remove them in `afterEach`.
 

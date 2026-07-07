@@ -177,7 +177,7 @@ npm run package:mac     # 打包 macOS app
 测试状态        ✅ 通过 (30 files / 177 tests)
 类型检查        ✅ 通过 (npm run typecheck)
 安全扫描        ✅ 通过 (无真实 API key 发现)
-打包验证        ✅ 通过 (macOS ad-hoc signed)
+打包验证        ✅ 通过 (macOS self-signed with AgentDock Codesign)
 ```
 
 ---
@@ -204,6 +204,7 @@ npm run package:mac     # 打包 macOS app
 
 | 日期 | 类型 | 内容 |
 |------|------|------|
+| 2026-07-06 | 修复 | 复制粘贴补全：Edit 菜单加全选（Cmd+A）、输入框/选中文本右键编辑菜单、终端右键"有选中复制、无选中粘贴" |
 | 2026-07-05 | 修复 | vault 密钥材料 v2（去除 hostname/目录依赖 + legacy 自愈），9 条已存记录已迁移；标签悬停 0.3s 自定义 tooltip；打包排除本地工具文件；出厂配置去除本机代理 |
 | 2026-07-05 | 构建 | 打包改用本机自签名证书 `AgentDock Codesign`（解决 TCC 权限反复弹窗）；GitHub 直连失败时用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` |
 | 2026-07-05 | 清理 | 执行清理报告第一阶段：删除 4 个过时根文档 + mockups 原型 19 个文件，清理悬空引用；`.agent-workflow/` 确认保留 |

@@ -344,19 +344,6 @@ p {
   color: #991b1b;
 }
 
-.session-history-limit-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 12px;
-  border-top: 1px solid #fde68a;
-  background: #fffbeb;
-  color: #92400e;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 .session-context-bar {
   display: flex;
   align-items: center;
@@ -368,6 +355,23 @@ p {
   color: #1d4ed8;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.session-memory-restore {
+  align-items: center;
+  background: #eef7f2;
+  border-bottom: 1px solid #cfe8dc;
+  color: #185c3d;
+  display: flex;
+  font-size: 12px;
+  min-height: 28px;
+  padding: 6px 14px;
+}
+
+.session-memory-restore-error {
+  background: #fff1f2;
+  border-bottom-color: #fecdd3;
+  color: #9f1239;
 }
 
 .launch-status {
@@ -477,6 +481,33 @@ p {
 
 .terminal-drag-scrollbar.is-disabled {
   display: none;
+}
+
+.terminal-jump-controls {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.terminal-jump-controls button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 7px;
+  background: rgba(17, 24, 39, 0.82);
+  color: #f9fafb;
+  font: 700 15px/1 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.terminal-jump-controls button:hover,
+.terminal-jump-controls button:focus-visible {
+  background: rgba(31, 41, 55, 0.94);
+  border-color: rgba(255, 255, 255, 0.32);
 }
 
 .terminal-scroll-dragging,

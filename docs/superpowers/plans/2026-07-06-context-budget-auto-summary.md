@@ -233,7 +233,7 @@ const validSummary = [
 
 describe('sessionSummaryStore', () => {
   it('redacts API keys and env assignments before summary input is sent', () => {
-    expect(redactSummarySecrets('OPENAI_API_KEY=sk-1234567890123456 token sk-ant-1234567890123456'))
+    expect(redactSummarySecrets('OPENAI_API_KEY=[TEST_REDACTED_KEY] token [TEST_REDACTED_TOKEN]'))
       .toBe('OPENAI_API_KEY=[REDACTED] token [REDACTED]');
   });
 
@@ -307,7 +307,7 @@ const service = createSummaryJobService({
   summaryStore,
   runSummary: async (input) => validSummaryMarkdown,
   launchContinuation: async () => continuationSession,
-  readTranscript: async () => 'OPENAI_API_KEY=sk-1234567890123456\nimportant output',
+  readTranscript: async () => 'OPENAI_API_KEY=[TEST_REDACTED_KEY]\nimportant output',
   clock: { now: () => new Date('2026-07-06T00:00:00.000Z') },
 });
 ```

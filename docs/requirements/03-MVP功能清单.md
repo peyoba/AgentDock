@@ -3,7 +3,7 @@
 ## 第一阶段：MVP 必须实现
 
 - [ ] Profile 增删改查
-- [ ] API key 存 macOS Keychain
+- [ ] API key 存本机加密 vault
 - [ ] Workspace 增删改查
 - [ ] 选择 Profile + Workspace 启动新终端
 - [ ] Claude 独立环境变量启动
@@ -38,7 +38,7 @@
 
 1. macOS SwiftUI App 骨架
 2. 本地配置模型：Profile、Workspace、Session
-3. Keychain 密钥保存
+3. 本机加密 vault 密钥保存
 4. Terminal.app 启动 Claude
 5. 独立 CODEX_HOME 启动 Codex
 6. iTerm2 支持

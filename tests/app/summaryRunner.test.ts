@@ -124,6 +124,8 @@ function runnerInput() {
 describe('createProfileSummaryRunner', () => {
   it('runs Claude in print mode through the injected PTY and returns clean markdown', async () => {
     const runtime = createRuntime();
+    const ensuredDirectories: string[] = [];
+    const writtenFiles: Array<{ filePath: string; content: string }> = [];
     const profile: ApiProfile = {
       id: 'profile-a',
       name: 'Claude A',
@@ -139,6 +141,12 @@ describe('createProfileSummaryRunner', () => {
       pty: runtime.pty,
       appDataPath: '/tmp/agentdock-test-data',
       homeDir: '/Users/example',
+      ensureDirectory: async (directoryPath) => {
+        ensuredDirectories.push(directoryPath);
+      },
+      writeTextFile: async (filePath, content) => {
+        writtenFiles.push({ filePath, content });
+      },
     });
 
     const resultPromise = runSummary(runnerInput());
@@ -158,14 +166,27 @@ describe('createProfileSummaryRunner', () => {
     expect(spawnRequest.command).toContain('--output-format text');
     expect(spawnRequest.command).toContain('--no-session-persistence');
     expect(spawnRequest.command).toContain('--permission-mode plan');
+    expect(spawnRequest.command).toContain('--effort high');
+    expect(spawnRequest.command).toContain('--setting-sources project,local');
+    expect(spawnRequest.command).toContain(
+      "--mcp-config '/tmp/agentdock-test-data/claude-mcp/empty.json'",
+    );
+    expect(spawnRequest.command).toContain('--strict-mcp-config');
     expect(spawnRequest.command).toContain('## Current Goal');
     expect(spawnRequest.command).toContain('terminal tail with [REDACTED]');
     expect(spawnRequest.command).not.toContain('dangerously');
     expect(spawnRequest.command).not.toContain('secret-value-that-must-not-appear');
+    expect(ensuredDirectories).toEqual(['/tmp/agentdock-test-data/claude-mcp']);
+    expect(writtenFiles).toEqual([
+      {
+        filePath: '/tmp/agentdock-test-data/claude-mcp/empty.json',
+        content: `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`,
+      },
+    ]);
   });
 
   it('runs Codex exec with isolated CODEX_HOME config that never writes the API key', async () => {
-    const runtime = createRuntime('codex-secret-that-must-not-be-written');
+    const runtime = createRuntime('redacted-test-token-that-must-not-be-written');
     const ensuredDirectories: string[] = [];
     const writtenFiles: Array<{ filePath: string; content: string }> = [];
     const profile: ApiProfile = {
@@ -210,19 +231,19 @@ describe('createProfileSummaryRunner', () => {
     ]);
     expect(writtenFiles[0].content).toContain('model = "gpt-5-codex"');
     expect(writtenFiles[0].content).toContain('env_key = "OPENAI_API_KEY"');
-    expect(writtenFiles[0].content).not.toContain('codex-secret-that-must-not-be-written');
+    expect(writtenFiles[0].content).not.toContain('redacted-test-token-that-must-not-be-written');
     expect(spawnRequest.env).toMatchObject({
       OPENAI_BASE_URL: 'https://openai.example.invalid/v1',
-      OPENAI_API_KEY: 'codex-secret-that-must-not-be-written',
+      OPENAI_API_KEY: 'redacted-test-token-that-must-not-be-written',
       CODEX_HOME: '/Users/example/.agentdock/codex-profiles/codex-a',
     });
     expect(spawnRequest.command).toContain('codex exec');
     expect(spawnRequest.command).toContain("--cd '/Users/example/Desktop/web/Agent Dock'");
     expect(spawnRequest.command).toContain('--sandbox read-only');
-    expect(spawnRequest.command).toContain('--ask-for-approval never');
+    expect(spawnRequest.command).not.toContain('--ask-for-approval');
     expect(spawnRequest.command).toContain('--skip-git-repo-check');
     expect(spawnRequest.command).toContain('--ephemeral');
-    expect(spawnRequest.command).not.toContain('codex-secret-that-must-not-be-written');
+    expect(spawnRequest.command).not.toContain('redacted-test-token-that-must-not-be-written');
   });
 
   it('rejects nonzero CLI exits without leaking raw output or secrets', async () => {
