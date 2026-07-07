@@ -199,6 +199,247 @@ p {
   border-radius: 9px;
 }
 
+.workbench-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.workbench-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-library {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid #dfe5ee;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.session-library-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid #e4eaf2;
+}
+
+.session-library-header h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.session-new-button {
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.session-library-search {
+  margin: 10px 12px 8px;
+  min-height: 32px;
+  box-sizing: border-box;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.session-library-filter {
+  align-self: flex-start;
+  margin: 0 12px 8px;
+  border: 1px solid #dbe3ee;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.session-library-filter[aria-pressed="true"] {
+  border-color: #9db7dc;
+  background: #eaf2ff;
+  color: #174ea6;
+}
+
+.session-library-group {
+  display: grid;
+  gap: 6px;
+  padding: 6px 8px 10px;
+}
+
+.session-library-group h3 {
+  margin: 8px 6px 3px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.session-library-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.session-library-item.active {
+  border-color: #c7dcff;
+  background: #eaf2ff;
+}
+
+.session-library-open {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "dot title"
+    ". meta";
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  border: 0;
+  background: transparent;
+  color: #111827;
+  padding: 8px;
+  text-align: left;
+}
+
+.session-library-title {
+  grid-area: title;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.session-library-meta {
+  grid-area: meta;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.session-status-dot {
+  grid-area: dot;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.session-status-dot.running {
+  background: #10b981;
+}
+
+.session-status-dot.starting {
+  background: #0ea5e9;
+}
+
+.session-status-dot.stopped {
+  background: #64748b;
+}
+
+.session-status-dot.exited {
+  background: #9ca3af;
+}
+
+.session-status-dot.interrupted {
+  background: #f59e0b;
+}
+
+.session-status-dot.failed {
+  background: #ef4444;
+}
+
+.session-library-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-right: 6px;
+}
+
+.session-library-menu summary {
+  width: 24px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: #64748b;
+  cursor: default;
+  font-size: 13px;
+  font-weight: 900;
+  list-style: none;
+}
+
+.session-library-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.session-library-menu[open] summary,
+.session-library-menu summary:hover {
+  background: #dbeafe;
+  color: #174ea6;
+}
+
+.session-library-menu-popover {
+  position: absolute;
+  top: 32px;
+  right: 4px;
+  z-index: 20;
+  width: 132px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+}
+
+.session-library-menu-popover button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #1f2937;
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.session-library-menu-popover button:hover {
+  background: #f1f5f9;
+}
+
 .workspace-grid {
   flex: 1;
   min-height: 0;
@@ -222,6 +463,112 @@ p {
   border: 1px solid #e5e7eb;
   background: #fff;
   box-shadow: none;
+}
+
+.terminal-session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+.terminal-session-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.terminal-session-title h2 {
+  margin: 0;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.terminal-session-title p {
+  margin: 2px 0 0;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-session-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #475569;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.session-status-chip.running {
+  background: #e8f8f0;
+  color: #047857;
+}
+
+.session-status-chip.starting {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.session-status-chip.stopped {
+  background: #eef2f7;
+  color: #475569;
+}
+
+.session-status-chip.exited {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.session-status-chip.interrupted {
+  background: #fff7ed;
+  color: #b45309;
+}
+
+.session-status-chip.failed {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.terminal-stop-button,
+.terminal-more-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.terminal-stop-button {
+  color: #dc2626;
+}
+
+.terminal-session-actions .details-toggle {
+  margin-left: 0;
 }
 
 .session-tabs {

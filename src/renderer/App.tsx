@@ -6,7 +6,7 @@ import { ApiConfigPanel, type ApiConfigFilter } from './components/ApiConfigPane
 import { AppHeader } from './components/AppHeader';
 import { CommandBar } from './components/CommandBar';
 import { SessionDetailsDrawer } from './components/SessionDetailsDrawer';
-import { SessionTabs } from './components/SessionTabs';
+import { SessionLibrary } from './components/SessionLibrary';
 import { TerminalPane } from './components/TerminalPane';
 import { defaultApiProfiles } from '../shared/defaultApiProfiles';
 import { terminalOutputToPlainText } from '../shared/terminalText';
@@ -130,6 +130,22 @@ function inactiveSessionLabel(session: AgentSession): string {
   return exitedSessionLabel(session);
 }
 
+function sessionStatusLabel(session: AgentSession | undefined): string {
+  if (!session) {
+    return '未选择';
+  }
+
+  const labels: Record<AgentSession['status'], string> = {
+    starting: '启动中',
+    running: '运行中',
+    stopped: '已停止',
+    exited: '已退出',
+    interrupted: '已中断',
+    failed: '失败',
+  };
+  return labels[session.status];
+}
+
 function isLiveSession(session: AgentSession | undefined): boolean {
   return session?.status === 'running' || session?.status === 'starting';
 }
@@ -205,7 +221,7 @@ function SessionRecoveryBar({
           复制输出
         </button>
         <button type="button" onClick={onClose}>
-          关闭标签
+          关闭视图
         </button>
       </div>
     </div>
@@ -278,7 +294,6 @@ function SessionMemoryRestoreBar({
 export default function App(): React.JSX.Element {
   const api = typeof window === 'undefined' ? undefined : window.agentDock;
   const commandBarRef = React.useRef<HTMLElement>(null);
-  const closedSessionIdsRef = React.useRef<Set<string>>(new Set());
   const [activePage, setActivePage] = React.useState<ActivePage>('workbench');
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [profiles, setProfiles] = React.useState<ApiProfile[]>(api ? [] : fallbackProfiles);
@@ -374,9 +389,6 @@ export default function App(): React.JSX.Element {
     }
 
     return api.onSessionChanged((session) => {
-      if (closedSessionIdsRef.current.has(session.id)) {
-        return;
-      }
       setSessions((current) => upsertSession(current, session));
     });
   }, [api]);
@@ -394,11 +406,6 @@ export default function App(): React.JSX.Element {
     activeSessionProfile,
   );
   const visibleActionStatus = pendingMemoryRestoreSessionId ? '正在重新启动会话...' : actionStatus;
-  const tabs = sessions.map((session) => ({
-    id: session.id,
-    title: session.title,
-    active: session.id === activeSessionId,
-  }));
 
   const selectProfile = (profileId: string): void => {
     const nextProfile = profiles.find((profile) => profile.id === profileId);
@@ -471,7 +478,6 @@ export default function App(): React.JSX.Element {
     setActionStatus(null);
     try {
       const session = await api.launchSession(launchRequest);
-      closedSessionIdsRef.current.delete(session.id);
       setSessions((current) => upsertSession(current, session));
       setActiveSessionId(session.id);
       return session;
@@ -511,7 +517,6 @@ export default function App(): React.JSX.Element {
       }
 
       const session = await api.launchSession(launchRequest);
-      closedSessionIdsRef.current.delete(session.id);
       setSessions((current) => upsertSession(current, session));
       setActiveSessionId(session.id);
       return session;
@@ -551,7 +556,6 @@ export default function App(): React.JSX.Element {
       }
 
       const session = await api.restartSession(restartRequest);
-      closedSessionIdsRef.current.delete(session.id);
       setSessions((current) => upsertSession(current, session));
       setActiveSessionId(session.id);
       setActionStatus('会话已重新启动');
@@ -594,7 +598,6 @@ export default function App(): React.JSX.Element {
       setSummaryHandoffPrompt(result.handoffPrompt);
       setActionStatus(`摘要已生成：${result.handoffFile}`);
       if (result.continuationSession) {
-        closedSessionIdsRef.current.delete(result.continuationSession.id);
         setSessions((current) => upsertSession(current, result.continuationSession as AgentSession));
         setActiveSessionId(result.continuationSession.id);
       }
@@ -612,24 +615,132 @@ export default function App(): React.JSX.Element {
     setActionStatus('续接提示已复制');
   };
 
-  const closeSession = async (sessionId: string): Promise<void> => {
+  const openSessionView = (sessionId: string): void => {
+    setActiveSessionId(sessionId);
+  };
+
+  const focusNewSessionControls = (): void => {
+    setActionStatus(null);
+    const focusable = commandBarRef.current?.querySelector('select, button') as
+      | HTMLElement
+      | null
+      | undefined;
+    commandBarRef.current?.scrollIntoView({ block: 'nearest' });
+    focusable?.focus();
+  };
+
+  const closeSessionView = async (sessionId: string): Promise<void> => {
     if (api) {
       try {
-        await api.killTerminal({ sessionId });
+        const session = await api.closeSessionView({ sessionId, viewId: 'main-window' });
+        setSessions((current) => upsertSession(current, session));
+      } catch (error) {
+        setLaunchError(safeLaunchError(error));
+        return;
+      }
+    } else {
+      setSessions((current) =>
+        current.map((session) =>
+          session.id === sessionId
+            ? { ...session, closedViewIds: Array.from(new Set([...(session.closedViewIds ?? []), 'main-window'])) }
+            : session,
+        ),
+      );
+    }
+
+    setSessions((current) => {
+      setActiveSessionId((currentActiveSessionId) => {
+        if (currentActiveSessionId !== sessionId) {
+          return currentActiveSessionId;
+        }
+        return current.find((session) => session.id !== sessionId && !session.archived)?.id;
+      });
+      return current;
+    });
+  };
+
+  const stopSession = async (sessionId: string): Promise<void> => {
+    const session = sessions.find((item) => item.id === sessionId);
+    if (!session) {
+      return;
+    }
+
+    if (!api) {
+      setSessions((current) =>
+        current.map((item) => (item.id === sessionId ? { ...item, status: 'stopped' } : item)),
+      );
+      return;
+    }
+
+    try {
+      const stoppedSession = await api.killTerminal({ sessionId });
+      setSessions((current) => upsertSession(current, stoppedSession));
+    } catch (error) {
+      setLaunchError(safeLaunchError(error));
+    }
+  };
+
+  const continueSession = async (sessionId: string): Promise<void> => {
+    const session = sessions.find((item) => item.id === sessionId);
+    if (!session) {
+      return;
+    }
+
+    if (isLiveSession(session)) {
+      setActiveSessionId(session.id);
+      return;
+    }
+
+    await restartSessionInPlace(session, session.resumeCommand ?? session.command);
+  };
+
+  const archiveSession = async (sessionId: string): Promise<void> => {
+    if (!api) {
+      setSessions((current) =>
+        current.map((session) => (session.id === sessionId ? { ...session, archived: true } : session)),
+      );
+    } else {
+      try {
+        const archivedSession = await api.archiveSessionRecord({ sessionId });
+        setSessions((current) => upsertSession(current, archivedSession));
       } catch (error) {
         setLaunchError(safeLaunchError(error));
         return;
       }
     }
 
-    closedSessionIdsRef.current.add(sessionId);
+    setActiveSessionId((currentActiveSessionId) => {
+      if (currentActiveSessionId !== sessionId) {
+        return currentActiveSessionId;
+      }
+      return sessions.find((session) => session.id !== sessionId && !session.archived)?.id;
+    });
+  };
+
+  const deleteSession = async (sessionId: string): Promise<void> => {
+    const confirmed = window.confirm(
+      '删除记录会删除 AgentDock 保存的这条会话历史、摘要和恢复元数据，但不会删除工作区里的项目文件。确定删除吗？',
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    if (api) {
+      try {
+        await api.deleteSessionRecord({ sessionId });
+      } catch (error) {
+        setLaunchError(safeLaunchError(error));
+        return;
+      }
+    }
+
     setSessions((current) => {
       const nextSessions = current.filter((session) => session.id !== sessionId);
       setActiveSessionId((currentActiveSessionId) => {
         if (currentActiveSessionId !== sessionId) {
           return currentActiveSessionId;
         }
-        return nextSessions[0]?.id;
+        return nextSessions.find((session) => !session.archived)?.id;
       });
       return nextSessions;
     });
@@ -749,68 +860,117 @@ export default function App(): React.JSX.Element {
         onOpenNewWindow={api ? openNewWindow : undefined}
       />
       {activePage === 'workbench' ? (
-        <>
-          <CommandBar
-            ref={commandBarRef}
+        <section className="workbench-layout">
+          <SessionLibrary
+            sessions={sessions}
             profiles={profiles}
-            profile={selectedProfile}
-            profileId={selectedProfile?.id}
             workspaces={workspaces}
-            workspace={selectedWorkspace}
-            workspaceId={selectedWorkspace?.id}
-            claudeLaunchMode={claudeLaunchMode}
-            launching={launching}
-            onProfileChange={selectProfile}
-            onWorkspaceChange={setSelectedWorkspaceId}
-            onClaudeLaunchModeChange={setClaudeLaunchMode}
-            onChooseWorkspace={api ? () => void chooseWorkspace() : undefined}
-            onLaunchLocalShell={() => void launchSession('zsh')}
-            onLaunch={() => void launchSession()}
+            activeSessionId={activeSessionId}
+            onNewSession={focusNewSessionControls}
+            onOpenSession={openSessionView}
+            onContinueSession={(sessionId) => void continueSession(sessionId)}
+            onCloseView={(sessionId) => void closeSessionView(sessionId)}
+            onStopSession={(sessionId) => void stopSession(sessionId)}
+            onArchiveSession={(sessionId) => void archiveSession(sessionId)}
+            onDeleteSession={(sessionId) => void deleteSession(sessionId)}
           />
-          {launchError ? <p role="alert" className="launch-error">{launchError}</p> : null}
-          {visibleActionStatus ? <p role="status" className="launch-status">{visibleActionStatus}</p> : null}
+          <div className="workbench-main">
+            <CommandBar
+              ref={commandBarRef}
+              profiles={profiles}
+              profile={selectedProfile}
+              profileId={selectedProfile?.id}
+              workspaces={workspaces}
+              workspace={selectedWorkspace}
+              workspaceId={selectedWorkspace?.id}
+              claudeLaunchMode={claudeLaunchMode}
+              launching={launching}
+              onProfileChange={selectProfile}
+              onWorkspaceChange={setSelectedWorkspaceId}
+              onClaudeLaunchModeChange={setClaudeLaunchMode}
+              onChooseWorkspace={api ? () => void chooseWorkspace() : undefined}
+              onLaunchLocalShell={() => void launchSession('zsh')}
+              onLaunch={() => void launchSession()}
+            />
+            {launchError ? <p role="alert" className="launch-error">{launchError}</p> : null}
+            {visibleActionStatus ? <p role="status" className="launch-status">{visibleActionStatus}</p> : null}
 
-          <section className={detailsOpen ? 'workspace-grid details-open' : 'workspace-grid'}>
-            <section className="terminal-card">
-              <SessionTabs
-                tabs={tabs}
-                detailsOpen={detailsOpen}
-                onToggleDetails={() => setDetailsOpen((open) => !open)}
-                onSelectSession={setActiveSessionId}
-                onAddSession={() => void launchSession()}
-                onCloseSession={(sessionId) => void closeSession(sessionId)}
-              />
-              {pendingMemoryRestoreSessionId === activeSessionId ? (
-                <div className="session-memory-restore" role="status" aria-label="记忆恢复状态">
-                  <span>正在恢复记忆</span>
-                </div>
-              ) : (
-                <SessionMemoryRestoreBar restore={activeSession?.memoryRestore} />
-              )}
-              <TerminalPane
-                sessionId={activeSessionId}
-                preserveHistory={activeSession ? !['zsh', 'bash'].includes(activeSession.command) : true}
-                readOnly={activeSession ? !isLiveSession(activeSession) : false}
-              />
-              {isRecoverableSession(activeSession) ? (
-                <SessionRecoveryBar
-                  session={activeSession}
-                  onResume={(command) => void restartSessionInPlace(activeSession, command)}
-                  onRestart={() => void restartSessionInPlace(activeSession, activeSession.command)}
-                  onCopyOutput={() => void copySessionOutput(activeSession.id)}
-                  onClose={() => void closeSession(activeSession.id)}
+            <section
+              className={detailsOpen ? 'workspace-grid details-open' : 'workspace-grid'}
+              aria-label="运行中的会话"
+            >
+              <section className="terminal-card">
+                <header className="terminal-session-header">
+                  <div className="terminal-session-title">
+                    <span
+                      className={`session-status-dot ${activeSession?.status ?? 'exited'}`}
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <h2>{activeSession?.title ?? '未选择会话'}</h2>
+                      <p>
+                        {activeSessionProfile?.name ?? '未选择配置'} · {activeSessionWorkspace?.name ?? '未选择工作区'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="terminal-session-actions">
+                    <span className={`session-status-chip ${activeSession?.status ?? 'exited'}`}>
+                      {sessionStatusLabel(activeSession)}
+                    </span>
+                    {isLiveSession(activeSession) ? (
+                      <button
+                        type="button"
+                        className="terminal-stop-button"
+                        title="停止当前会话"
+                        aria-label="停止当前会话"
+                        onClick={() => activeSession && void stopSession(activeSession.id)}
+                      >
+                        ■
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="details-toggle"
+                      onClick={() => setDetailsOpen((open) => !open)}
+                    >
+                      会话详情 {detailsOpen ? '‹' : '›'}
+                    </button>
+                    <button type="button" className="terminal-more-button" aria-label="更多会话操作">
+                      ...
+                    </button>
+                  </div>
+                </header>
+                {pendingMemoryRestoreSessionId === activeSessionId ? (
+                  <div className="session-memory-restore" role="status" aria-label="记忆恢复状态">
+                    <span>正在恢复记忆</span>
+                  </div>
+                ) : (
+                  <SessionMemoryRestoreBar restore={activeSession?.memoryRestore} />
+                )}
+                <TerminalPane
+                  sessionId={activeSessionId}
+                  preserveHistory={activeSession ? !['zsh', 'bash'].includes(activeSession.command) : true}
+                  readOnly={activeSession ? !isLiveSession(activeSession) : false}
                 />
-              ) : null}
-              {activeSession && activeSessionSupportsSummary && contextPressureBySessionId[activeSession.id] ? (
-                <SessionContextBar
-                  pressure={contextPressureBySessionId[activeSession.id]}
-                  handoffPrompt={summaryHandoffPrompt}
-                  onSummarize={() => void summarizeActiveSession(false)}
-                  onSummarizeAndContinue={() => void summarizeActiveSession(true)}
-                  onCopyPrompt={() => void copySummaryHandoffPrompt()}
-                />
-              ) : null}
-            </section>
+                {isRecoverableSession(activeSession) ? (
+                  <SessionRecoveryBar
+                    session={activeSession}
+                    onResume={(command) => void restartSessionInPlace(activeSession, command)}
+                    onRestart={() => void restartSessionInPlace(activeSession, activeSession.command)}
+                    onCopyOutput={() => void copySessionOutput(activeSession.id)}
+                    onClose={() => void closeSessionView(activeSession.id)}
+                  />
+                ) : null}
+                {activeSession && activeSessionSupportsSummary && contextPressureBySessionId[activeSession.id] ? (
+                  <SessionContextBar
+                    pressure={contextPressureBySessionId[activeSession.id]}
+                    handoffPrompt={summaryHandoffPrompt}
+                    onSummarize={() => void summarizeActiveSession(false)}
+                    onSummarizeAndContinue={() => void summarizeActiveSession(true)}
+                    onCopyPrompt={() => void copySummaryHandoffPrompt()}
+                  />
+                ) : null}
+              </section>
 
             <SessionDetailsDrawer
               open={detailsOpen}
@@ -820,8 +980,9 @@ export default function App(): React.JSX.Element {
               onReadWorkspaceContext={readWorkspaceContext}
               onOpenWorkspaceContextFolder={openWorkspaceContextFolder}
             />
-          </section>
-        </>
+            </section>
+          </div>
+        </section>
       ) : (
         <section className="settings-page" aria-label="接口配置页面">
         <ApiConfigPanel

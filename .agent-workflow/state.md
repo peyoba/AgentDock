@@ -1,12 +1,12 @@
 # Agent Workflow State
 
 ## 当前任务
-2026-07-07 AgentDock 长期会话库与终端优先布局重构 Batch 2：Session Record / Open View / PTY Process 三层模型已完成，准备提交后进入 Batch 3 左侧会话库。
+2026-07-07 AgentDock 长期会话库与终端优先布局重构 Batch 3：左侧长期会话库已完成并通过集成验证，准备提交后进入 Batch 4 终端优先布局。
 
 ## 风险等级
 L3
 
-触发原因：完整目标将涉及会话持久化、PTY 生命周期、Claude/Codex 原生 resume、Renderer 主界面、文件系统读取、IPC 边界和 secret 脱敏边界。Batch 2 已完成长期记录、打开视图和运行 PTY 的生命周期拆分。
+触发原因：完整目标将涉及会话持久化、PTY 生命周期、Claude/Codex 原生 resume、Renderer 主界面、文件系统读取、IPC 边界和 secret 脱敏边界。Batch 3 已完成左侧长期会话库和关闭视图 UI 语义迁移。
 
 ## 当前 Hook
 integration_hook
@@ -20,6 +20,7 @@ integration
 | 主 Agent | PASS | Batch 0 基线已提交：`b9ee2bd chore: stabilize session restore baseline`；已删除未跟踪构建产物和 SPEC 副本目录；workflow/test/typecheck/build/secret scan 通过 |
 | 主 Agent | PASS | Batch 1 native resume 探针：`src/main/nativeResumeProbe.ts`、`tests/app/nativeResumeProbe.test.ts`、`.agent-workflow/verification/2026-07-07-native-resume-probe.md`；Claude capability verified 但 runtime smoke partial；Codex native resume verified |
 | 主 Agent | PASS | Batch 2 三层模型：`sessionHistoryStore` 增加 close/archive/delete record；`SessionService` stop-only、close view、archive/delete record、runtime owner registry；preload/main IPC 白名单已接入；全量测试/typecheck/build 通过 |
+| 主 Agent | PASS | Batch 3 左侧长期会话库：`SessionLibrary`、workspace 分组、单一 `新会话` 入口、搜索、归档过滤、`...` 菜单、关闭视图 UI 语义；验证记录 `.agent-workflow/verification/2026-07-07-session-library-batch3.md` |
 | 主 Agent | PASS | 长期会话库与终端优先布局实施计划：`docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md`；包含 Batch 0 基线、Batch 1 native resume 探针、Batch 2-6 分批实现 |
 | 主 Agent | PASS | 长期会话库与终端优先布局中文 SPEC：`docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md`；等待用户审阅 |
 | 主 Agent | PASS | 终端控制序列乱码修复：RED/GREEN 测试、agent-only OSC query guard、live/replay color reply 过滤、真实 xterm smoke、workflow/typecheck/build 验证；交付报告 `.agent-workflow/delivery/2026-07-07-terminal-control-sequence-garbled-output-delivery-report.md` |
@@ -105,7 +106,7 @@ integration
 无
 
 ## 下一步
-提交 Batch 2 三层模型，然后进入 Batch 3：左侧长期会话库。
+提交 Batch 3 左侧长期会话库，然后进入 Batch 4：终端优先布局、右侧项目面板默认收起和终端列宽约束。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -153,6 +154,9 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-07 | Batch 2 RED/GREEN：`npx vitest run tests/app/sessionService.test.ts -t "without deleting the session record\|closes a view\|archives and deletes session records\|prevents another window"` | PASS：stop-only、close view、archive/delete record、runtime owner 独占先失败后通过 |
 | 2026-07-07 | `npx vitest run tests/app/sessionRecordStore.test.ts tests/app/sessionService.test.ts tests/app/sessionServiceTerminal.test.ts tests/app/preloadTypes.test.ts tests/app/sessionSecurity.test.ts tests/app/windowSessionRegistry.test.ts` | PASS：6 files / 47 tests |
 | 2026-07-07 | `npm run typecheck` / `npm test` / `npm run build` / `git diff --check` | PASS：typecheck 通过；Vitest 44 files / 282 tests；build 通过，仅 Vite chunk size warning；diff check 无输出 |
+| 2026-07-07 | Batch 3 RED/GREEN：`npx vitest run tests/app/App.test.tsx -t "workspace-grouped session library"` | PASS：实现前因 App 仍渲染横向 SessionTabs 失败；实现后通过 |
+| 2026-07-07 | Batch 3 renderer：`npx vitest run tests/app/App.test.tsx` / `npm run typecheck` | PASS：App 67 tests；typecheck 通过 |
+| 2026-07-07 | Batch 3 integration：`npm run workflow:doctor` / `npm run test:workflow` / `npm test` / `npm run build` / `git diff --check` / secret-like scan | PASS：doctor 全绿；workflow pytest 8 passed；Vitest 44 files / 285 tests；build 通过，仅 Vite chunk size warning；diff check 无输出；secret-like scan 无命中 |
 | 2026-07-07 | `claude --version` / `claude --help \| rg -- '--session-id\|--resume'` / `codex --version` / `codex resume --help` / `codex exec resume --help` | PASS：Claude CLI 2.1.201 暴露 `--session-id` 与 `--resume`；Codex CLI 0.142.5 暴露 `resume` / `exec resume`，但未暴露启动时指定 session id 参数；SPEC 已要求 Batch 1 真机探针 |
 | 2026-07-07 | `rg -n "TBD\|TODO\|待定\|稍后\|以后再\|implement later\|fill in\|placeholder\|FIXME\|四个批次\|五个批次\|interupted" docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md` / `git diff --check -- docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md .agent-workflow/state.md` | PASS：状态枚举一致性修复后无占位词/旧批次数/`interupted` 拼写命中；diff check 无输出 |
 | 2026-07-07 | `npm run test:workflow` / `npm run build` | PASS：workflow pytest 8 passed；build 通过，仅 Vite chunk size warning |
