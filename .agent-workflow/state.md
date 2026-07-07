@@ -1,23 +1,24 @@
 # Agent Workflow State
 
 ## 当前任务
-2026-07-07 AgentDock 长期会话库与终端优先布局重构 Batch 0：审阅当前恢复相关 dirty diff，完成基线验证，等待用户确认是否提交基线。
+2026-07-07 AgentDock 长期会话库与终端优先布局重构 Batch 1：Claude/Codex native resume 探针已完成，准备提交 Batch 1 后进入 Batch 2 会话模型。
 
 ## 风险等级
 L3
 
-触发原因：完整目标将涉及会话持久化、PTY 生命周期、Claude/Codex 原生 resume、Renderer 主界面、文件系统读取、IPC 边界和 secret 脱敏边界。当前 Batch 0 仅做基线审阅、验证和记录，不进入新功能实现。
+触发原因：完整目标将涉及会话持久化、PTY 生命周期、Claude/Codex 原生 resume、Renderer 主界面、文件系统读取、IPC 边界和 secret 脱敏边界。Batch 1 已完成外部 Claude/Codex CLI resume 探针，不改主 UI。
 
 ## 当前 Hook
-plan_review_hook
+integration_hook
 
 ## 当前阶段
-plan
+integration
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
 |------|------|------|
-| 主 Agent | PASS | Batch 0 基线验证记录：`.agent-workflow/verification/2026-07-07-session-library-baseline.md`；workflow/test/typecheck/build/secret scan 通过；等待用户确认是否按建议范围提交 |
+| 主 Agent | PASS | Batch 0 基线已提交：`b9ee2bd chore: stabilize session restore baseline`；已删除未跟踪构建产物和 SPEC 副本目录；workflow/test/typecheck/build/secret scan 通过 |
+| 主 Agent | PASS | Batch 1 native resume 探针：`src/main/nativeResumeProbe.ts`、`tests/app/nativeResumeProbe.test.ts`、`.agent-workflow/verification/2026-07-07-native-resume-probe.md`；Claude capability verified 但 runtime smoke partial；Codex native resume verified |
 | 主 Agent | PASS | 长期会话库与终端优先布局实施计划：`docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md`；包含 Batch 0 基线、Batch 1 native resume 探针、Batch 2-6 分批实现 |
 | 主 Agent | PASS | 长期会话库与终端优先布局中文 SPEC：`docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md`；等待用户审阅 |
 | 主 Agent | PASS | 终端控制序列乱码修复：RED/GREEN 测试、agent-only OSC query guard、live/replay color reply 过滤、真实 xterm smoke、workflow/typecheck/build 验证；交付报告 `.agent-workflow/delivery/2026-07-07-terminal-control-sequence-garbled-output-delivery-report.md` |
@@ -100,10 +101,10 @@ plan
 无
 
 ## 用户待确认
-Batch 0 基线验证已完成。请确认是否按 `.agent-workflow/verification/2026-07-07-session-library-baseline.md` 的建议范围提交基线；不要提交 `index-D3wM5j2Q.js` 和 `docs/superpowers/specs_副本/`。
+无
 
 ## 下一步
-用户确认后提交 Batch 0 基线，再进入 Batch 1 native resume 真机探针；未确认前不进入新功能实现。
+提交 Batch 1 native resume 探针，然后进入 Batch 2：Session Record / Open View / PTY Process 三层模型。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -135,11 +136,17 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-07 | 长期会话库恢复策略采用 verified-native-first：Claude 优先探针 `--session-id`/`--resume`，Codex 必须先验证稳定 id 来源；不可验证时显式降级到 AgentDock restore context | 原生 resume 不能依赖脆弱 TUI 文本解析；Codex 当前 CLI 未暴露启动时指定 session id；必须避免静默伪装成原生恢复 |
 | 2026-07-07 | 同一 Session Record 的 running PTY 同时只能有一个 owner window；其他窗口只能只读观察，不能抢占或启动第二个 PTY | 保留当前多窗口隔离安全边界，避免多个窗口同时写同一 Claude/Codex TUI |
 | 2026-07-07 | 用户主动停止 PTY 使用正式 `stopped` 运行状态；`archived` 是独立归档标记，不是运行状态 | 现有 `SessionStatus` 已包含 `stopped`；主动停止、自然退出 `exited`、异常/重启中断 `interrupted` 在会话库中需要可区分 |
+| 2026-07-07 | Batch 0 在主 worktree 直接整理并提交基线 `b9ee2bd` | 用户确认没有其他分支，要求把整个工程整理干净并提交；已排除并删除未跟踪构建产物和 SPEC 副本目录 |
+| 2026-07-07 | Batch 1 native resume 决策：Codex native resume verified；Claude native resume partial | Codex `exec --json` 稳定输出 `thread_id` 且 `exec ... resume --json <thread_id>` 恢复 marker 成功；Claude help 有 `--session-id`/`--resume`，但 direct CLI 未登录，profile smoke 超时，未达到 verified 标准 |
 
 ## 验证记录
 | 时间 | 命令 | 结果 |
 |------|------|------|
 | 2026-07-07 | Batch 0 baseline：`git status --short` / `git diff --stat` / `git diff --check` / `npm run workflow:doctor` / `npm run test:workflow` / `npm run typecheck` / `npm test` / `npm run build` / secret-like scan | PASS：dirty worktree 已审阅；diff check 无输出；doctor PASS；workflow pytest 8 passed；typecheck PASS；Vitest 42 files / 271 tests PASS；build PASS，仅 Vite chunk size warning；源码限定 secret scan 无命中；需排除 `index-D3wM5j2Q.js` 和 `docs/superpowers/specs_副本/` |
+| 2026-07-07 | `npx vitest run tests/app/nativeResumeProbe.test.ts` | RED then PASS：实现前因 `src/main/nativeResumeProbe` 不存在失败；实现后 1 file / 4 tests 通过 |
+| 2026-07-07 | `claude --version` / `claude --help \| rg -- '--session-id\|--resume'` / Claude direct/profile smoke | PARTIAL：Claude 2.1.201 暴露 `--session-id` 与 `--resume`；direct CLI 未登录；`claude-custom-5` profile 普通 `--print` 与 `--session-id` smoke 超时 |
+| 2026-07-07 | `codex --version` / `codex resume --help` / `codex exec resume --help` / Codex JSONL resume smoke | PASS：Codex 0.142.5；`codex exec --json` 捕获 `thread_id`；`codex exec --sandbox read-only --skip-git-repo-check --color never resume --json <thread_id>` 恢复 marker 成功 |
+| 2026-07-07 | `npm run typecheck` / `npm test` / `git diff --check` / native probe secret-like scan | PASS：typecheck 通过；Vitest 43 files / 275 tests；diff check 无输出；secret-like scan 无命中 |
 | 2026-07-07 | `claude --version` / `claude --help \| rg -- '--session-id\|--resume'` / `codex --version` / `codex resume --help` / `codex exec resume --help` | PASS：Claude CLI 2.1.201 暴露 `--session-id` 与 `--resume`；Codex CLI 0.142.5 暴露 `resume` / `exec resume`，但未暴露启动时指定 session id 参数；SPEC 已要求 Batch 1 真机探针 |
 | 2026-07-07 | `rg -n "TBD\|TODO\|待定\|稍后\|以后再\|implement later\|fill in\|placeholder\|FIXME\|四个批次\|五个批次\|interupted" docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md` / `git diff --check -- docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md .agent-workflow/state.md` | PASS：状态枚举一致性修复后无占位词/旧批次数/`interupted` 拼写命中；diff check 无输出 |
 | 2026-07-07 | `npm run test:workflow` / `npm run build` | PASS：workflow pytest 8 passed；build 通过，仅 Vite chunk size warning |
