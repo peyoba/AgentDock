@@ -83,7 +83,19 @@ function gitCommit() {
 }
 
 function gitDirty() {
-  const result = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+  const result = spawnSync(
+    'git',
+    [
+      'status',
+      '--porcelain',
+      '--',
+      'package.json',
+      'package-lock.json',
+      'src',
+      'scripts/package-mac.mjs',
+    ],
+    { encoding: 'utf8' },
+  );
   return result.status === 0 && result.stdout.trim().length > 0;
 }
 
