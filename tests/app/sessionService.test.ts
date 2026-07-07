@@ -244,6 +244,74 @@ describe('sessionService', () => {
     }
   });
 
+  it('uses verified native resume before AgentDock restore context fallback', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-native-resume-'));
+    const runtime = createFakeRuntime();
+    const historyStore = createSessionHistoryStore(tempDir);
+    try {
+      await historyStore.saveSession({
+        id: 'session-native',
+        title: 'Claude A · AgentDock',
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude',
+        status: 'exited',
+        startedAt: '2026-07-01T00:00:00.000Z',
+        nativeResume: {
+          tool: 'claude',
+          status: 'verified',
+          sessionId: '123e4567-e89b-12d3-a456-426614174000',
+          checkedAt: '2026-07-07T00:00:00.000Z',
+        },
+      });
+      await historyStore.appendOutput('session-native', 'previous output that would feed fallback');
+      const service = createSessionService({
+        clock: { now: () => new Date('2026-07-01T00:01:00.000Z') },
+        keychain: runtime.keychain,
+        pty: runtime.pty,
+        appDataPath: tempDir,
+        historyStore,
+      });
+      const profile = {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude' as const,
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      };
+      const workspace = {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: tempDir,
+      };
+
+      await service.list();
+      const restarted = await service.restart({
+        sessionId: 'session-native',
+        profile,
+        workspace,
+        command: 'claude',
+      });
+
+      expect(runtime.spawnRequests.at(-1)?.command).toBe(
+        'claude --resume 123e4567-e89b-12d3-a456-426614174000',
+      );
+      expect(runtime.spawnRequests.at(-1)?.command).not.toContain('AgentDock restore context');
+      expect(runtime.spawnRequests.at(-1)?.command).not.toContain('--append-system-prompt');
+      expect(restarted.memoryRestore).toMatchObject({
+        method: 'native',
+        status: 'loaded',
+        summary: '原生恢复已验证：使用 Claude 会话 ID 恢复。',
+      });
+      await expect(
+        readFile(path.join(tempDir, '.agentdock/context/restores/session-native.md'), 'utf-8'),
+      ).rejects.toThrow();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  });
+
   it('preserves persisted history when restarting an exited session in place', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restart-history-'));
     const runtime = createFakeRuntime();

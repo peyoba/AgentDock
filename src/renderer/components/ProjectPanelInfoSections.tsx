@@ -42,6 +42,12 @@ function restoreMethodLabel(session: AgentSession | undefined): string {
   if (!session?.memoryRestore) {
     return '无恢复材料';
   }
+  if (session.memoryRestore.method === 'native') {
+    return '原生 resume';
+  }
+  if (session.memoryRestore.method === 'agentdock') {
+    return 'AgentDock 恢复材料';
+  }
   if (session.memoryRestore.status === 'loaded') {
     return 'AgentDock 恢复材料';
   }

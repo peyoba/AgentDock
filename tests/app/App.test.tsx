@@ -464,6 +464,45 @@ describe('AgentDock shell', () => {
     expect(document.body).not.toHaveTextContent('secret source text');
   });
 
+  it('labels native resume separately in the recovery summary section', async () => {
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Claude A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude --resume 123e4567-e89b-12d3-a456-426614174000',
+          status: 'running',
+          startedAt: '2026-07-07T00:00:00.000Z',
+          memoryRestore: {
+            method: 'native',
+            status: 'loaded',
+            summary: '原生恢复已验证：使用 Claude 会话 ID 恢复。',
+            contextFile: '/tmp/workspace/.agentdock/context/restores/session-1.md',
+          },
+        },
+      ]),
+      listWorkspaceDirectory: vi.fn().mockResolvedValue({
+        workspaceId: 'workspace-a',
+        relativePath: '.',
+        entries: [],
+      }),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('button', { name: /^Claude A · AgentDock$/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '展开项目面板' }));
+    fireEvent.click(await screen.findByRole('button', { name: '恢复摘要' }));
+
+    const projectPanel = screen.getByRole('complementary', { name: '项目面板' });
+    expect(within(projectPanel).getByText('原生 resume')).toBeInTheDocument();
+    expect(within(projectPanel).queryByText('AgentDock 恢复材料')).not.toBeInTheDocument();
+    expect(within(projectPanel).getByText('原生恢复已验证：使用 Claude 会话 ID 恢复。')).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('/tmp/workspace/.agentdock/context/restores/session-1.md');
+  });
+
   it('uses the full terminal width until session details are opened', () => {
     render(<App />);
 

@@ -46,12 +46,23 @@ export type SessionStatus =
   | 'interrupted';
 
 export type MemoryRestoreStatus = 'loaded' | 'empty' | 'failed';
+export type MemoryRestoreMethod = 'native' | 'agentdock' | 'none';
 
 export type MemoryRestoreState = {
+  method?: MemoryRestoreMethod;
   status: MemoryRestoreStatus;
   summary: string;
   contextFile?: string;
   error?: string;
+};
+
+export type NativeResumeState = {
+  tool: 'claude' | 'codex';
+  status: 'verified' | 'partial' | 'unavailable';
+  sessionId?: string;
+  resumeCommand?: string;
+  checkedAt?: string;
+  reason?: string;
 };
 
 export type RuntimeOwner = {
@@ -75,6 +86,7 @@ export type AgentSession = {
   exitCode?: number;
   exitSignal?: number;
   resumeCommand?: string;
+  nativeResume?: NativeResumeState;
   transcript?: {
     filePath: string;
     byteSize: number;

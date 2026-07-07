@@ -360,6 +360,64 @@ function extractClaudeResumeCommand(output: string): string | undefined {
   return match?.[1];
 }
 
+const SAFE_NATIVE_RESUME_ID_PATTERN = /^[A-Za-z0-9._:-]+$/;
+
+function safeResumeCommand(command: string | undefined, tool: 'claude' | 'codex'): string | undefined {
+  const trimmedCommand = command?.trim();
+  if (!trimmedCommand || /[\r\n]/.test(trimmedCommand)) {
+    return undefined;
+  }
+
+  if (tool === 'claude' && /^claude\s+--resume\s+\S+/.test(trimmedCommand)) {
+    return trimmedCommand;
+  }
+  if (tool === 'codex' && /^codex\s+(?:exec\s+)?resume\b/.test(trimmedCommand)) {
+    return trimmedCommand;
+  }
+  return undefined;
+}
+
+function nativeResumeCommandForSession(
+  session: AgentSession,
+  profile: ApiProfile,
+): { command: string; summary: string } | undefined {
+  const nativeResume = session.nativeResume;
+  if (
+    !nativeResume ||
+    nativeResume.status !== 'verified' ||
+    nativeResume.tool !== profile.toolType
+  ) {
+    return undefined;
+  }
+
+  const explicitCommand = safeResumeCommand(nativeResume.resumeCommand, nativeResume.tool);
+  if (explicitCommand) {
+    return {
+      command: explicitCommand,
+      summary: nativeResume.tool === 'claude'
+        ? '原生恢复已验证：使用 Claude 会话 ID 恢复。'
+        : '原生恢复已验证：使用 Codex thread id 恢复。',
+    };
+  }
+
+  const sessionId = nativeResume.sessionId?.trim();
+  if (!sessionId || !SAFE_NATIVE_RESUME_ID_PATTERN.test(sessionId)) {
+    return undefined;
+  }
+
+  if (nativeResume.tool === 'claude') {
+    return {
+      command: `claude --resume ${sessionId}`,
+      summary: '原生恢复已验证：使用 Claude 会话 ID 恢复。',
+    };
+  }
+
+  return {
+    command: `codex resume ${sessionId}`,
+    summary: '原生恢复已验证：使用 Codex thread id 恢复。',
+  };
+}
+
 function isLocalShellCommand(command: string): boolean {
   const normalizedCommand = command.trim().split(/\s+/)[0] ?? '';
   const shellName = path.basename(normalizedCommand);
@@ -586,6 +644,7 @@ export function createSessionService(
     delete session.exitCode;
     delete session.exitSignal;
     delete session.resumeCommand;
+    delete session.memoryRestore;
     persistSession(session);
 
     try {
@@ -775,6 +834,25 @@ export function createSessionService(
       }
 
       const nextCommand = command ?? session.command;
+      const nativeResume = nativeResumeCommandForSession(session, profile);
+      if (nativeResume) {
+        await startSessionPty({
+          session,
+          profile,
+          workspace,
+          command: nativeResume.command,
+          claudeLaunchMode,
+        });
+        session.memoryRestore = {
+          method: 'native',
+          status: 'loaded',
+          summary: nativeResume.summary,
+        };
+        persistSession(session);
+        publishSessionChanged(session);
+        return cloneSession(session);
+      }
+
       const memoryRestore = await restoreContextForRestart({
         session: cloneSession(session),
         profile,
@@ -794,6 +872,7 @@ export function createSessionService(
       });
       if (memoryRestore) {
         session.memoryRestore = {
+          method: memoryRestore.status === 'loaded' ? 'agentdock' : 'none',
           status: memoryRestore.status,
           summary: memoryRestore.summary,
           contextFile: memoryRestore.contextFile,
