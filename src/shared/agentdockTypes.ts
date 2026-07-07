@@ -192,3 +192,40 @@ export type WorkspaceContextReadResult = {
 export type WorkspaceContextOpenRequest = {
   workspaceId: string;
 };
+
+export type WorkspaceFileStatus = 'M' | 'A' | 'D' | 'R' | '?';
+
+export type WorkspaceFileTreeEntry = {
+  name: string;
+  relativePath: string;
+  type: 'file' | 'directory';
+  gitStatus?: WorkspaceFileStatus;
+  touchedInSession?: boolean;
+  additions?: number;
+  deletions?: number;
+};
+
+export type WorkspaceDirectoryRequest = {
+  workspaceId: string;
+  relativePath?: string;
+  sessionId?: string;
+};
+
+export type WorkspaceDirectoryResult = {
+  workspaceId: string;
+  relativePath: string;
+  entries: WorkspaceFileTreeEntry[];
+};
+
+export type SessionFileIndexEntry = {
+  relativePath: string;
+  gitStatus?: WorkspaceFileStatus;
+  touchedInSession?: boolean;
+  additions?: number;
+  deletions?: number;
+};
+
+export type SessionFileIndex = {
+  baselineAt?: string;
+  files: SessionFileIndexEntry[];
+};

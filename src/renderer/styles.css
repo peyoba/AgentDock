@@ -318,14 +318,257 @@ p {
   font-weight: 900;
 }
 
-.project-panel-placeholder {
+.project-panel-body {
   flex: 1;
   min-height: 0;
+  display: grid;
+  overflow: hidden;
+}
+
+.project-file-tree-pane {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.project-path-row {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.project-path-row button,
+.project-info-actions button {
+  border: 1px solid #dbe3ee;
+  border-radius: 7px;
+  background: #fff;
+  color: #334155;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.project-path-chip {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #475569;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.project-tree-status,
+.project-tree-error {
+  padding: 10px 12px;
+}
+
+.project-tree-error {
+  color: #b91c1c;
+}
+
+.workspace-file-tree,
+.workspace-file-tree-empty {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 6px 8px 10px;
+  overflow: auto;
+}
+
+.workspace-file-tree {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  list-style: none;
+}
+
+.workspace-file-tree-empty {
   display: grid;
   place-items: center;
   color: #64748b;
   font-size: 12px;
+  font-weight: 850;
+}
+
+.workspace-file-tree-item {
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #1f2937;
+  padding: 3px 6px;
+  text-align: left;
+}
+
+.workspace-file-tree-item:hover,
+.workspace-file-tree-item.selected {
+  border-color: #dbeafe;
+  background: #f1f7ff;
+}
+
+.workspace-file-tree-type {
+  color: #64748b;
+  font-size: 9px;
   font-weight: 900;
+}
+
+.workspace-file-tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.workspace-file-git-status {
+  min-width: 20px;
+  min-height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 6px;
+  background: #fff7ed;
+  color: #b45309;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+.workspace-file-touched {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  background: #eef6ff;
+  color: #2563eb;
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.workspace-file-touched::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  display: inline-block;
+  margin-right: 5px;
+  border-radius: 999px;
+  background: #60a5fa;
+  vertical-align: 1px;
+}
+
+.project-info-resizer {
+  cursor: row-resize;
+  border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f8fafc;
+}
+
+.project-info-resizer:hover,
+.project-info-resizer:focus-visible {
+  background: #eaf2ff;
+}
+
+.project-info-sections {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  background: #fbfcfe;
+}
+
+.project-info-section {
+  border-bottom: 1px solid #e8edf4;
+}
+
+.project-info-section:last-child {
+  border-bottom: 0;
+}
+
+.project-info-section-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  background: transparent;
+  color: #1f2937;
+  padding: 8px 2px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.project-info-section-toggle::after {
+  content: "›";
+  color: #64748b;
+  font-weight: 950;
+}
+
+.project-info-section-toggle[aria-expanded="true"]::after {
+  content: "⌄";
+}
+
+.project-info-section-body {
+  display: grid;
+  gap: 6px;
+  padding: 0 2px 9px;
+  color: #334155;
+  font-size: 12px;
+}
+
+.project-info-section-body strong,
+.project-info-section-body span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-info-section-body dl {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.project-info-section-body dl div {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.project-info-section-body dt {
+  color: #64748b;
+  font-weight: 850;
+}
+
+.project-info-section-body dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 850;
+}
+
+.project-info-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .session-library {

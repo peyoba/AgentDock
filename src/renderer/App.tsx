@@ -5,6 +5,7 @@ import './styles.css';
 import { ApiConfigPanel, type ApiConfigFilter } from './components/ApiConfigPanel';
 import { AppHeader } from './components/AppHeader';
 import { CommandBar } from './components/CommandBar';
+import { ProjectPanel } from './components/ProjectPanel';
 import { SessionDetailsDrawer } from './components/SessionDetailsDrawer';
 import { SessionLibrary } from './components/SessionLibrary';
 import { TerminalPane } from './components/TerminalPane';
@@ -17,6 +18,8 @@ import type {
   LaunchRequest,
   RestartSessionRequest,
   SessionContextPressureResult,
+  WorkspaceDirectoryRequest,
+  WorkspaceDirectoryResult,
   Workspace,
 } from '../shared/agentdockTypes';
 
@@ -854,6 +857,20 @@ export default function App(): React.JSX.Element {
     await api?.openWorkspaceContextFolder({ workspaceId });
   };
 
+  const listWorkspaceDirectory = React.useCallback(async (
+    request: WorkspaceDirectoryRequest,
+  ): Promise<WorkspaceDirectoryResult> => {
+    if (!api) {
+      return {
+        workspaceId: request.workspaceId,
+        relativePath: request.relativePath ?? '.',
+        entries: [],
+      };
+    }
+
+    return api.listWorkspaceDirectory(request);
+  }, [api]);
+
   return (
     <main className="app-shell">
       <AppHeader
@@ -988,31 +1005,13 @@ export default function App(): React.JSX.Element {
             aria-label="项目面板"
           >
             {projectPanelOpen ? (
-              <>
-                <header className="project-panel-header">
-                  <div>
-                    <h2>{activeSessionWorkspace?.name ?? selectedWorkspace?.name ?? '项目'}</h2>
-                    <p>{activeSessionWorkspace?.path ?? selectedWorkspace?.path ?? ''}</p>
-                  </div>
-                  <span
-                    className="project-readonly-badge"
-                    title="项目面板只用于查看文件和状态，AgentDock 不在这里编辑代码。"
-                  >
-                    只读
-                  </span>
-                  <button
-                    type="button"
-                    className="project-panel-collapse"
-                    aria-label="收起项目面板"
-                    onClick={() => setProjectPanelOpen(false)}
-                  >
-                    ›
-                  </button>
-                </header>
-                <section className="project-panel-placeholder" aria-label="项目文件树">
-                  <span>文件</span>
-                </section>
-              </>
+              <ProjectPanel
+                workspace={activeSessionWorkspace ?? selectedWorkspace}
+                session={activeSession}
+                profile={activeSessionProfile}
+                onCollapse={() => setProjectPanelOpen(false)}
+                listDirectory={listWorkspaceDirectory}
+              />
             ) : (
               <button
                 type="button"

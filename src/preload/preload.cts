@@ -69,6 +69,8 @@ const api: AgentDockApi = {
     ipcRenderer.on('session:changed', handler);
     return () => ipcRenderer.off('session:changed', handler);
   },
+  listWorkspaceDirectory: (request) =>
+    ipcRenderer.invoke('workspaceFiles:listDirectory', request),
   readWorkspaceContext: (request) => ipcRenderer.invoke('workspaceContext:read', request),
   openWorkspaceContextFolder: (request) =>
     ipcRenderer.invoke('workspaceContext:openFolder', request),

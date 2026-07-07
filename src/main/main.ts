@@ -15,6 +15,7 @@ import { createRuntimeOwnerRegistry, createSessionService } from './sessionServi
 import { installSingleInstanceGuard } from './singleInstanceGuard.js';
 import { createSessionSummaryStore } from './sessionSummaryStore.js';
 import { createProfileStore } from './stores/profileStore.js';
+import { createSessionFileIndexStore } from './stores/sessionFileIndexStore.js';
 import { createSessionHistoryStore } from './stores/sessionHistoryStore.js';
 import { createWorkspaceStore } from './stores/workspaceStore.js';
 import { createSummaryJobService } from './summaryJobService.js';
@@ -22,6 +23,7 @@ import { launchContinuationWithPrompt } from './summaryContinuation.js';
 import { createProfileSummaryRunner } from './summaryRunner.js';
 import { createWindowSessionRegistry } from './windowSessionRegistry.js';
 import { createWorkspaceContextStore } from './workspaceContextStore.js';
+import { createWorkspaceFileTreeService } from './workspaceFileTreeService.js';
 import { createWorkspaceFromPath, mergeWorkspaces } from './workspaceService.js';
 import { normalizeClaudeProfileDefaults } from '../shared/claudeProfileDefaults.js';
 import { defaultApiProfiles, isDefaultApiProfileId } from '../shared/defaultApiProfiles.js';
@@ -43,6 +45,7 @@ import type {
   TerminalResizeRequest,
   TerminalWriteRequest,
   Workspace,
+  WorkspaceDirectoryRequest,
   WorkspaceContextOpenRequest,
   WorkspaceContextReadRequest,
 } from '../shared/agentdockTypes.js';
@@ -59,6 +62,8 @@ const userDataPath = app.getPath('userData');
 const profileStore = createProfileStore(userDataPath);
 const workspaceStore = createWorkspaceStore(userDataPath);
 const sessionHistoryStore = createSessionHistoryStore(userDataPath);
+const sessionFileIndexStore = createSessionFileIndexStore(userDataPath);
+const workspaceFileTreeService = createWorkspaceFileTreeService();
 const runtimeOwnerRegistry = createRuntimeOwnerRegistry();
 // vault 永远是唯一写入与首选读取来源；仅当 vault 未命中时读一次 legacy Keychain
 // 并回写 vault（升级迁移，老 Key 至多触发一次系统弹窗）。keytar 原生模块缺失时降级纯 vault。
@@ -375,6 +380,29 @@ function registerIpcHandlers(): void {
       broadcastMetadataChanged();
     }
     return workspace;
+  });
+  ipcMain.handle('workspaceFiles:listDirectory', async (_event, request: WorkspaceDirectoryRequest) => {
+    const workspace = await requireWorkspaceForContext(
+      request.workspaceId,
+      '所选工作区不存在，无法读取项目文件树',
+    );
+    const fileIndex = request.sessionId
+      ? await sessionFileIndexStore.readIndex(request.sessionId)
+      : { files: [] };
+    const touchedFiles = new Map(
+      fileIndex.files.map((file) => [file.relativePath, file]),
+    );
+    const result = await workspaceFileTreeService.listDirectory({
+      workspacePath: workspace.path,
+      relativePath: request.relativePath ?? '.',
+      touchedFiles,
+    });
+
+    return {
+      workspaceId: workspace.id,
+      relativePath: result.relativePath,
+      entries: result.entries,
+    };
   });
   ipcMain.handle('sessions:list', (event) => sessionServiceForWebContents(event.sender).list());
   ipcMain.handle('sessions:closeView', (event, request: CloseSessionViewRequest) =>

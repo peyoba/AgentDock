@@ -1,7 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/renderer/App';
-import type { AgentSession, ApiProfile, Workspace } from '../../src/shared/agentdockTypes';
+import type {
+  AgentSession,
+  ApiProfile,
+  Workspace,
+  WorkspaceDirectoryRequest,
+  WorkspaceDirectoryResult,
+} from '../../src/shared/agentdockTypes';
 import type { AgentDockApi } from '../../src/shared/preloadTypes';
 
 vi.mock('../../src/renderer/components/TerminalPane', () => ({
@@ -33,6 +39,7 @@ type TestAgentDockApi = AgentDockApi & {
   restartSession: ReturnType<typeof vi.fn<[(request: { sessionId: string; command?: string; claudeLaunchMode?: 'lite' | 'full' }) => Promise<AgentSession>]>>;
   getSessionContextPressure: ReturnType<typeof vi.fn<[(request: { sessionId: string }) => Promise<{ sessionId: string; level: 'low' | 'medium' | 'high' | 'full'; score: number }>]>>;
   summarizeSession: ReturnType<typeof vi.fn<[(request: { sessionId: string; continueAfterSummary?: boolean }) => Promise<{ status: 'success'; summaryFile: string; handoffFile: string; handoffPrompt: string; continuationSession?: AgentSession }>]>>;
+  listWorkspaceDirectory: ReturnType<typeof vi.fn<[(request: WorkspaceDirectoryRequest) => Promise<WorkspaceDirectoryResult>]>>;
 };
 
 function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
@@ -115,6 +122,11 @@ function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
       summaryFile: '/tmp/summary.md',
       handoffFile: '/tmp/handoff.md',
       handoffPrompt: 'Read the AgentDock handoff first',
+    }),
+    listWorkspaceDirectory: vi.fn().mockResolvedValue({
+      workspaceId: 'workspace-a',
+      relativePath: '.',
+      entries: [],
     }),
     onTerminalOutput: vi.fn(() => () => undefined),
     readWorkspaceContext: vi.fn().mockResolvedValue({ filePath: '', content: '' }),
@@ -386,6 +398,70 @@ describe('AgentDock shell', () => {
 
     expect(screen.getByRole('complementary', { name: '项目面板' })).toHaveClass('open');
     expect(screen.getByRole('button', { name: '收起项目面板' })).toBeInTheDocument();
+  });
+
+  it('shows a read-only project file tree with git and session change markers', async () => {
+    const api = installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Claude A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude',
+          status: 'running',
+          startedAt: '2026-07-07T00:00:00.000Z',
+          memoryRestore: {
+            status: 'loaded',
+            summary: '记忆已恢复：已加载最近会话背景。',
+            contextFile: '/tmp/workspace/.agentdock/context/restores/session-1.md',
+          },
+        },
+      ]),
+      listWorkspaceDirectory: vi.fn().mockResolvedValue({
+        workspaceId: 'workspace-a',
+        relativePath: '.',
+        entries: [
+          { name: 'src', relativePath: 'src', type: 'directory' },
+          {
+            name: 'App.tsx',
+            relativePath: 'src/App.tsx',
+            type: 'file',
+            gitStatus: 'M',
+            touchedInSession: true,
+            additions: 148,
+            deletions: 37,
+          },
+        ],
+      }),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('button', { name: /^Claude A · AgentDock$/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '展开项目面板' }));
+
+    const fileTree = await screen.findByRole('tree', { name: '项目文件树' });
+    expect(fileTree).toBeInTheDocument();
+    expect(api.listWorkspaceDirectory).toHaveBeenCalledWith({
+      workspaceId: 'workspace-a',
+      relativePath: '.',
+      sessionId: 'session-1',
+    });
+    expect(screen.getByText('只读')).toHaveAttribute(
+      'title',
+      '项目面板只用于查看文件和状态，AgentDock 不在这里编辑代码。',
+    );
+    expect(screen.getByRole('treeitem', { name: /App\.tsx/ })).toBeInTheDocument();
+    expect(within(fileTree).getByText('M')).toBeInTheDocument();
+    expect(within(fileTree).getByText('本会话期间发生变化')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '选中文件' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('src/App.tsx')).toBeInTheDocument();
+    expect(screen.getByText('+148 / -37')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '当前会话' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: '恢复摘要' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('separator', { name: '调整项目信息区高度' })).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('secret source text');
   });
 
   it('uses the full terminal width until session details are opened', () => {

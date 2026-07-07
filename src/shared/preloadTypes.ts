@@ -20,6 +20,8 @@ import type {
   TerminalResizeRequest,
   TerminalWriteRequest,
   Workspace,
+  WorkspaceDirectoryRequest,
+  WorkspaceDirectoryResult,
   WorkspaceContextOpenRequest,
   WorkspaceContextReadRequest,
   WorkspaceContextReadResult,
@@ -50,6 +52,7 @@ export type AgentDockApi = {
   summarizeSession(request: SessionSummaryRequest): Promise<SessionSummaryResult>;
   onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void;
   onSessionChanged(listener: (session: AgentSession) => void): () => void;
+  listWorkspaceDirectory(request: WorkspaceDirectoryRequest): Promise<WorkspaceDirectoryResult>;
   readWorkspaceContext(request: WorkspaceContextReadRequest): Promise<WorkspaceContextReadResult>;
   openWorkspaceContextFolder(request: WorkspaceContextOpenRequest): Promise<void>;
   openNewWindow(): Promise<void>;
@@ -81,6 +84,7 @@ export const AGENT_DOCK_API_METHODS = [
   'summarizeSession',
   'onTerminalOutput',
   'onSessionChanged',
+  'listWorkspaceDirectory',
   'readWorkspaceContext',
   'openWorkspaceContextFolder',
   'openNewWindow',

@@ -29,6 +29,7 @@ describe('preloadTypes', () => {
       'summarizeSession',
       'onTerminalOutput',
       'onSessionChanged',
+      'listWorkspaceDirectory',
       'readWorkspaceContext',
       'openWorkspaceContextFolder',
       'openNewWindow',
