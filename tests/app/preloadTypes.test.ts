@@ -6,6 +6,7 @@ describe('preloadTypes', () => {
   it('documents required renderer API methods', () => {
     const methodNames = [
       'version',
+      'getBuildInfo',
       'listProfiles',
       'listWorkspaces',
       'chooseWorkspace',

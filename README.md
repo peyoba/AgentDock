@@ -66,6 +66,14 @@ release/packages/20260704-153000/AgentDock-darwin-arm64/AgentDock.app
 
 默认不会覆盖 `release/AgentDock-darwin-arm64/AgentDock.app`。
 
+每个包会写入对应的构建信息：
+
+```text
+AgentDock.app/Contents/Resources/build-info.json
+```
+
+应用左侧会话库顶部会显示 `v版本 · buildId`，悬浮可查看 commit、构建时间和 dirty 状态，方便区分本地连续打出来的不同包。
+
 ## 重要文档
 
 - `docs/PROJECT_REQUIREMENTS.md`：需求和 UI 要求汇总。

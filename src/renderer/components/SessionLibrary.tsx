@@ -1,11 +1,12 @@
 import React from 'react';
-import type { AgentSession, ApiProfile, Workspace } from '../../shared/agentdockTypes';
+import type { AgentSession, ApiProfile, AppBuildInfo, Workspace } from '../../shared/agentdockTypes';
 
 type SessionLibraryProps = {
   sessions: AgentSession[];
   profiles: ApiProfile[];
   workspaces: Workspace[];
   activeSessionId?: string;
+  buildInfo?: AppBuildInfo;
   onNewSession(): void;
   onOpenSession(sessionId: string): void;
   onContinueSession(sessionId: string): void;
@@ -39,11 +40,26 @@ function relativeTimeLabel(startedAt: string): string {
   return `${Math.floor(hours / 24)}d`;
 }
 
+function buildInfoTitle(buildInfo: AppBuildInfo | undefined): string {
+  if (!buildInfo) {
+    return 'AgentDock 版本信息不可用';
+  }
+
+  const dirtyLabel = buildInfo.dirty ? ' · dirty worktree' : '';
+  return [
+    `version ${buildInfo.version}`,
+    `build ${buildInfo.buildId}`,
+    `commit ${buildInfo.commitShort}${dirtyLabel}`,
+    `built ${buildInfo.buildTime}`,
+  ].join(' · ');
+}
+
 export function SessionLibrary({
   sessions,
   profiles,
   workspaces,
   activeSessionId,
+  buildInfo,
   onNewSession,
   onOpenSession,
   onContinueSession,
@@ -84,7 +100,18 @@ export function SessionLibrary({
   return (
     <nav className="session-library" aria-label="会话库">
       <div className="session-library-header">
-        <h2>AgentDock</h2>
+        <div className="session-library-brand">
+          <h2>AgentDock</h2>
+          {buildInfo ? (
+            <span
+              className="app-version-chip"
+              aria-label="AgentDock 版本信息"
+              title={buildInfoTitle(buildInfo)}
+            >
+              v{buildInfo.version} · {buildInfo.buildId}
+            </span>
+          ) : null}
+        </div>
         <button type="button" className="primary-button session-new-button" onClick={onNewSession}>
           新会话
         </button>

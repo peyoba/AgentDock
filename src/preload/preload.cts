@@ -28,6 +28,7 @@ function isAgentSession(value: unknown): value is AgentSession {
 
 const api: AgentDockApi = {
   version: '0.1.0',
+  getBuildInfo: () => ipcRenderer.invoke('app:buildInfo'),
   listProfiles: () => ipcRenderer.invoke('profiles:list'),
   listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
   chooseWorkspace: () => ipcRenderer.invoke('workspaces:choose'),

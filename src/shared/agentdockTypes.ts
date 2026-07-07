@@ -37,6 +37,15 @@ export type Workspace = {
   path: string;
 };
 
+export type AppBuildInfo = {
+  version: string;
+  buildId: string;
+  buildTime: string;
+  commit: string;
+  commitShort: string;
+  dirty: boolean;
+};
+
 export type SessionStatus =
   | 'starting'
   | 'running'

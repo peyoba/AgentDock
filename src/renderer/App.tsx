@@ -13,6 +13,7 @@ import { defaultApiProfiles } from '../shared/defaultApiProfiles';
 import { terminalOutputToPlainText } from '../shared/terminalText';
 import type {
   AgentSession,
+  AppBuildInfo,
   ApiProfile,
   ClaudeLaunchMode,
   LaunchRequest,
@@ -70,6 +71,15 @@ const fallbackSessions: AgentSession[] = [
     startedAt: '2026-07-02T00:00:00.000Z',
   },
 ];
+
+const fallbackBuildInfo: AppBuildInfo = {
+  version: '0.1.0',
+  buildId: 'preview',
+  buildTime: '2026-07-08T00:00:00.000Z',
+  commit: 'unknown',
+  commitShort: 'unknown',
+  dirty: false,
+};
 
 function defaultCommandFor(profile?: ApiProfile): string {
   if (profile?.toolType === 'codex') {
@@ -303,6 +313,9 @@ export default function App(): React.JSX.Element {
   const [profiles, setProfiles] = React.useState<ApiProfile[]>(api ? [] : fallbackProfiles);
   const [workspaces, setWorkspaces] = React.useState<Workspace[]>(api ? [] : fallbackWorkspaces);
   const [sessions, setSessions] = React.useState<AgentSession[]>(api ? [] : fallbackSessions);
+  const [buildInfo, setBuildInfo] = React.useState<AppBuildInfo | undefined>(
+    api ? undefined : fallbackBuildInfo,
+  );
   const [selectedProfileId, setSelectedProfileId] = React.useState<string | undefined>(
     api ? undefined : fallbackProfiles[0]?.id,
   );
@@ -367,6 +380,29 @@ export default function App(): React.JSX.Element {
       .catch((error: unknown) => {
         if (!cancelled) {
           setLaunchError(safeLaunchError(error));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  React.useEffect(() => {
+    if (!api) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    void api.getBuildInfo()
+      .then((nextBuildInfo) => {
+        if (!cancelled) {
+          setBuildInfo(nextBuildInfo);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBuildInfo(undefined);
         }
       });
 
@@ -884,6 +920,7 @@ export default function App(): React.JSX.Element {
             profiles={profiles}
             workspaces={workspaces}
             activeSessionId={activeSessionId}
+            buildInfo={buildInfo}
             onNewSession={focusNewSessionControls}
             onOpenSession={openSessionView}
             onContinueSession={(sessionId) => void continueSession(sessionId)}

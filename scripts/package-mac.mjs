@@ -1,11 +1,10 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 const DEFAULT_OUTPUT_ROOT = 'release/packages';
 
-function timestamp() {
-  const now = new Date();
+function timestamp(now = new Date()) {
   const pad = (value) => String(value).padStart(2, '0');
 
   return [
@@ -17,6 +16,23 @@ function timestamp() {
     pad(now.getMinutes()),
     pad(now.getSeconds()),
   ].join('');
+}
+
+export function createBuildInfo({
+  version,
+  buildId,
+  buildTime,
+  commit,
+  dirty,
+}) {
+  return {
+    version,
+    buildId,
+    buildTime: buildTime.toISOString(),
+    commit,
+    commitShort: commit === 'unknown' ? 'unknown' : commit.slice(0, 7),
+    dirty,
+  };
 }
 
 function run(command, args) {
@@ -53,11 +69,31 @@ function defaultListIdentities() {
   return result.status === 0 ? result.stdout : '';
 }
 
+function packageVersion() {
+  const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+  if (typeof packageJson.version !== 'string' || !packageJson.version) {
+    throw new Error('package.json version is missing');
+  }
+  return packageJson.version;
+}
+
+function gitCommit() {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
+  return result.status === 0 ? result.stdout.trim() : 'unknown';
+}
+
+function gitDirty() {
+  const result = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+  return result.status === 0 && result.stdout.trim().length > 0;
+}
+
 const isDirectRun = process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]));
 
 if (isDirectRun) {
   const outputRoot = process.env.AGENTDOCK_PACKAGE_OUT || DEFAULT_OUTPUT_ROOT;
-  const outputDirectory = path.join(outputRoot, timestamp());
+  const buildTime = new Date();
+  const buildId = timestamp(buildTime);
+  const outputDirectory = path.join(outputRoot, buildId);
   const appPath = path.join(outputDirectory, 'AgentDock-darwin-arm64', 'AgentDock.app');
 
   if (existsSync(outputDirectory)) {
@@ -78,6 +114,19 @@ if (isDirectRun) {
     '--asar.unpack=**/{*.node,spawn-helper,ccline}',
     '--ignore=^/(src|tests|docs|scripts|release|\\.agent-workflow|\\.agentdock|\\.claude|\\.git|\\.pytest_cache)(/|$)|^/\\.env(?:\\..*)?$|^/.*\\.log$',
   ]);
+
+  const buildInfo = createBuildInfo({
+    version: packageVersion(),
+    buildId,
+    buildTime,
+    commit: gitCommit(),
+    dirty: gitDirty(),
+  });
+  const buildInfoPath = path.join(appPath, 'Contents', 'Resources', 'build-info.json');
+  writeFileSync(buildInfoPath, `${JSON.stringify(buildInfo, null, 2)}\n`);
+  console.log(
+    `[package-mac] Build info: v${buildInfo.version} · ${buildInfo.buildId} · ${buildInfo.commitShort}${buildInfo.dirty ? ' dirty' : ''}`,
+  );
 
   const signingIdentity = resolveSigningIdentity();
   if (signingIdentity === '-') {

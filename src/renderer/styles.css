@@ -592,11 +592,29 @@ p {
   border-bottom: 1px solid #e4eaf2;
 }
 
+.session-library-brand {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
 .session-library-header h2 {
   margin: 0;
   color: #111827;
   font-size: 15px;
   font-weight: 900;
+}
+
+.app-version-chip {
+  width: fit-content;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .session-new-button {

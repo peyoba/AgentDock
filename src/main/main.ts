@@ -1,8 +1,10 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createNodePtyAdapter } from './adapters/ptyAdapter.js';
+import { resolveAppBuildInfo } from './buildInfoService.js';
 import type { KeychainAdapter } from './adapters/keychainAdapter.js';
 import { createKeytarAdapter } from './adapters/keychainAdapter.js';
 import {
@@ -325,6 +327,16 @@ function installEditContextMenu(contents: Electron.WebContents): void {
 }
 
 function registerIpcHandlers(): void {
+  ipcMain.handle('app:buildInfo', () =>
+    resolveAppBuildInfo({
+      appVersion: app.getVersion(),
+      resourcesPath: process.resourcesPath,
+      now: () => new Date(),
+      readTextFile: (filePath) => fs.readFileSync(filePath, 'utf8'),
+      readGitCommit: () => readGitCommit(),
+      isGitDirty: () => isGitDirty(),
+    }),
+  );
   ipcMain.handle('profiles:list', () => listProfiles());
   ipcMain.handle('profiles:save', async (_event, profile: ApiProfile) => {
     const savedProfile = await saveProfile(profile);
@@ -500,6 +512,22 @@ function registerIpcHandlers(): void {
   ipcMain.handle('windows:new', () => {
     createMainWindow({ restoreHistory: false });
   });
+}
+
+function readGitCommit(): string | undefined {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+  });
+  return result.status === 0 ? result.stdout.trim() : undefined;
+}
+
+function isGitDirty(): boolean {
+  const result = spawnSync('git', ['status', '--porcelain'], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+  });
+  return result.status === 0 && result.stdout.trim().length > 0;
 }
 
 function createMainWindow({

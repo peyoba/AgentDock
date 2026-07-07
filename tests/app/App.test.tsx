@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/renderer/App';
 import type {
+  AppBuildInfo,
   AgentSession,
   ApiProfile,
   Workspace,
@@ -40,11 +41,20 @@ type TestAgentDockApi = AgentDockApi & {
   getSessionContextPressure: ReturnType<typeof vi.fn<[(request: { sessionId: string }) => Promise<{ sessionId: string; level: 'low' | 'medium' | 'high' | 'full'; score: number }>]>>;
   summarizeSession: ReturnType<typeof vi.fn<[(request: { sessionId: string; continueAfterSummary?: boolean }) => Promise<{ status: 'success'; summaryFile: string; handoffFile: string; handoffPrompt: string; continuationSession?: AgentSession }>]>>;
   listWorkspaceDirectory: ReturnType<typeof vi.fn<[(request: WorkspaceDirectoryRequest) => Promise<WorkspaceDirectoryResult>]>>;
+  getBuildInfo: ReturnType<typeof vi.fn<() => Promise<AppBuildInfo>>>;
 };
 
 function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
   const api: TestAgentDockApi = {
     version: '0.1.0',
+    getBuildInfo: vi.fn().mockResolvedValue({
+      version: '0.1.0',
+      buildId: 'dev',
+      buildTime: '2026-07-08T00:00:00.000Z',
+      commit: 'unknown',
+      commitShort: 'unknown',
+      dirty: false,
+    }),
     listProfiles: vi.fn().mockResolvedValue([
       {
         id: 'profile-a',
@@ -150,6 +160,28 @@ async function openApiConfigPage(): Promise<void> {
 }
 
 describe('AgentDock shell', () => {
+  it('shows package version and build identity in the session library', async () => {
+    installAgentDockApi({
+      getBuildInfo: vi.fn().mockResolvedValue({
+        version: '0.2.0',
+        buildId: '20260708-061530',
+        buildTime: '2026-07-08T06:15:30.000Z',
+        commit: '01d1331abcdef',
+        commitShort: '01d1331',
+        dirty: false,
+      }),
+    });
+
+    render(<App />);
+
+    const versionInfo = await screen.findByLabelText('AgentDock 版本信息');
+    expect(versionInfo).toHaveTextContent('v0.2.0 · 20260708-061530');
+    expect(versionInfo).toHaveAttribute(
+      'title',
+      expect.stringContaining('commit 01d1331'),
+    );
+  });
+
   it('opens a new AgentDock window from the header action', async () => {
     const api = installAgentDockApi({
       openNewWindow: vi.fn().mockResolvedValue(undefined),
