@@ -296,6 +296,7 @@ export default function App(): React.JSX.Element {
   const commandBarRef = React.useRef<HTMLElement>(null);
   const [activePage, setActivePage] = React.useState<ActivePage>('workbench');
   const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const [projectPanelOpen, setProjectPanelOpen] = React.useState(false);
   const [profiles, setProfiles] = React.useState<ApiProfile[]>(api ? [] : fallbackProfiles);
   const [workspaces, setWorkspaces] = React.useState<Workspace[]>(api ? [] : fallbackWorkspaces);
   const [sessions, setSessions] = React.useState<AgentSession[]>(api ? [] : fallbackSessions);
@@ -860,7 +861,7 @@ export default function App(): React.JSX.Element {
         onOpenNewWindow={api ? openNewWindow : undefined}
       />
       {activePage === 'workbench' ? (
-        <section className="workbench-layout">
+        <section className={projectPanelOpen ? 'workbench-layout project-open' : 'workbench-layout'}>
           <SessionLibrary
             sessions={sessions}
             profiles={profiles}
@@ -982,6 +983,47 @@ export default function App(): React.JSX.Element {
             />
             </section>
           </div>
+          <aside
+            className={projectPanelOpen ? 'project-panel open' : 'project-panel collapsed'}
+            aria-label="项目面板"
+          >
+            {projectPanelOpen ? (
+              <>
+                <header className="project-panel-header">
+                  <div>
+                    <h2>{activeSessionWorkspace?.name ?? selectedWorkspace?.name ?? '项目'}</h2>
+                    <p>{activeSessionWorkspace?.path ?? selectedWorkspace?.path ?? ''}</p>
+                  </div>
+                  <span
+                    className="project-readonly-badge"
+                    title="项目面板只用于查看文件和状态，AgentDock 不在这里编辑代码。"
+                  >
+                    只读
+                  </span>
+                  <button
+                    type="button"
+                    className="project-panel-collapse"
+                    aria-label="收起项目面板"
+                    onClick={() => setProjectPanelOpen(false)}
+                  >
+                    ›
+                  </button>
+                </header>
+                <section className="project-panel-placeholder" aria-label="项目文件树">
+                  <span>文件</span>
+                </section>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="project-panel-rail"
+                aria-label="展开项目面板"
+                onClick={() => setProjectPanelOpen(true)}
+              >
+                文
+              </button>
+            )}
+          </aside>
         </section>
       ) : (
         <section className="settings-page" aria-label="接口配置页面">

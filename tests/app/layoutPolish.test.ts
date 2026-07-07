@@ -21,6 +21,16 @@ describe('layout polish styles', () => {
     expect(css).toMatch(/\.workspace-grid\.details-open\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) minmax\(260px,\s*316px\)/s);
   });
 
+  it('keeps the project panel collapsed by default and protects terminal width', () => {
+    const css = styles();
+
+    expect(css).toMatch(/\.workbench-layout\s*\{[^}]*--terminal-min-columns:\s*100/s);
+    expect(css).toMatch(/\.workbench-layout\s*\{[^}]*--terminal-min-width:/s);
+    expect(css).toMatch(/\.workbench-layout\.project-open\s*\{/);
+    expect(css).toMatch(/\.project-panel-rail\s*\{/);
+    expect(css).toMatch(/\.project-panel\.collapsed\s*\{/);
+  });
+
   it('renders running sessions as compact non-wrapping tabs', () => {
     const css = styles();
 

@@ -376,6 +376,18 @@ describe('AgentDock shell', () => {
     expect(screen.getByRole('button', { name: 'Archived session' })).toBeInTheDocument();
   });
 
+  it('keeps the right project panel collapsed by default and toggles it from the rail', () => {
+    render(<App />);
+
+    expect(screen.getByRole('complementary', { name: '项目面板' })).toHaveClass('collapsed');
+    expect(screen.getByRole('button', { name: '展开项目面板' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开项目面板' }));
+
+    expect(screen.getByRole('complementary', { name: '项目面板' })).toHaveClass('open');
+    expect(screen.getByRole('button', { name: '收起项目面板' })).toBeInTheDocument();
+  });
+
   it('uses the full terminal width until session details are opened', () => {
     render(<App />);
 
