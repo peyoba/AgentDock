@@ -1,7 +1,7 @@
 # Agent Workflow State
 
 ## 当前任务
-2026-07-08 AgentDock 长期会话库与终端优先布局重构 Batch 6：恢复语义整合已完成并通过集成验证，准备提交后进入最终打包、codesign、真实验证和交付报告。
+2026-07-08 AgentDock 长期会话库与终端优先布局重构：Batch 0-6 已完成，最终 package、codesign、真实 resume 复核、验证记录和交付报告进入 delivery。
 
 ## 风险等级
 L3
@@ -9,10 +9,10 @@ L3
 触发原因：完整目标将涉及会话持久化、PTY 生命周期、Claude/Codex 原生 resume、Renderer 主界面、文件系统读取、IPC 边界和 secret 脱敏边界。Batch 6 已完成 verified-native-first 恢复选择、partial/unavailable fallback 和右侧恢复摘要标识。
 
 ## 当前 Hook
-integration_hook
+delivery_hook
 
 ## 当前阶段
-integration
+delivery
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
@@ -24,6 +24,7 @@ integration
 | 主 Agent | PASS | Batch 4 终端优先布局：右侧项目面板默认收起为 rail、展开/收起 UI、`--terminal-min-columns: 100` CSS 约束、中窄屏 overlay 规则；验证记录 `.agent-workflow/verification/2026-07-07-terminal-first-layout-batch4.md` |
 | 主 Agent | PASS | Batch 5 只读项目文件树：`workspaceFileTreeService`、`sessionFileIndexStore`、`ProjectPanel`/`WorkspaceFileTree`/`ProjectPanelInfoSections`、`workspaceFiles:listDirectory` IPC；验证记录 `.agent-workflow/verification/2026-07-08-project-panel-file-tree-batch5.md` |
 | 主 Agent | PASS | Batch 6 恢复语义整合：`nativeResume` metadata、`MemoryRestoreState.method`、verified native resume 优先、partial/unavailable fallback、右侧恢复摘要标识；验证记录 `.agent-workflow/verification/2026-07-08-session-library-native-restore-batch6.md` |
+| 主 Agent | PASS | 最终交付：Codex native resume 复核 verified、Claude auth-blocked partial、macOS package/codesign 通过；验证记录 `.agent-workflow/verification/2026-07-08-session-library-terminal-first-final.md`，交付报告 `.agent-workflow/delivery/2026-07-08-session-library-terminal-first-ui-delivery-report.md` |
 | 主 Agent | PASS | 长期会话库与终端优先布局实施计划：`docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md`；包含 Batch 0 基线、Batch 1 native resume 探针、Batch 2-6 分批实现 |
 | 主 Agent | PASS | 长期会话库与终端优先布局中文 SPEC：`docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md`；等待用户审阅 |
 | 主 Agent | PASS | 终端控制序列乱码修复：RED/GREEN 测试、agent-only OSC query guard、live/replay color reply 过滤、真实 xterm smoke、workflow/typecheck/build 验证；交付报告 `.agent-workflow/delivery/2026-07-07-terminal-control-sequence-garbled-output-delivery-report.md` |
@@ -109,7 +110,7 @@ integration
 无
 
 ## 下一步
-提交 Batch 6 恢复语义整合，然后执行最终全量验证、真实 CLI resume/fallback 复核、macOS package、codesign 和交付报告。
+提交最终验证记录、交付报告和 workflow state。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -166,6 +167,10 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-08 | Batch 5 integration：`npm run workflow:doctor` / `npm run test:workflow` / `npm test` / `npm run typecheck` / `npm run build` / `git diff --check` / secret-like scan | PASS：doctor 全绿；workflow pytest 8 passed；Vitest 46 files / 293 tests；typecheck 通过；build 通过，仅 Vite chunk size warning；diff check 无输出；secret-like scan 无命中 |
 | 2026-07-08 | Batch 6 RED/GREEN：`npx vitest run tests/app/sessionService.test.ts -t "verified native resume"` / `npx vitest run tests/app/App.test.tsx -t "native resume separately"` | PASS：实现前 verified native metadata 仍走 AgentDock fallback、UI 误标为 fallback；实现后 native-first 和右侧 `原生 resume` 标识通过 |
 | 2026-07-08 | Batch 6 integration：`npm run workflow:doctor` / `npm run test:workflow` / `npm test` / `npm run typecheck` / `npm run build` / `git diff --check` / secret-like scan | PASS：doctor 全绿；workflow pytest 8 passed；Vitest 46 files / 295 tests；typecheck 通过；build 通过，仅 Vite chunk size warning；diff check 无输出；secret-like scan 无命中 |
+| 2026-07-08 | Final Codex resume smoke：`codex exec --json ...` / `codex exec resume --json 019f3e97-8ac4-7062-857c-4688533c5bbe ...` | PASS：首启输出 `thread_id`；续接同一 id 返回 `CODEX_SMOKE_BRAVO_20260708` |
+| 2026-07-08 | Final Claude resume smoke：`claude --help` / `claude --session-id ... -p ...` | PARTIAL：help 暴露 `--session-id` / `--resume`；真实 smoke 因本机认证返回 `Invalid API key · Please run /login`，不能标 verified |
+| 2026-07-08 | `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm run package:mac` / `codesign --verify --deep --strict --verbose=2 release/packages/20260708-060114/AgentDock-darwin-arm64/AgentDock.app` | PASS：生成 `release/packages/20260708-060114/AgentDock-darwin-arm64/AgentDock.app`；codesign valid on disk 且 satisfies Designated Requirement |
+| 2026-07-08 | Final quality gate：`npm run workflow:doctor` / `npm run test:workflow` / `npm test` / `npm run typecheck` / `npm run build` / `git diff --check` / secret-like scan | PASS：doctor PASS；workflow pytest 8 passed；Vitest 46 files / 295 tests；typecheck PASS；build PASS，仅 Vite chunk size warning；diff check 无输出；secret-like scan 无命中 |
 | 2026-07-07 | `claude --version` / `claude --help \| rg -- '--session-id\|--resume'` / `codex --version` / `codex resume --help` / `codex exec resume --help` | PASS：Claude CLI 2.1.201 暴露 `--session-id` 与 `--resume`；Codex CLI 0.142.5 暴露 `resume` / `exec resume`，但未暴露启动时指定 session id 参数；SPEC 已要求 Batch 1 真机探针 |
 | 2026-07-07 | `rg -n "TBD\|TODO\|待定\|稍后\|以后再\|implement later\|fill in\|placeholder\|FIXME\|四个批次\|五个批次\|interupted" docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md` / `git diff --check -- docs/superpowers/specs/2026-07-07-agentdock-session-library-terminal-first-ui-design.zh-CN.md docs/superpowers/plans/2026-07-07-agentdock-session-library-terminal-first-ui.md .agent-workflow/state.md` | PASS：状态枚举一致性修复后无占位词/旧批次数/`interupted` 拼写命中；diff check 无输出 |
 | 2026-07-07 | `npm run test:workflow` / `npm run build` | PASS：workflow pytest 8 passed；build 通过，仅 Vite chunk size warning |
