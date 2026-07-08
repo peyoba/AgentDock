@@ -1,22 +1,23 @@
 # Agent Workflow State
 
 ## 当前任务
-2026-07-08 AgentDock 长期会话库与终端优先布局重构：Batch 0-6 已完成，最终 package、codesign、真实 resume 复核、验证记录和交付报告进入 delivery。
+2026-07-08 AgentDock Claude Profile 内置 Anthropic 兼容改写层：中文实施计划已生成，等待用户选择执行方式。
 
 ## 风险等级
 L3
 
-触发原因：完整目标将涉及会话持久化、PTY 生命周期、Claude/Codex 原生 resume、Renderer 主界面、文件系统读取、IPC 边界和 secret 脱敏边界。Batch 6 已完成 verified-native-first 恢复选择、partial/unavailable fallback 和右侧恢复摘要标识。
+触发原因：本任务将修改 Claude API 请求链路、环境变量注入结果、本地 loopback 转发器生命周期、API Key/Authorization header 处理、PTY 启动与退出边界，并涉及外部 LLM endpoint 真实验证。
 
 ## 当前 Hook
-delivery_hook
+plan_review_hook
 
 ## 当前阶段
-delivery
+plan
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
 |------|------|------|
+| 主 Agent | PASS | Claude Profile 内置 Anthropic 兼容改写层实施计划：`docs/superpowers/plans/2026-07-08-agentdock-claude-compat-proxy.md`；覆盖 proxy rewrite、Profile 持久化、SessionService 生命周期、UI 开关、L3 真实验证和交付 |
 | 主 Agent | PASS | Batch 0 基线已提交：`b9ee2bd chore: stabilize session restore baseline`；已删除未跟踪构建产物和 SPEC 副本目录；workflow/test/typecheck/build/secret scan 通过 |
 | 主 Agent | PASS | Batch 1 native resume 探针：`src/main/nativeResumeProbe.ts`、`tests/app/nativeResumeProbe.test.ts`、`.agent-workflow/verification/2026-07-07-native-resume-probe.md`；Claude capability verified 但 runtime smoke partial；Codex native resume verified |
 | 主 Agent | PASS | Batch 2 三层模型：`sessionHistoryStore` 增加 close/archive/delete record；`SessionService` stop-only、close view、archive/delete record、runtime owner registry；preload/main IPC 白名单已接入；全量测试/typecheck/build 通过 |
@@ -107,10 +108,10 @@ delivery
 无
 
 ## 用户待确认
-无
+请选择实施方式：`Subagent-Driven`（推荐，每个任务 fresh subagent + 审阅）或 `Inline Execution`（当前会话按计划分批执行）。
 
 ## 下一步
-提交最终验证记录、交付报告和 workflow state。
+用户选择执行方式后，按 `docs/superpowers/plans/2026-07-08-agentdock-claude-compat-proxy.md` 进入 dispatch/execution；执行前先处理当前 dirty baseline。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。

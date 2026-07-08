@@ -22,21 +22,28 @@ input {
 
 .app-shell {
   min-height: 100vh;
-  padding: 0 8px 8px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
   box-sizing: border-box;
-  background: #f6f7fb;
+  background: #f6f7f4;
 }
 
 .titlebar-spacer {
+  position: fixed;
+  top: auto;
+  right: auto;
+  bottom: 12px;
+  left: 16px;
+  z-index: 50;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-  height: 34px;
-  min-height: 34px;
-  padding: 0 18px 0 68px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  pointer-events: none;
   -webkit-app-region: drag;
 }
 
@@ -78,8 +85,12 @@ p {
   gap: 10px;
 }
 
+.header-actions {
+  pointer-events: auto;
+}
+
 .brand-lockup {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 10px;
 }
@@ -201,24 +212,22 @@ p {
 
 .workbench-layout {
   --session-library-width: clamp(220px, 20vw, 300px);
-  --project-panel-width: clamp(320px, 26vw, 380px);
-  --terminal-min-columns: 100;
-  --terminal-char-width: 8.2px;
-  --terminal-min-width: calc((var(--terminal-char-width) * var(--terminal-min-columns)) + 48px);
+  --project-panel-width: 360px;
   flex: 1;
   min-height: 0;
   position: relative;
   display: grid;
-  grid-template-columns: var(--session-library-width) minmax(var(--terminal-min-width), 1fr) 36px;
-  gap: 8px;
+  grid-template-columns: var(--session-library-width) minmax(0, 1fr) 40px;
+  gap: 0;
   overflow: hidden;
 }
 
 .workbench-layout.project-open {
   grid-template-columns:
     var(--session-library-width)
-    minmax(var(--terminal-min-width), 1fr)
-    minmax(320px, var(--project-panel-width));
+    minmax(0, 1fr)
+    6px
+    minmax(280px, var(--project-panel-width));
 }
 
 .workbench-main {
@@ -226,14 +235,18 @@ p {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
+  border-left: 1px solid #e1e6dc;
+  border-right: 1px solid #e1e6dc;
+  background: #f6f7f4;
 }
 
 .project-panel {
   min-width: 0;
   min-height: 0;
-  border: 1px solid #dfe5ee;
-  border-radius: 12px;
+  border: 0;
+  border-left: 1px solid #dfe4dc;
+  border-radius: 0;
   background: #fff;
   overflow: hidden;
 }
@@ -247,6 +260,20 @@ p {
 .project-panel.open {
   display: flex;
   flex-direction: column;
+}
+
+.project-panel-resizer {
+  min-width: 6px;
+  cursor: col-resize;
+  background: #f6f7f4;
+  border-left: 1px solid #dfe4dc;
+  border-right: 1px solid #dfe4dc;
+}
+
+.project-panel-resizer:hover,
+.project-panel-resizer:focus-visible {
+  background: #e8eee7;
+  outline: none;
 }
 
 .project-panel-rail {
@@ -1841,8 +1868,12 @@ p {
   .workbench-layout.project-open {
     grid-template-columns:
       minmax(220px, 260px)
-      minmax(var(--terminal-min-width), 1fr)
-      36px;
+      minmax(0, 1fr)
+      40px;
+  }
+
+  .workbench-layout.project-open .project-panel-resizer {
+    display: none;
   }
 
   .workbench-layout.project-open .project-panel.open {

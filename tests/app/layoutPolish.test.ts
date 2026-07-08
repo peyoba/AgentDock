@@ -24,9 +24,10 @@ describe('layout polish styles', () => {
   it('keeps the project panel collapsed by default and protects terminal width', () => {
     const css = styles();
 
-    expect(css).toMatch(/\.workbench-layout\s*\{[^}]*--terminal-min-columns:\s*100/s);
-    expect(css).toMatch(/\.workbench-layout\s*\{[^}]*--terminal-min-width:/s);
-    expect(css).toMatch(/\.workbench-layout\.project-open\s*\{/);
+    expect(css).toMatch(/\.workbench-layout\s*\{[^}]*--project-panel-width:\s*360px/s);
+    expect(css).toMatch(/\.workbench-layout\s*\{[^}]*grid-template-columns:\s*var\(--session-library-width\) minmax\(0,\s*1fr\) 40px/s);
+    expect(css).toMatch(/\.workbench-layout\.project-open\s*\{[^}]*grid-template-columns:[^}]*6px[^}]*minmax\(280px,\s*var\(--project-panel-width\)\)/s);
+    expect(css).toMatch(/\.project-panel-resizer\s*\{[^}]*cursor:\s*col-resize/s);
     expect(css).toMatch(/\.project-panel-rail\s*\{/);
     expect(css).toMatch(/\.project-panel\.collapsed\s*\{/);
   });

@@ -310,6 +310,7 @@ export default function App(): React.JSX.Element {
   const [activePage, setActivePage] = React.useState<ActivePage>('workbench');
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [projectPanelOpen, setProjectPanelOpen] = React.useState(false);
+  const [projectPanelWidth, setProjectPanelWidth] = React.useState(360);
   const [profiles, setProfiles] = React.useState<ApiProfile[]>(api ? [] : fallbackProfiles);
   const [workspaces, setWorkspaces] = React.useState<Workspace[]>(api ? [] : fallbackWorkspaces);
   const [sessions, setSessions] = React.useState<AgentSession[]>(api ? [] : fallbackSessions);
@@ -907,6 +908,24 @@ export default function App(): React.JSX.Element {
     return api.listWorkspaceDirectory(request);
   }, [api]);
 
+  const startProjectPanelResize = (event: React.MouseEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = projectPanelWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent): void => {
+      const nextWidth = startWidth - (moveEvent.clientX - startX);
+      setProjectPanelWidth(Math.min(520, Math.max(280, nextWidth)));
+    };
+    const onMouseUp = (): void => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
   return (
     <main className="app-shell">
       <AppHeader
@@ -914,7 +933,10 @@ export default function App(): React.JSX.Element {
         onOpenNewWindow={api ? openNewWindow : undefined}
       />
       {activePage === 'workbench' ? (
-        <section className={projectPanelOpen ? 'workbench-layout project-open' : 'workbench-layout'}>
+        <section
+          className={projectPanelOpen ? 'workbench-layout project-open' : 'workbench-layout'}
+          style={{ '--project-panel-width': `${projectPanelWidth}px` } as React.CSSProperties}
+        >
           <SessionLibrary
             sessions={sessions}
             profiles={profiles}
@@ -1037,6 +1059,16 @@ export default function App(): React.JSX.Element {
             />
             </section>
           </div>
+          {projectPanelOpen ? (
+            <div
+              className="project-panel-resizer"
+              role="separator"
+              aria-label="调整项目面板宽度"
+              aria-orientation="vertical"
+              tabIndex={0}
+              onMouseDown={startProjectPanelResize}
+            />
+          ) : null}
           <aside
             className={projectPanelOpen ? 'project-panel open' : 'project-panel collapsed'}
             aria-label="项目面板"

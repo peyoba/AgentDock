@@ -456,7 +456,7 @@ export function TerminalPane({
     return (
       <section className="terminal-preview terminal-empty" aria-label="终端状态">
         <h2>尚未启动真实终端</h2>
-        <p>选择 API 配置、工作区和命令后，点击“启动终端”会创建真实 node-pty 会话。</p>
+        <p>选择 API 配置、工作区和命令后，点击“启动”会创建真实 node-pty 会话。</p>
         <p>如果只是想验证终端输入输出，请在命令下拉里选择 zsh。</p>
       </section>
     );

@@ -111,7 +111,7 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
           disabled={launching || !profile || !workspace}
           onClick={onLaunch}
         >
-          {launching ? '启动中…' : '启动终端'}
+          {launching ? '启动中…' : '启动'}
         </button>
       </div>
     </section>

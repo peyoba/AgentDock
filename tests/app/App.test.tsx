@@ -242,7 +242,8 @@ describe('AgentDock shell', () => {
     render(<App />);
 
     expect(screen.queryByRole('button', { name: /新建会话/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '启动终端' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '启动' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '启动终端' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Quick Launch' })).not.toBeInTheDocument();
     expect(screen.queryByText('选择接口、项目目录和命令，一次启动独立终端会话。')).not.toBeInTheDocument();
     expect(screen.getByLabelText('新建终端会话')).toBeInTheDocument();
@@ -425,9 +426,11 @@ describe('AgentDock shell', () => {
 
     expect(screen.getByRole('complementary', { name: '项目面板' })).toHaveClass('collapsed');
     expect(screen.getByRole('button', { name: '展开项目面板' })).toBeInTheDocument();
+    expect(screen.queryByRole('separator', { name: '调整项目面板宽度' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '展开项目面板' }));
 
+    expect(screen.getByRole('separator', { name: '调整项目面板宽度' })).toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: '项目面板' })).toHaveClass('open');
     expect(screen.getByRole('button', { name: '收起项目面板' })).toBeInTheDocument();
   });
@@ -679,7 +682,7 @@ describe('AgentDock session launch flow', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('选择 API 配置')).toHaveValue('profile-a');
     });
-    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -700,7 +703,7 @@ describe('AgentDock session launch flow', () => {
     fireEvent.change(await screen.findByLabelText('Claude 启动模式'), {
       target: { value: 'full' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -737,7 +740,7 @@ describe('AgentDock session launch flow', () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: '启动终端' }));
+    fireEvent.click(await screen.findByRole('button', { name: '启动' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('API key was not found for account "profile-a"');
@@ -1382,7 +1385,7 @@ describe('AgentDock session launch flow', () => {
 
     fireEvent.change(await screen.findByLabelText('选择 API 配置'), { target: { value: 'codex-b' } });
     fireEvent.change(screen.getByLabelText('选择工作区'), { target: { value: 'workspace-b' } });
-    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -1422,7 +1425,7 @@ describe('AgentDock session launch flow', () => {
 
     expect(screen.queryByLabelText('选择启动命令')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -1460,7 +1463,7 @@ describe('AgentDock session launch flow', () => {
     expect(screen.getByLabelText('选择工作区')).toHaveValue('workspace-docs');
     expect(screen.getByLabelText('选择工作区')).toHaveTextContent('Docs');
 
-    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -2338,7 +2341,7 @@ describe('AgentDock session launch flow', () => {
     expect(checkbox).toBeChecked();
 
     fireEvent.click(await screen.findByRole('button', { name: '返回终端工作台' }));
-    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -2494,7 +2497,7 @@ describe('AgentDock session launch flow', () => {
     expect(checkbox).not.toBeChecked();
 
     fireEvent.click(await screen.findByRole('button', { name: '返回终端工作台' }));
-    fireEvent.click(screen.getByRole('button', { name: '启动终端' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({

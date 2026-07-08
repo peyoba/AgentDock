@@ -9,21 +9,25 @@ describe('macOS window chrome behavior', () => {
     expect(styles).toMatch(/\.titlebar-spacer\s+(button|input|select)[^{]*\{[^}]*-webkit-app-region:\s*no-drag/s);
   });
 
-  it('uses a custom titlebar aligned with macOS traffic lights on the same row', () => {
+  it('lets the workbench fill the window while keeping app actions in the sidebar footer area', () => {
     const mainSource = readFileSync('src/main/main.ts', 'utf8');
     const styles = readFileSync('src/renderer/styles.css', 'utf8');
 
     expect(mainSource).toMatch(/titleBarStyle:\s*'hidden'/);
-    expect(styles).toMatch(/\.app-shell\s*\{[^}]*padding:\s*0 8px 8px/s);
-    expect(styles).toMatch(/\.titlebar-spacer\s*\{[^}]*padding:\s*0 18px 0 68px/s);
+    expect(styles).toMatch(/\.app-shell\s*\{[^}]*padding:\s*0/s);
+    expect(styles).toMatch(/\.titlebar-spacer\s*\{[^}]*position:\s*fixed/s);
+    expect(styles).toMatch(/\.titlebar-spacer\s*\{[^}]*bottom:\s*12px/s);
+    expect(styles).toMatch(/\.titlebar-spacer\s*\{[^}]*left:\s*16px/s);
+    expect(styles).toMatch(/\.titlebar-spacer\s*\{[^}]*right:\s*auto/s);
+    expect(styles).toMatch(/\.brand-lockup\s*\{[^}]*display:\s*none/s);
   });
 
-  it('keeps the custom titlebar compact so the brand logo center matches traffic lights', () => {
+  it('keeps the floating title actions compact', () => {
     const styles = readFileSync('src/renderer/styles.css', 'utf8');
 
-    expect(styles).toMatch(/\.titlebar-spacer\s*\{[^}]*height:\s*34px/s);
-    expect(styles).toMatch(/\.titlebar-spacer\s*\{[^}]*min-height:\s*34px/s);
-    expect(styles).toMatch(/\.titlebar-spacer\s+p\s*\{[^}]*display:\s*none/s);
+    expect(styles).toMatch(/\.titlebar-spacer\s*\{[^}]*height:\s*40px/s);
+    expect(styles).toMatch(/\.titlebar-spacer\s*\{[^}]*pointer-events:\s*none/s);
+    expect(styles).toMatch(/\.header-actions\s*\{[^}]*pointer-events:\s*auto/s);
   });
 
   it('keeps the BrowserWindow explicitly resizable with compact minimum dimensions', () => {
