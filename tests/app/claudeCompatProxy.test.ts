@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { rewriteAnthropicMessagesRequest } from '../../src/main/claudeCompatProxy';
+import { Buffer } from 'node:buffer';
+import http from 'node:http';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  rewriteAnthropicMessagesRequest,
+  startClaudeCompatProxy,
+} from '../../src/main/claudeCompatProxy';
 
 const secret = 'test-agentdock-proxy-secret';
 
@@ -91,3 +96,117 @@ describe('rewriteAnthropicMessagesRequest', () => {
     ).toThrow('Claude compat proxy received invalid JSON');
   });
 });
+
+describe('startClaudeCompatProxy', () => {
+  it('forwards a messages request to the configured upstream and redacts logs', async () => {
+    const upstreamRequests: Array<{
+      url: string;
+      body: unknown;
+      beta: string | null;
+      auth: string | null;
+    }> = [];
+    const upstream = await createJsonUpstream((request, bodyText) => {
+      upstreamRequests.push({
+        url: request.url ?? '',
+        body: JSON.parse(bodyText) as unknown,
+        beta: request.headers['anthropic-beta'] as string | null,
+        auth: request.headers.authorization as string | null,
+      });
+      return { ok: true };
+    });
+    const logger = vi.fn();
+    const proxy = await startClaudeCompatProxy({
+      upstreamBaseUrl: upstream.url,
+      profileId: 'profile-a',
+      sessionId: 'session-a',
+      log: logger,
+    });
+
+    try {
+      const response = await fetch(`${proxy.baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${secret}`,
+          'content-type': 'application/json',
+          'anthropic-beta': 'prompt-caching-scope-2026-01-05',
+        },
+        body: JSON.stringify({ model: 'claude-fable-5', max_tokens: 1200 }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true });
+      expect(upstreamRequests).toHaveLength(1);
+      expect(upstreamRequests[0]?.url).toBe('/v1/messages');
+      expect(upstreamRequests[0]?.auth).toBe(`Bearer ${secret}`);
+      expect(upstreamRequests[0]?.beta).toBe('interleaved-thinking-2025-05-14');
+      expect(JSON.stringify(upstreamRequests[0]?.body)).toContain('"thinking"');
+      expect(JSON.stringify(logger.mock.calls)).not.toContain(secret);
+    } finally {
+      await proxy.close();
+      await upstream.close();
+    }
+  });
+
+  it('keeps two proxy instances pinned to different upstreams', async () => {
+    const hits: string[] = [];
+    const upstreamA = await createNamedUpstream('A', hits);
+    const upstreamB = await createNamedUpstream('B', hits);
+    const proxyA = await startClaudeCompatProxy({
+      upstreamBaseUrl: upstreamA.url,
+      profileId: 'profile-a',
+      sessionId: 'session-a',
+    });
+    const proxyB = await startClaudeCompatProxy({
+      upstreamBaseUrl: upstreamB.url,
+      profileId: 'profile-b',
+      sessionId: 'session-b',
+    });
+
+    try {
+      await fetch(`${proxyA.baseUrl}/v1/models`);
+      await fetch(`${proxyB.baseUrl}/v1/models`);
+
+      expect(hits).toEqual(['A:/v1/models', 'B:/v1/models']);
+    } finally {
+      await proxyA.close();
+      await proxyB.close();
+      await upstreamA.close();
+      await upstreamB.close();
+    }
+  });
+});
+
+async function createJsonUpstream(
+  responseBody: (request: http.IncomingMessage, bodyText: string) => unknown,
+): Promise<{ url: string; close(): Promise<void> }> {
+  return new Promise((resolve) => {
+    const server = http.createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      request.on('end', () => {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify(responseBody(request, Buffer.concat(chunks).toString('utf8'))));
+      });
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('invalid test server address');
+      }
+      resolve({
+        url: `http://127.0.0.1:${address.port}`,
+        close: () => new Promise((done) => server.close(() => done())),
+      });
+    });
+  });
+}
+
+async function createNamedUpstream(
+  name: string,
+  hits: string[],
+): Promise<{ url: string; close(): Promise<void> }> {
+  return createJsonUpstream((request) => {
+    hits.push(`${name}:${request.url ?? ''}`);
+    return { name };
+  });
+}

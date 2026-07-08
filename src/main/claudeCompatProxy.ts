@@ -1,3 +1,6 @@
+import { Buffer } from 'node:buffer';
+import http from 'node:http';
+
 const INTERLEAVED_THINKING_BETA = 'interleaved-thinking-2025-05-14';
 const UNSUPPORTED_BETAS = new Set([
   'prompt-caching-scope-2026-01-05',
@@ -144,6 +147,80 @@ function normalizeInputHeaders(
   return normalized;
 }
 
+export type CompatProxyLogEvent = {
+  sessionId: string;
+  profileId: string;
+  upstreamHost: string;
+  path: string;
+  statusCode: number;
+  model?: string;
+  thinking: CompatRewriteStatus;
+  removedBetas: string[];
+};
+
+export type StartClaudeCompatProxyInput = {
+  upstreamBaseUrl: string;
+  profileId: string;
+  sessionId: string;
+  log?: (event: CompatProxyLogEvent) => void;
+};
+
+export type ClaudeCompatProxyInstance = {
+  baseUrl: string;
+  close(): Promise<void>;
+};
+
+function resolveUpstreamUrl(upstreamBaseUrl: string, requestUrl: string): URL {
+  const base = new URL(upstreamBaseUrl);
+  const request = new URL(requestUrl, 'http://127.0.0.1');
+  const basePath = base.pathname.replace(/\/$/, '');
+  const requestPath = request.pathname;
+
+  if (basePath && basePath !== '/' && !requestPath.startsWith(`${basePath}/`)) {
+    base.pathname = `${basePath}${requestPath}`;
+  } else {
+    base.pathname = requestPath;
+  }
+  base.search = request.search;
+  return base;
+}
+
+function requestHeaders(request: http.IncomingMessage): Record<string, string | undefined> {
+  const headers: Record<string, string | undefined> = {};
+  for (const [name, value] of Object.entries(request.headers)) {
+    if (Array.isArray(value)) {
+      headers[name] = value.join(',');
+    } else {
+      headers[name] = value;
+    }
+  }
+  return headers;
+}
+
+function fetchHeaders(headers: Record<string, string>): Headers {
+  const result = new Headers();
+  for (const [name, value] of Object.entries(headers)) {
+    if (['host', 'content-length', 'connection'].includes(name.toLowerCase())) {
+      continue;
+    }
+    result.set(name, value);
+  }
+  return result;
+}
+
+async function readRequestBody(request: http.IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function writeProxyError(response: http.ServerResponse, statusCode: number, message: string): void {
+  response.writeHead(statusCode, { 'content-type': 'application/json' });
+  response.end(JSON.stringify({ error: message }));
+}
+
 export function rewriteAnthropicMessagesRequest({
   path,
   headers,
@@ -181,4 +258,81 @@ export function rewriteAnthropicMessagesRequest({
   }
 
   return { body, bodyText: JSON.stringify(body), headers: normalizedHeaders, rewrite };
+}
+
+export async function startClaudeCompatProxy({
+  upstreamBaseUrl,
+  profileId,
+  sessionId,
+  log,
+}: StartClaudeCompatProxyInput): Promise<ClaudeCompatProxyInstance> {
+  const upstreamBase = new URL(upstreamBaseUrl);
+  const server = http.createServer(async (request, response) => {
+    const requestUrl = request.url ?? '/';
+    let bodyText =
+      request.method === 'GET' || request.method === 'HEAD'
+        ? ''
+        : await readRequestBody(request);
+    let headers = normalizeInputHeaders(requestHeaders(request));
+    let rewrite: CompatRewriteSummary = { thinking: 'unchanged', removedBetas: [] };
+
+    try {
+      if (request.method === 'POST' && bodyText) {
+        const rewritten = rewriteAnthropicMessagesRequest({
+          path: requestUrl,
+          headers,
+          bodyText,
+        });
+        bodyText = rewritten.bodyText;
+        headers = rewritten.headers;
+        rewrite = rewritten.rewrite;
+      }
+
+      const upstreamUrl = resolveUpstreamUrl(upstreamBaseUrl, requestUrl);
+      const upstreamResponse = await fetch(upstreamUrl, {
+        method: request.method,
+        headers: fetchHeaders(headers),
+        body: request.method === 'GET' || request.method === 'HEAD' ? undefined : bodyText,
+      });
+
+      response.writeHead(upstreamResponse.status, Object.fromEntries(upstreamResponse.headers));
+      response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
+      log?.({
+        sessionId,
+        profileId,
+        upstreamHost: upstreamBase.host,
+        path: new URL(requestUrl, 'http://127.0.0.1').pathname,
+        statusCode: upstreamResponse.status,
+        model: rewrite.model,
+        thinking: rewrite.thinking,
+        removedBetas: rewrite.removedBetas,
+      });
+    } catch (error) {
+      writeProxyError(
+        response,
+        error instanceof Error && /invalid JSON/.test(error.message) ? 400 : 502,
+        error instanceof Error ? error.message : 'Claude compat proxy request failed',
+      );
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => reject(error);
+    server.once('error', onError);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', onError);
+      resolve();
+    });
+  });
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    throw new Error('Claude compat proxy failed to bind a local port');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise((resolve) => server.close(() => resolve())),
+  };
 }
