@@ -27,6 +27,21 @@ describe('Claude profile defaults', () => {
     ).toBe(false);
   });
 
+  it('does not enable the Anthropic compat proxy by default for Claude profiles', () => {
+    expect(
+      normalizeClaudeProfileDefaults(baseClaudeProfile).claudeAnthropicCompatProxyEnabled,
+    ).toBe(undefined);
+  });
+
+  it('preserves an explicit Anthropic compat proxy preference', () => {
+    expect(
+      normalizeClaudeProfileDefaults({
+        ...baseClaudeProfile,
+        claudeAnthropicCompatProxyEnabled: true,
+      }).claudeAnthropicCompatProxyEnabled,
+    ).toBe(true);
+  });
+
   it('does not add CCometixLine statusline defaults to non-Claude profiles', () => {
     const codexProfile: ApiProfile = {
       id: 'codex-custom-1',

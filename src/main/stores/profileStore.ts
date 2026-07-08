@@ -92,6 +92,10 @@ function sanitizeProfile(profile: ApiProfile): ApiProfile {
   if (typeof normalizedProfile.claudeAlwaysThinkingEnabled === 'boolean') {
     sanitized.claudeAlwaysThinkingEnabled = normalizedProfile.claudeAlwaysThinkingEnabled;
   }
+  if (typeof normalizedProfile.claudeAnthropicCompatProxyEnabled === 'boolean') {
+    sanitized.claudeAnthropicCompatProxyEnabled =
+      normalizedProfile.claudeAnthropicCompatProxyEnabled;
+  }
   if (typeof normalizedProfile.claudeCclineStatusLineEnabled === 'boolean') {
     sanitized.claudeCclineStatusLineEnabled = normalizedProfile.claudeCclineStatusLineEnabled;
   }

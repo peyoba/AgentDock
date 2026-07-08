@@ -326,8 +326,24 @@ describe('configMigration', () => {
       });
     });
 
-    it('current version is 4', () => {
-      expect(CURRENT_CONFIG_VERSION).toBe(4);
+    it('uses the current config version', () => {
+      expect(CURRENT_CONFIG_VERSION).toBe(5);
+    });
+
+    it('preserves the Claude Anthropic compat proxy flag during migration and versioning', () => {
+      const migrated = migrateProfile({
+        __version: 4,
+        id: 'claude-custom-1',
+        name: 'Claude Custom',
+        toolType: 'claude',
+        baseUrl: 'https://anyrouter.top',
+        keychainService: 'AgentDock',
+        keychainAccount: 'claude-custom-1',
+        claudeAnthropicCompatProxyEnabled: true,
+      });
+
+      expect(migrated.claudeAnthropicCompatProxyEnabled).toBe(true);
+      expect(addVersionToProfile(migrated).__version).toBe(5);
     });
   });
 
@@ -352,6 +368,7 @@ describe('configMigration', () => {
         claudeCodeAttributionHeader: '0',
         disableInstallationChecks: true,
         claudeCleanupPeriodDays: 720,
+        claudeAnthropicCompatProxyEnabled: true,
         claudeCclineStatusLineEnabled: true,
       };
 
@@ -381,6 +398,9 @@ describe('configMigration', () => {
       );
       expect(migrated.disableInstallationChecks).toBe(originalProfile.disableInstallationChecks);
       expect(migrated.claudeCleanupPeriodDays).toBe(originalProfile.claudeCleanupPeriodDays);
+      expect(migrated.claudeAnthropicCompatProxyEnabled).toBe(
+        originalProfile.claudeAnthropicCompatProxyEnabled,
+      );
       expect(migrated.claudeCclineStatusLineEnabled).toBe(
         originalProfile.claudeCclineStatusLineEnabled,
       );

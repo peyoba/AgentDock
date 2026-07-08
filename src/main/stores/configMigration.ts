@@ -8,7 +8,7 @@ import { normalizeClaudeProfileDefaults } from '../../shared/claudeProfileDefaul
  * 不支持的较旧版本会被跳过，最新版本才会被使用
  */
 
-export type ConfigVersion = 1 | 2 | 3 | 4;
+export type ConfigVersion = 1 | 2 | 3 | 4 | 5;
 
 export type VersionedApiProfile = ApiProfile & {
   __version: ConfigVersion;
@@ -22,7 +22,7 @@ export type VersionedWorkspace = Workspace & {
  * 当前配置版本
  * 每当配置结构变化时，递增此值
  */
-export const CURRENT_CONFIG_VERSION: ConfigVersion = 4;
+export const CURRENT_CONFIG_VERSION: ConfigVersion = 5;
 
 /**
  * Profile 配置版本迁移函数
@@ -42,7 +42,7 @@ export function migrateProfile(data: unknown): ApiProfile {
   }
 
   // 已是最新版本
-  if (version === 3 || version === 4) {
+  if (version === 3 || version === 4 || version === 5) {
     return normalizeClaudeProfileDefaults({
       id: profile.id as string,
       name: profile.name as string,
@@ -71,6 +71,8 @@ export function migrateProfile(data: unknown): ApiProfile {
       claudeSonnetModel: profile.claudeSonnetModel as string | undefined,
       claudeOpusModel: profile.claudeOpusModel as string | undefined,
       claudeAlwaysThinkingEnabled: profile.claudeAlwaysThinkingEnabled as boolean | undefined,
+      claudeAnthropicCompatProxyEnabled:
+        profile.claudeAnthropicCompatProxyEnabled as boolean | undefined,
       claudeCclineStatusLineEnabled:
         profile.claudeCclineStatusLineEnabled as boolean | undefined,
     });
@@ -109,6 +111,7 @@ function migrateProfileToCurrent(profile: Record<string, unknown>): ApiProfile {
     claudeSonnetModel: undefined,
     claudeOpusModel: undefined,
     claudeAlwaysThinkingEnabled: undefined,
+    claudeAnthropicCompatProxyEnabled: undefined,
     claudeCclineStatusLineEnabled: undefined,
   });
 }
@@ -126,7 +129,7 @@ export function migrateWorkspace(data: unknown): Workspace {
   const version = (workspace.__version as number) ?? 1;
 
   // 从 v1/v2/v3/v4 迁移到当前版本（没有实际变化，但保持一致性）
-  if (version === 1 || version === 2 || version === 3 || version === 4) {
+  if (version === 1 || version === 2 || version === 3 || version === 4 || version === 5) {
     return {
       id: workspace.id as string,
       name: workspace.name as string,

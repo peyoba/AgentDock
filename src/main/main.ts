@@ -183,6 +183,8 @@ function sanitizeProfile(profile: ApiProfile): ApiProfile {
     claudeSonnetModel: optionalTrimmedString(normalizedProfile.claudeSonnetModel),
     claudeOpusModel: optionalTrimmedString(normalizedProfile.claudeOpusModel),
     claudeAlwaysThinkingEnabled: normalizedProfile.claudeAlwaysThinkingEnabled,
+    claudeAnthropicCompatProxyEnabled:
+      normalizedProfile.claudeAnthropicCompatProxyEnabled,
     claudeCclineStatusLineEnabled: normalizedProfile.claudeCclineStatusLineEnabled,
   };
 }
