@@ -14,7 +14,7 @@ L3
 ## 验证命令
 
 - `npx vitest run tests/app/claudeCompatProxy.test.ts tests/app/configMigration.test.ts tests/app/claudeProfileDefaults.test.ts tests/app/launchEnvironment.test.ts tests/app/sessionService.test.ts tests/app/sessionSecurity.test.ts tests/app/App.test.tsx` — PASS
-- `npm test` — PASS
+- `npm test` — PASS：49 files / 317 tests
 - `npm run workflow:doctor` — PASS
 - `npm run test:workflow` — PASS
 - `npm run typecheck` — PASS
@@ -30,4 +30,4 @@ L3
 
 ## 交付结论
 
-有条件交付：本地实现、自动化测试、构建和双 upstream 真实 HTTP smoke 已通过；外部 Claude endpoint 真机验证待用户授权 API 使用后补跑。
+有条件交付：本地实现、自动化测试、构建、双 upstream HTTP smoke 和 `claude-custom-1` 外部 endpoint 真机请求已通过；已配置 AnyRouter/fcapp endpoint 当前返回 503，需等待上游恢复后复测。

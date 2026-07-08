@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import http from 'node:http';
+import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
 import {
   rewriteAnthropicMessagesRequest,
@@ -174,6 +175,25 @@ describe('startClaudeCompatProxy', () => {
       await upstreamB.close();
     }
   });
+
+  it('does not forward stale compression headers after upstream fetch decompression', async () => {
+    const upstream = await createGzipUpstream({ ok: true });
+    const proxy = await startClaudeCompatProxy({
+      upstreamBaseUrl: upstream.url,
+      profileId: 'profile-a',
+      sessionId: 'session-a',
+    });
+
+    try {
+      const response = await fetch(`${proxy.baseUrl}/v1/models`);
+
+      expect(response.headers.get('content-encoding')).toBeNull();
+      expect(await response.json()).toEqual({ ok: true });
+    } finally {
+      await proxy.close();
+      await upstream.close();
+    }
+  });
 });
 
 async function createJsonUpstream(
@@ -208,5 +228,29 @@ async function createNamedUpstream(
   return createJsonUpstream((request) => {
     hits.push(`${name}:${request.url ?? ''}`);
     return { name };
+  });
+}
+
+async function createGzipUpstream(body: unknown): Promise<{ url: string; close(): Promise<void> }> {
+  return new Promise((resolve) => {
+    const server = http.createServer((_request, response) => {
+      const compressed = gzipSync(Buffer.from(JSON.stringify(body)));
+      response.writeHead(200, {
+        'content-type': 'application/json',
+        'content-encoding': 'gzip',
+        'content-length': String(compressed.byteLength),
+      });
+      response.end(compressed);
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        throw new Error('invalid test server address');
+      }
+      resolve({
+        url: `http://127.0.0.1:${address.port}`,
+        close: () => new Promise((done) => server.close(() => done())),
+      });
+    });
   });
 }

@@ -208,6 +208,21 @@ function fetchHeaders(headers: Record<string, string>): Headers {
   return result;
 }
 
+function responseHeaders(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [name, value] of headers.entries()) {
+    if (
+      ['content-encoding', 'content-length', 'transfer-encoding', 'connection'].includes(
+        name.toLowerCase(),
+      )
+    ) {
+      continue;
+    }
+    result[name] = value;
+  }
+  return result;
+}
+
 async function readRequestBody(request: http.IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
@@ -295,7 +310,7 @@ export async function startClaudeCompatProxy({
         body: request.method === 'GET' || request.method === 'HEAD' ? undefined : bodyText,
       });
 
-      response.writeHead(upstreamResponse.status, Object.fromEntries(upstreamResponse.headers));
+      response.writeHead(upstreamResponse.status, responseHeaders(upstreamResponse.headers));
       response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
       log?.({
         sessionId,

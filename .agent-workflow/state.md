@@ -1,7 +1,7 @@
 # Agent Workflow State
 
 ## 当前任务
-2026-07-08 AgentDock Claude Profile 内置 Anthropic 兼容改写层：实现、验证记录和交付报告已完成；外部 Claude endpoint 真机验证待用户授权 API 使用后补跑。
+2026-07-08 AgentDock Claude Profile 内置 Anthropic 兼容改写层：实现、验证记录和交付报告已完成；外部 Claude endpoint 真机验证 1 个 Profile PASS，其余已配置上游返回 503。
 
 ## 风险等级
 L3
@@ -17,7 +17,7 @@ delivery
 ## 已派发角色
 | 角色 | 状态 | 产出 |
 |------|------|------|
-| 主 Agent | PASS | Claude Profile 内置 Anthropic 兼容改写层实现：`src/main/claudeCompatProxy.ts`、Profile 字段持久化、SessionService 生命周期接线、Renderer 开关；Vitest/workflow/typecheck/build/local HTTP smoke 通过；外部 Claude endpoint 验证 PARTIAL |
+| 主 Agent | PASS | Claude Profile 内置 Anthropic 兼容改写层实现：`src/main/claudeCompatProxy.ts`、Profile 字段持久化、SessionService 生命周期接线、Renderer 开关；Vitest/workflow/typecheck/build/local HTTP smoke 通过；`claude-custom-1` 外部 endpoint PASS，其余 AnyRouter/fcapp 上游 503 |
 | 主 Agent | PASS | Claude Profile 内置 Anthropic 兼容改写层实施计划：`docs/superpowers/plans/2026-07-08-agentdock-claude-compat-proxy.md`；覆盖 proxy rewrite、Profile 持久化、SessionService 生命周期、UI 开关、L3 真实验证和交付 |
 | 主 Agent | PASS | Batch 0 基线已提交：`b9ee2bd chore: stabilize session restore baseline`；已删除未跟踪构建产物和 SPEC 副本目录；workflow/test/typecheck/build/secret scan 通过 |
 | 主 Agent | PASS | Batch 1 native resume 探针：`src/main/nativeResumeProbe.ts`、`tests/app/nativeResumeProbe.test.ts`、`.agent-workflow/verification/2026-07-07-native-resume-probe.md`；Claude capability verified 但 runtime smoke partial；Codex native resume verified |
@@ -109,10 +109,10 @@ delivery
 无
 
 ## 用户待确认
-是否授权使用本机已配置 Claude Profile/API 额度补跑外部 endpoint 真机验证。
+无
 
 ## 下一步
-等待用户授权外部 Claude endpoint 真机验证；或按当前本地验证结果验收有条件交付。
+等待用户验收；如需验证 AnyRouter/fcapp endpoint，待上游 503 恢复后复测。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -151,7 +151,7 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 ## 验证记录
 | 时间 | 命令 | 结果 |
 |------|------|------|
-| 2026-07-08 | Claude compat proxy：focused Vitest / `npm test` / `npm run workflow:doctor` / `npm run test:workflow` / `npm run typecheck` / `npm run build` / built local two-upstream HTTP smoke / secret scan | PASS/PARTIAL：focused 7 files / 148 tests；全量 Vitest 49 files / 316 tests；doctor PASS；workflow pytest 8 passed；typecheck PASS；build PASS，仅 Vite chunk size warning；local smoke `CLAUDE_COMPAT_PROXY_SMOKE_PASS`；secret scan 仅测试 fixture/env 名；外部 Claude endpoint 真机验证待用户授权 API 使用 |
+| 2026-07-08 | Claude compat proxy：focused Vitest / `npm test` / `npm run workflow:doctor` / `npm run test:workflow` / `npm run typecheck` / `npm run build` / built local two-upstream HTTP smoke / real external endpoint smoke / secret scan | PASS/PARTIAL：focused 7 files / 148 tests；全量 Vitest 49 files / 317 tests；doctor PASS；workflow pytest 8 passed；typecheck PASS；build PASS，仅 Vite chunk size warning；local smoke `CLAUDE_COMPAT_PROXY_SMOKE_PASS`；`claude-custom-1` 真机请求 HTTP 200 且 marker 返回；AnyRouter/fcapp endpoint 返回 503；secret scan 仅测试 fixture/env 名 |
 | 2026-07-07 | Batch 0 baseline：`git status --short` / `git diff --stat` / `git diff --check` / `npm run workflow:doctor` / `npm run test:workflow` / `npm run typecheck` / `npm test` / `npm run build` / secret-like scan | PASS：dirty worktree 已审阅；diff check 无输出；doctor PASS；workflow pytest 8 passed；typecheck PASS；Vitest 42 files / 271 tests PASS；build PASS，仅 Vite chunk size warning；源码限定 secret scan 无命中；需排除 `index-D3wM5j2Q.js` 和 `docs/superpowers/specs_副本/` |
 | 2026-07-07 | `npx vitest run tests/app/nativeResumeProbe.test.ts` | RED then PASS：实现前因 `src/main/nativeResumeProbe` 不存在失败；实现后 1 file / 4 tests 通过 |
 | 2026-07-07 | `claude --version` / `claude --help \| rg -- '--session-id\|--resume'` / Claude direct/profile smoke | PARTIAL：Claude 2.1.201 暴露 `--session-id` 与 `--resume`；direct CLI 未登录；`claude-custom-5` profile 普通 `--print` 与 `--session-id` smoke 超时 |

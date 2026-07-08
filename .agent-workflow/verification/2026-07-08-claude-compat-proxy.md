@@ -7,7 +7,7 @@ Claude Profile 内置 Anthropic 兼容改写层：Profile 开关、请求改写�
 ## Commands
 
 - `npx vitest run tests/app/claudeCompatProxy.test.ts tests/app/configMigration.test.ts tests/app/claudeProfileDefaults.test.ts tests/app/launchEnvironment.test.ts tests/app/sessionService.test.ts tests/app/sessionSecurity.test.ts tests/app/App.test.tsx` — PASS：7 files / 148 tests
-- `npm test` — PASS：49 files / 316 tests
+- `npm test` — PASS：49 files / 317 tests
 - `npm run workflow:doctor` — PASS
 - `npm run test:workflow` — PASS：8 passed
 - `npm run typecheck` — PASS
@@ -21,7 +21,11 @@ Claude Profile 内置 Anthropic 兼容改写层：Profile 开关、请求改写�
   - `thinking` was injected for `claude-fable-5`.
   - `prompt-caching-scope-2026-01-05` was stripped and `interleaved-thinking-2025-05-14` was added.
   - Log payload did not contain the test Authorization token.
-- Real external Claude endpoint smoke — PARTIAL：未执行。原因是该步骤会消耗用户本机已保存 API 额度，当前未获得明确授权；不可伪造通过结果。
+- Local gzip upstream regression — PASS：修复上游 `fetch` 自动解压后仍转发 `content-encoding` 导致下游二次解压失败的问题。
+- Real external Claude endpoint smoke — PARTIAL：
+  - `claude-custom-1` / `vps.loveta.cyou` / `claude-opus-4-7`：PASS，HTTP 200，返回目标 marker，改写为 `adaptive`，不支持 beta 已剥离。
+  - `claude-anyrouter` / `anyrouter.top`：PARTIAL，HTTP 503 Service Unavailable；代理已完成 `adaptive` 改写和 beta 剥离，失败来自上游服务状态。
+  - `claude-custom-2`、`claude-custom-4` / `fcapp.run`：PARTIAL，HTTP 503 Service Unavailable；代理已完成 `enabled` 改写和 beta 剥离，失败来自上游服务状态。
 
 ## Secret Boundary
 
@@ -29,4 +33,4 @@ Claude Profile 内置 Anthropic 兼容改写层：Profile 开关、请求改写�
 
 ## Result
 
-有条件通过：代码、测试、构建和本地真实 HTTP 验证均通过；外部 Claude endpoint 真机验证待用户授权 API 使用后执行。
+有条件通过：代码、测试、构建、本地真实 HTTP 验证和 1 个外部 Claude endpoint 真机请求通过；其余已配置 AnyRouter/fcapp endpoint 当前返回 503，上游状态未通过。
