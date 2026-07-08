@@ -11,6 +11,7 @@ type BuildLaunchEnvironmentInput = {
   secret: string;
   appDataPath: string;
   homeDir?: string;
+  anthropicBaseUrl?: string;
 };
 
 function expandHomePath(pathValue: string, homeDir: string): string {
@@ -121,10 +122,11 @@ export function buildLaunchEnvironment({
   secret,
   appDataPath,
   homeDir = os.homedir(),
+  anthropicBaseUrl,
 }: BuildLaunchEnvironmentInput): Record<string, string> {
   if (profile.toolType === 'claude') {
     return {
-      ANTHROPIC_BASE_URL: profile.baseUrl,
+      ANTHROPIC_BASE_URL: anthropicBaseUrl ?? profile.baseUrl,
       ANTHROPIC_AUTH_TOKEN: secret,
       ...buildClaudeOptionalEnvironment(profile),
     };

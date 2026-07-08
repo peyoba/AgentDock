@@ -27,6 +27,21 @@ describe('buildLaunchEnvironment', () => {
     expect(env.CLAUDE_CODE_MAX_RETRIES).toBeUndefined();
   });
 
+  it('can override the Claude base URL with a session-local compat proxy URL', () => {
+    const env = buildLaunchEnvironment({
+      profile: {
+        ...baseProfile,
+        claudeAnthropicCompatProxyEnabled: true,
+      },
+      secret: 'local-development-secret',
+      appDataPath: '/Users/example/Library/Application Support/AgentDock',
+      anthropicBaseUrl: 'http://127.0.0.1:43210',
+    });
+
+    expect(env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:43210');
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('local-development-secret');
+  });
+
   it('adds configured Claude Code retry environment variables for any Claude profile', () => {
     const env = buildLaunchEnvironment({
       profile: {
