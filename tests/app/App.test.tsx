@@ -2431,6 +2431,76 @@ describe('AgentDock session launch flow', () => {
     });
   });
 
+  it('edits and saves the Claude Anthropic compat proxy flag', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'claude-a',
+          name: 'Claude A',
+          toolType: 'claude',
+          baseUrl: 'https://anyrouter.top',
+          keychainService: 'AgentDock',
+          keychainAccount: 'claude-a',
+          claudeAnthropicCompatProxyEnabled: false,
+        },
+      ]),
+      saveProfile: vi.fn(async (profile: ApiProfile) => profile),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    const checkbox = screen.getByLabelText('启用 Anthropic 兼容改写');
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    await waitFor(() => {
+      expect(api.saveProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'claude-a',
+          claudeAnthropicCompatProxyEnabled: true,
+        }),
+      );
+    });
+  });
+
+  it('does not save the Claude compat proxy flag on Codex profiles', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'codex-a',
+          name: 'Codex A',
+          toolType: 'codex',
+          baseUrl: 'https://openai.example/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'codex-a',
+        },
+      ]),
+      saveProfile: vi.fn(async (profile: ApiProfile) => profile),
+    });
+
+    render(<App />);
+
+    await openApiConfigPage();
+    fireEvent.click(await screen.findByRole('button', { name: /Codex A/ }));
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+
+    expect(screen.queryByLabelText('启用 Anthropic 兼容改写')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+
+    await waitFor(() => {
+      expect(api.saveProfile).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          claudeAnthropicCompatProxyEnabled: expect.anything(),
+        }),
+      );
+    });
+  });
+
   it('groups Claude advanced settings into launch, network, and local sections', async () => {
     installAgentDockApi({
       listProfiles: vi.fn().mockResolvedValue([

@@ -464,6 +464,10 @@ export function ApiConfigPanel({
           draft.toolType === 'claude'
             ? normalizeOptionalString(draft.claudeCodeAttributionHeader)
             : undefined,
+        claudeAnthropicCompatProxyEnabled:
+          draft.toolType === 'claude'
+            ? draft.claudeAnthropicCompatProxyEnabled
+            : undefined,
         disableInstallationChecks:
           draft.toolType === 'claude' ? draft.disableInstallationChecks : undefined,
         claudeCleanupPeriodDays:
@@ -898,6 +902,23 @@ export function ApiConfigPanel({
                             <span>禁用非必要流量</span>
                             <small className="field-help">
                               注入 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+                            </small>
+                          </label>
+                          <label className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              aria-label="启用 Anthropic 兼容改写"
+                              checked={draft.claudeAnthropicCompatProxyEnabled ?? false}
+                              onChange={(event) =>
+                                updateDraft(
+                                  'claudeAnthropicCompatProxyEnabled',
+                                  event.target.checked,
+                                )
+                              }
+                            />
+                            <span>启用 Anthropic 兼容改写</span>
+                            <small className="field-help">
+                              为此 Profile 的 Claude 会话创建独立本地改写代理。
                             </small>
                           </label>
                           <label className="checkbox-label">
