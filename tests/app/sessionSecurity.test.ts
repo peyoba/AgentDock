@@ -71,6 +71,63 @@ describe('sessionService security boundary', () => {
     expect(session).not.toHaveProperty('secret');
   });
 
+  it('does not expose compat proxy secrets in session payloads', async () => {
+    const keychain: KeychainAdapter = {
+      async readSecret() {
+        return secret;
+      },
+      async writeSecret() {},
+      async deleteSecret() {},
+    };
+    const pty: PtyAdapter = {
+      async spawn() {
+        return {
+          id: 'pty-session-1',
+          write() {},
+          resize() {},
+          kill() {},
+          onData() {
+            return () => {};
+          },
+        };
+      },
+    };
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-01T00:00:00.000Z') },
+      keychain,
+      pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      startClaudeCompatProxy: async () => ({
+        baseUrl: 'http://127.0.0.1:43000',
+        close: async () => undefined,
+      }),
+    });
+
+    const session = await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://upstream.example',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+        claudeAnthropicCompatProxyEnabled: true,
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude',
+    });
+
+    const returnedPayload = JSON.stringify({ session, sessions: await service.list() });
+    expect(returnedPayload).not.toContain(secret);
+    expect(returnedPayload).not.toContain('ANTHROPIC_AUTH_TOKEN');
+    expect(returnedPayload).not.toContain('Authorization');
+    expect(returnedPayload).not.toContain('Bearer');
+  });
+
   it('does not expose restore context body, instruction, or secrets in session metadata', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-session-security-'));
     const historyStore = createSessionHistoryStore(tempDir);

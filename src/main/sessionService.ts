@@ -25,6 +25,11 @@ import { createUnavailableKeychainAdapter } from './adapters/keychainAdapter.js'
 import type { PtyAdapter, PtySession } from './adapters/ptyAdapter.js';
 import { createUnavailablePtyAdapter } from './adapters/ptyAdapter.js';
 import { resolveCclineCommand as locateCclineCommand } from './cclineLocator.js';
+import {
+  startClaudeCompatProxy as startDefaultClaudeCompatProxy,
+  type ClaudeCompatProxyInstance,
+  type StartClaudeCompatProxyInput,
+} from './claudeCompatProxy.js';
 import { estimateContextPressure } from './contextBudgetEstimator.js';
 import {
   createRestoreContextStore,
@@ -67,6 +72,10 @@ type SummaryJobDelegate = (request: {
   continueAfterSummary: boolean;
 }) => Promise<SessionSummaryResult>;
 
+type ClaudeCompatProxyFactory = (
+  input: StartClaudeCompatProxyInput,
+) => Promise<ClaudeCompatProxyInstance>;
+
 export type RuntimeOwnerRegistry = {
   claim(sessionId: string, owner: RuntimeOwner): boolean;
   get(sessionId: string): RuntimeOwner | undefined;
@@ -92,6 +101,7 @@ type CreateSessionServiceOptions = {
   /** 解析 statusLine 使用的 ccline 命令；默认 PATH 已安装版本优先、内嵌二进制兜底 */
   resolveCclineCommand?: () => string;
   summaryJob?: SummaryJobDelegate;
+  startClaudeCompatProxy?: ClaudeCompatProxyFactory;
 };
 
 type NormalizedSessionServiceOptions = Required<
@@ -324,6 +334,7 @@ function normalizeOptions(
       runtimeOwnerRegistry: createRuntimeOwnerRegistry(),
       resolveCclineCommand: () => locateCclineCommand({ homeDir }),
       summaryJob: undefined,
+      startClaudeCompatProxy: startDefaultClaudeCompatProxy,
     };
   }
 
@@ -348,6 +359,7 @@ function normalizeOptions(
     resolveCclineCommand:
       options.resolveCclineCommand ?? (() => locateCclineCommand({ homeDir })),
     summaryJob: options.summaryJob,
+    startClaudeCompatProxy: options.startClaudeCompatProxy ?? startDefaultClaudeCompatProxy,
   };
 }
 
@@ -460,11 +472,13 @@ export function createSessionService(
     runtimeOwnerRegistry,
     resolveCclineCommand,
     summaryJob,
+    startClaudeCompatProxy,
   } = normalizeOptions(optionsOrClock);
   const sessions: AgentSession[] = [];
   const ptySessions = new Map<string, PtySession>();
   const ptyUnsubscribers = new Map<string, () => void>();
   const terminalBuffers = new Map<string, string>();
+  const claudeCompatProxies = new Map<string, ClaudeCompatProxyInstance>();
   const workspacesBySessionId = new Map<string, Workspace>();
   const pendingHistoryOutput = new Map<string, string>();
   const historyOutputFlushes = new Map<string, Promise<void>>();
@@ -476,6 +490,15 @@ export function createSessionService(
 
   const findSession = (sessionId: string): AgentSession | undefined =>
     sessions.find((session) => session.id === sessionId);
+
+  const closeClaudeCompatProxy = async (sessionId: string): Promise<void> => {
+    const proxy = claudeCompatProxies.get(sessionId);
+    if (!proxy) {
+      return;
+    }
+    claudeCompatProxies.delete(sessionId);
+    await proxy.close().catch(() => undefined);
+  };
 
   const loadHistory = async (): Promise<void> => {
     if (historyLoaded) {
@@ -649,16 +672,30 @@ export function createSessionService(
 
     try {
       const contextFiles = await workspaceContext?.startSession({ workspace, session });
+      const secret = isLocalShellCommand(command)
+        ? undefined
+        : await keychain.readSecret(profile.keychainService, profile.keychainAccount);
+      const compatProxy =
+        !isLocalShellCommand(command) &&
+        profile.toolType === 'claude' &&
+        profile.claudeAnthropicCompatProxyEnabled === true
+          ? await startClaudeCompatProxy({
+              upstreamBaseUrl: profile.baseUrl,
+              profileId: profile.id,
+              sessionId: session.id,
+            })
+          : undefined;
+      if (compatProxy) {
+        claudeCompatProxies.set(session.id, compatProxy);
+      }
       const baseEnv = isLocalShellCommand(command)
         ? {}
         : buildLaunchEnvironment({
             profile,
-            secret: await keychain.readSecret(
-              profile.keychainService,
-              profile.keychainAccount,
-            ),
+            secret: secret ?? '',
             appDataPath,
             homeDir,
+            anthropicBaseUrl: compatProxy?.baseUrl,
           });
       const env = {
         ...baseEnv,
@@ -727,6 +764,7 @@ export function createSessionService(
         ptyUnsubscribers.get(session.id)?.();
         ptyUnsubscribers.delete(session.id);
         ptySessions.delete(session.id);
+        void closeClaudeCompatProxy(session.id);
         session.status = 'exited';
         runtimeOwnerRegistry.release(session.id, runtimeOwnerId);
         delete session.runtimeOwner;
@@ -753,6 +791,7 @@ export function createSessionService(
       return cloneSession(session);
     } catch (error) {
       runtimeOwnerRegistry.release(session.id, runtimeOwnerId);
+      await closeClaudeCompatProxy(session.id);
       delete session.runtimeOwner;
       session.status = 'failed';
       persistSession(session);
@@ -913,6 +952,7 @@ export function createSessionService(
         ptyUnsubscribers.delete(sessionId);
         ptySessions.delete(sessionId);
       }
+      await closeClaudeCompatProxy(sessionId);
       pendingHistoryOutput.delete(sessionId);
       session.status = 'stopped';
       runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
@@ -962,6 +1002,7 @@ export function createSessionService(
         ptyUnsubscribers.delete(sessionId);
         ptySessions.delete(sessionId);
       }
+      await closeClaudeCompatProxy(sessionId);
       runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
       sessions.splice(sessionIndex, 1);
       terminalBuffers.delete(sessionId);
@@ -1068,6 +1109,7 @@ export function createSessionService(
         if (session) {
           session.status = historyStore ? 'interrupted' : 'stopped';
           runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
+          await closeClaudeCompatProxy(sessionId);
           delete session.runtimeOwner;
           await historyStore?.saveSession(session);
         }

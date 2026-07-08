@@ -124,6 +124,137 @@ describe('sessionService', () => {
     ]);
   });
 
+  it('uses a session-local Claude compat proxy when the profile enables it', async () => {
+    const runtime = createFakeRuntime();
+    const startClaudeCompatProxy = vi.fn(async ({ upstreamBaseUrl, sessionId }) => ({
+      baseUrl: `http://127.0.0.1:41000/${sessionId}`,
+      close: vi.fn(async () => undefined),
+      upstreamBaseUrl,
+    }));
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      startClaudeCompatProxy,
+    });
+
+    await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude',
+        baseUrl: 'https://upstream-a.example',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+        claudeAnthropicCompatProxyEnabled: true,
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude',
+    });
+
+    expect(startClaudeCompatProxy).toHaveBeenCalledWith({
+      upstreamBaseUrl: 'https://upstream-a.example',
+      profileId: 'profile-a',
+      sessionId: 'session-1',
+    });
+    expect(runtime.spawnRequests[0]?.env.ANTHROPIC_BASE_URL).toBe(
+      'http://127.0.0.1:41000/session-1',
+    );
+    expect(runtime.spawnRequests[0]?.env.ANTHROPIC_AUTH_TOKEN).toBe(
+      'local-development-secret',
+    );
+  });
+
+  it('does not use the Claude compat proxy for local shell commands or disabled profiles', async () => {
+    const runtime = createFakeRuntime();
+    const startClaudeCompatProxy = vi.fn();
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      startClaudeCompatProxy,
+    });
+    const profile = {
+      id: 'profile-a',
+      name: 'Claude A',
+      toolType: 'claude' as const,
+      baseUrl: 'https://upstream-a.example',
+      keychainService: 'AgentDock',
+      keychainAccount: 'profile-a',
+      claudeAnthropicCompatProxyEnabled: true,
+    };
+    const workspace = {
+      id: 'workspace-a',
+      name: 'AgentDock',
+      path: '/Users/example/Desktop/web/AgentDock',
+    };
+
+    await service.launch({ profile, workspace, command: 'zsh' });
+    await service.launch({
+      profile: { ...profile, claudeAnthropicCompatProxyEnabled: false },
+      workspace,
+      command: 'claude',
+    });
+
+    expect(startClaudeCompatProxy).not.toHaveBeenCalled();
+    expect(runtime.spawnRequests[0]?.env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(runtime.spawnRequests[1]?.env.ANTHROPIC_BASE_URL).toBe(
+      'https://upstream-a.example',
+    );
+  });
+
+  it('closes the Claude compat proxy on spawn failure, stop, and PTY exit', async () => {
+    const runtime = createFakeRuntime();
+    const closed: string[] = [];
+    const pty: PtyAdapter = {
+      async spawn(request) {
+        if (request.sessionId === 'session-1') {
+          throw new Error('spawn failed');
+        }
+        return runtime.pty.spawn(request);
+      },
+    };
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      startClaudeCompatProxy: vi.fn(async ({ sessionId }) => ({
+        baseUrl: `http://127.0.0.1:42000/${sessionId}`,
+        close: vi.fn(async () => {
+          closed.push(sessionId);
+        }),
+      })),
+    });
+    const profile = {
+      id: 'profile-a',
+      name: 'Claude A',
+      toolType: 'claude' as const,
+      baseUrl: 'https://upstream-a.example',
+      keychainService: 'AgentDock',
+      keychainAccount: 'profile-a',
+      claudeAnthropicCompatProxyEnabled: true,
+    };
+    const workspace = {
+      id: 'workspace-a',
+      name: 'AgentDock',
+      path: '/Users/example/Desktop/web/AgentDock',
+    };
+
+    await expect(service.launch({ profile, workspace, command: 'claude' })).rejects.toThrow(
+      '终端命令启动失败',
+    );
+    const stoppedSession = await service.launch({ profile, workspace, command: 'claude' });
+    await service.killTerminal({ sessionId: stoppedSession.id });
+    const exitedSession = await service.launch({ profile, workspace, command: 'claude' });
+    runtime.exitHandlers.get(exitedSession.id)?.({ exitCode: 0 });
+
+    expect(closed).toEqual(['session-1', 'session-2', 'session-3']);
+  });
+
   it('records exit code and Claude resume command when a PTY exits', async () => {
     const runtime = createFakeRuntime();
     const changedSessions: string[] = [];
