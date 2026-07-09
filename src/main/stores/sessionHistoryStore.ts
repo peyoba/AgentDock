@@ -302,6 +302,14 @@ export function createSessionHistoryStore(
     return nextEntry;
   }
 
+  async function deleteRecordById(sessionId: string): Promise<void> {
+    return enqueue(async () => {
+      const entries = await listEntries();
+      await saveEntries(entries.filter((entry) => entry.id !== sessionId));
+      await transcriptStore.deleteTranscript(sessionId);
+    });
+  }
+
   return {
     async listSessions(): Promise<AgentSession[]> {
       return enqueue(async () => (await listEntries()).map((entry) => ({ ...entry.session })));
@@ -364,15 +372,12 @@ export function createSessionHistoryStore(
     },
 
     async deleteRecord(sessionId: string): Promise<void> {
-      return enqueue(async () => {
-        const entries = await listEntries();
-        await saveEntries(entries.filter((entry) => entry.id !== sessionId));
-        await transcriptStore.deleteTranscript(sessionId);
-      });
+      return deleteRecordById(sessionId);
     },
 
     deleteSession(sessionId: string): Promise<void> {
-      return this.deleteRecord(sessionId);
+      // 用闭包而非 this 引用，方法被解构或作为回调传递时仍然可用。
+      return deleteRecordById(sessionId);
     },
 
     async archiveBuffer(sessionId: string): Promise<{ filePath: string }> {
