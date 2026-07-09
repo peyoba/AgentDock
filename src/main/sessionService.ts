@@ -1135,6 +1135,11 @@ export function createSessionService(
 
       ptySessions.clear();
       ptyUnsubscribers.clear();
+      // findSession 未命中（会话已被并发删除）时上面的循环不会关闭对应 proxy，这里兜底。
+      for (const proxy of claudeCompatProxies.values()) {
+        await proxy.close().catch(() => undefined);
+      }
+      claudeCompatProxies.clear();
       terminalBuffers.clear();
       pendingHistoryOutput.clear();
       historyOutputFlushes.clear();

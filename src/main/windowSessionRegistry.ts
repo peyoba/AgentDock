@@ -3,6 +3,7 @@ import type { SessionService } from './sessionService.js';
 export type WindowSessionRegistry = {
   getOrCreate(windowId: number): SessionService;
   delete(windowId: number): Promise<void>;
+  disposeAll(): Promise<void>;
 };
 
 export function createWindowSessionRegistry(
@@ -26,6 +27,12 @@ export function createWindowSessionRegistry(
       const service = services.get(windowId);
       services.delete(windowId);
       await service?.dispose();
+    },
+
+    async disposeAll(): Promise<void> {
+      const remaining = [...services.values()];
+      services.clear();
+      await Promise.all(remaining.map((service) => service.dispose().catch(() => undefined)));
     },
   };
 }

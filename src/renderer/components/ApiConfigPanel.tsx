@@ -53,7 +53,7 @@ type ApiConfigPanelProps = {
     keychainService: string;
     keychainAccount: string;
   }): Promise<string>;
-  onFetchProfileModels?(request: { profileId: string }): Promise<string[]>;
+  onFetchProfileModels?(request: { profileId: string; baseUrlOverride?: string }): Promise<string[]>;
   onBackToWorkbench?: () => void;
 };
 
@@ -240,8 +240,20 @@ export function ApiConfigPanel({
   const [deleting, setDeleting] = React.useState(false);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
 
+  // 刚保存的新配置会让 App 把 selectedProfileId 切到它，此时不应把保存成功提示
+  // 和编辑器状态重置掉；ref 记录"这次 id 变化来自保存"以跳过一次重置。
+  const justSavedProfileIdRef = React.useRef<string | undefined>(undefined);
+  // 草稿创建时的基线快照，用于保存前检测其他窗口的并发修改。
+  const draftBaselineRef = React.useRef<string | undefined>(undefined);
+
   React.useEffect(() => {
+    if (justSavedProfileIdRef.current && justSavedProfileIdRef.current === selectedProfile?.id) {
+      justSavedProfileIdRef.current = undefined;
+      draftBaselineRef.current = JSON.stringify(selectedProfile);
+      return;
+    }
     setDraft(createDraft(selectedProfile));
+    draftBaselineRef.current = selectedProfile ? JSON.stringify(selectedProfile) : undefined;
     setSecretDraft('');
     setSecretVisible(false);
     setSecretDirty(false);
@@ -262,6 +274,24 @@ export function ApiConfigPanel({
 
   const updateDraft = <Key extends keyof ApiProfile>(key: Key, value: ApiProfile[Key]): void => {
     setDraft((current) => (current ? { ...current, [key]: value } : current));
+  };
+
+  // 切换工具类型时同步派生 codexHome：Codex 必须有独立 CODEX_HOME（项目隔离约束），
+  // Claude 则不应残留。
+  const updateToolType = (toolType: ToolType): void => {
+    setDraft((current) => {
+      if (!current || current.toolType === toolType) {
+        return current;
+      }
+      return {
+        ...current,
+        toolType,
+        codexHome:
+          toolType === 'codex'
+            ? current.codexHome || `~/.agentdock/codex-profiles/${current.id}`
+            : undefined,
+      };
+    });
   };
 
   const updateSecretDraft = (value: string): void => {
@@ -370,12 +400,19 @@ export function ApiConfigPanel({
     if (!draft || !onFetchProfileModels) {
       return;
     }
+    if (isNewDraft) {
+      setSaveError('新配置请先保存（含 API Key）后再拉取模型');
+      return;
+    }
 
     setModelFetching(true);
     setModelMessage(null);
     setSaveError(null);
     try {
-      const models = normalizeModelList(await onFetchProfileModels({ profileId: draft.id }));
+      // 用编辑器里的 Base URL 拉取，避免"改了地址没保存，却按旧地址测试成功"的误导。
+      const models = normalizeModelList(
+        await onFetchProfileModels({ profileId: draft.id, baseUrlOverride: draft.baseUrl.trim() }),
+      );
       setFetchedModels(models);
       if (!draft.defaultModel && models[0]) {
         updateDraft('defaultModel', models[0]);
@@ -434,6 +471,19 @@ export function ApiConfigPanel({
     setSaveMessage(null);
     setSaveError(null);
     try {
+      // 其他窗口可能已修改同一配置；静默覆盖会丢掉那边的更新，先让用户确认。
+      if (!isNewDraft && draftBaselineRef.current !== undefined) {
+        const latestProfile = profiles.find((profile) => profile.id === draft.id);
+        if (latestProfile && JSON.stringify(latestProfile) !== draftBaselineRef.current) {
+          const overwrite = window.confirm(
+            '该配置在其他窗口被修改过，继续保存会覆盖那些修改。是否继续？',
+          );
+          if (!overwrite) {
+            setSaving(false);
+            return;
+          }
+        }
+      }
       const availableModels = normalizeModelList(draft.availableModels);
       const savedProfile = await onSaveProfile({
         ...draft,
@@ -487,6 +537,8 @@ export function ApiConfigPanel({
         claudeCclineStatusLineEnabled:
           draft.toolType === 'claude' ? draft.claudeCclineStatusLineEnabled : undefined,
       });
+      justSavedProfileIdRef.current = savedProfile.id;
+      draftBaselineRef.current = JSON.stringify(savedProfile);
       if (secretDraft.trim() && secretDirty) {
         await onSaveProfileSecret({
           keychainService: savedProfile.keychainService,
@@ -613,7 +665,7 @@ export function ApiConfigPanel({
                 <span>工具类型</span>
                 <select
                   value={draft.toolType}
-                  onChange={(event) => updateDraft('toolType', event.target.value as ToolType)}
+                  onChange={(event) => updateToolType(event.target.value as ToolType)}
                 >
                   {editableToolTypes.map((toolType) => (
                     <option key={toolType.value} value={toolType.value}>{toolType.label}</option>
@@ -633,9 +685,10 @@ export function ApiConfigPanel({
                     <span>默认模型</span>
                     {modelOptions.length > 0 ? (
                       <select
-                        value={draft.defaultModel ?? defaultModelOptions[0] ?? ''}
-                        onChange={(event) => updateDraft('defaultModel', event.target.value)}
+                        value={draft.defaultModel ?? ''}
+                        onChange={(event) => updateDraft('defaultModel', event.target.value || undefined)}
                       >
+                        {!draft.defaultModel ? <option value="">未设置</option> : null}
                         {defaultModelOptions.map((model) => (
                           <option key={model} value={model}>{model}</option>
                         ))}

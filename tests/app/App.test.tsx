@@ -1890,7 +1890,7 @@ describe('AgentDock session launch flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '拉取模型' }));
 
     await waitFor(() => {
-      expect(api.fetchProfileModels).toHaveBeenCalledWith({ profileId: 'codex-b' });
+      expect(api.fetchProfileModels).toHaveBeenCalledWith({ profileId: 'codex-b', baseUrlOverride: expect.any(String) });
     });
     expect(screen.getByRole('group', { name: '拉取到的模型' })).toHaveTextContent('gpt-4o');
 
@@ -2006,7 +2006,7 @@ describe('AgentDock session launch flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '拉取模型' }));
 
     await waitFor(() => {
-      expect(api.fetchProfileModels).toHaveBeenCalledWith({ profileId: 'codex-b' });
+      expect(api.fetchProfileModels).toHaveBeenCalledWith({ profileId: 'codex-b', baseUrlOverride: expect.any(String) });
     });
     expect(screen.getByText('已拉取 2 个模型')).toBeInTheDocument();
 

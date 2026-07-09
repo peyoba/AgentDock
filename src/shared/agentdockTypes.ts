@@ -134,6 +134,8 @@ export type ProfileSecretReadRequest = {
 
 export type ProfileModelsFetchRequest = {
   profileId: string;
+  /** 编辑器里尚未保存的 Base URL；提供时用它替代已保存值发起拉取。 */
+  baseUrlOverride?: string;
 };
 
 export type TerminalWriteRequest = {

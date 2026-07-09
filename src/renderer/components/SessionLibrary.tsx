@@ -71,6 +71,26 @@ export function SessionLibrary({
   const [query, setQuery] = React.useState('');
   const [showArchived, setShowArchived] = React.useState(false);
   const [openMenuSessionId, setOpenMenuSessionId] = React.useState<string | undefined>();
+
+  // 点击菜单区域外时收起"…"菜单。
+  React.useEffect(() => {
+    if (!openMenuSessionId) {
+      return undefined;
+    }
+    const onPointerDown = (event: MouseEvent): void => {
+      const target = event.target as Element | null;
+      if (!target?.closest('.session-library-menu')) {
+        setOpenMenuSessionId(undefined);
+      }
+    };
+    window.addEventListener('mousedown', onPointerDown);
+    return () => window.removeEventListener('mousedown', onPointerDown);
+  }, [openMenuSessionId]);
+
+  const menuAction = (action: (sessionId: string) => void, sessionId: string): void => {
+    setOpenMenuSessionId(undefined);
+    action(sessionId);
+  };
   const normalizedQuery = query.trim().toLowerCase();
   const visibleSessions = sessions.filter((session) => {
     if (!showArchived && session.archived) {
@@ -173,24 +193,24 @@ export function SessionLibrary({
                       className="session-library-menu-popover"
                       hidden={openMenuSessionId !== session.id}
                     >
-                      <button type="button" onClick={() => onOpenSession(session.id)}>
+                      <button type="button" onClick={() => menuAction(onOpenSession, session.id)}>
                         打开视图
                       </button>
-                      <button type="button" onClick={() => onCloseView(session.id)}>
+                      <button type="button" onClick={() => menuAction(onCloseView, session.id)}>
                         关闭视图
                       </button>
-                      <button type="button" onClick={() => onContinueSession(session.id)}>
+                      <button type="button" onClick={() => menuAction(onContinueSession, session.id)}>
                         继续会话
                       </button>
                       {session.status === 'running' || session.status === 'starting' ? (
-                        <button type="button" onClick={() => onStopSession(session.id)}>
+                        <button type="button" onClick={() => menuAction(onStopSession, session.id)}>
                           停止
                         </button>
                       ) : null}
-                      <button type="button" onClick={() => onArchiveSession(session.id)}>
+                      <button type="button" onClick={() => menuAction(onArchiveSession, session.id)}>
                         归档
                       </button>
-                      <button type="button" onClick={() => onDeleteSession(session.id)}>
+                      <button type="button" onClick={() => menuAction(onDeleteSession, session.id)}>
                         删除记录
                       </button>
                     </div>

@@ -248,7 +248,11 @@ async function runPtyToCompletion({
     });
 
     if (!ptySession.onExit) {
-      settle(() => reject(rejectSummaryCli('摘要 CLI 无法监听退出状态')));
+      settle(() => {
+        // 无法感知退出就无法回收，直接杀掉已启动的 CLI 进程，避免它在后台跑完整个摘要。
+        ptySession.kill();
+        reject(rejectSummaryCli('摘要 CLI 无法监听退出状态'));
+      });
       return;
     }
     unsubscribeExit = ptySession.onExit(handleExit);

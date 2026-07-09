@@ -279,6 +279,9 @@ export function TerminalPane({
     const cleanupOscQueryGuards =
       preserveHistory && !readOnly ? installAgentOscQueryGuards(terminal) : () => undefined;
 
+    // fitTerminal 的程序化 resize 会同步触发 onResize 订阅；标志位避免同一次
+    // 尺寸变化发送两条相同的 resizeTerminal IPC。
+    let programmaticResize = false;
     const fitTerminal = (): void => {
       const container = terminalElementRef.current;
       if (!container) {
@@ -290,7 +293,12 @@ export function TerminalPane({
         return;
       }
 
-      terminal.resize(cols, rows);
+      programmaticResize = true;
+      try {
+        terminal.resize(cols, rows);
+      } finally {
+        programmaticResize = false;
+      }
       terminal.refresh(0, rows - 1);
       if (!readOnly) {
         void window.agentDock
@@ -405,7 +413,7 @@ export function TerminalPane({
           void window.agentDock.writeTerminal({ sessionId, input }).catch(() => undefined);
         });
     const resizeSubscription = terminal.onResize(({ cols, rows }) => {
-      if (!readOnly) {
+      if (!readOnly && !programmaticResize) {
         void window.agentDock
           .resizeTerminal({ sessionId, cols, rows })
           .catch(() => undefined);

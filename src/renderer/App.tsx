@@ -471,19 +471,25 @@ export default function App(): React.JSX.Element {
     }
 
     let cancelled = false;
-    void api.getSessionContextPressure({ sessionId: activeSessionId })
-      .then((pressure) => {
-        if (!cancelled) {
-          setContextPressureBySessionId((current) => ({
-            ...current,
-            [pressure.sessionId]: pressure,
-          }));
-        }
-      })
-      .catch(() => undefined);
+    const refreshPressure = (): void => {
+      void api.getSessionContextPressure({ sessionId: activeSessionId })
+        .then((pressure) => {
+          if (!cancelled) {
+            setContextPressureBySessionId((current) => ({
+              ...current,
+              [pressure.sessionId]: pressure,
+            }));
+          }
+        })
+        .catch(() => undefined);
+    };
+    refreshPressure();
+    // 长时间运行的会话压力会持续变化，定期刷新而不是只在切换会话时取一次。
+    const pressureTimer = window.setInterval(refreshPressure, 30_000);
 
     return () => {
       cancelled = true;
+      window.clearInterval(pressureTimer);
     };
   }, [api, activeSessionId, activeSessionSupportsSummary]);
 
@@ -833,7 +839,10 @@ export default function App(): React.JSX.Element {
     return api.readProfileSecret(request);
   };
 
-  const fetchProfileModels = async (request: { profileId: string }): Promise<string[]> => {
+  const fetchProfileModels = async (request: {
+    profileId: string;
+    baseUrlOverride?: string;
+  }): Promise<string[]> => {
     if (!api) {
       return [];
     }
@@ -1039,7 +1048,7 @@ export default function App(): React.JSX.Element {
                 )}
                 <TerminalPane
                   sessionId={activeSessionId}
-                  preserveHistory={activeSession ? !['zsh', 'bash'].includes(activeSession.command) : true}
+                  preserveHistory={activeSession ? !['zsh', 'bash'].includes(commandExecutableName(activeSession.command)) : true}
                   readOnly={activeSession ? !isLiveSession(activeSession) : false}
                 />
                 {isRecoverableSession(activeSession) ? (

@@ -119,7 +119,13 @@ export function createWorkspaceFileTreeService({
 
         const entryPath = path.join(targetRealPath, entry.name);
         if (entry.isSymbolicLink()) {
-          const entryRealPath = await realpath(entryPath);
+          let entryRealPath: string;
+          try {
+            entryRealPath = await realpath(entryPath);
+          } catch {
+            // 悬空符号链接（目标已删除）跳过即可，不应让整个目录列表失败。
+            continue;
+          }
           assertInsideWorkspace(workspaceRealPath, entryRealPath);
         }
 

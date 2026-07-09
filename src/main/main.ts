@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createNodePtyAdapter } from './adapters/ptyAdapter.js';
 import { resolveAppBuildInfo } from './buildInfoService.js';
 import type { KeychainAdapter } from './adapters/keychainAdapter.js';
@@ -282,6 +282,37 @@ async function requireWorkspaceForContext(
   return workspace;
 }
 
+// 纵深防御：secret 读写只允许操作已保存配置引用的槽位，
+// 防止 renderer 被注入后枚举读取 Keychain 任意条目。
+async function requireProfileSecretSlot(
+  keychainService: string,
+  keychainAccount: string,
+): Promise<void> {
+  const referenced = (await listProfiles()).some(
+    (profile) =>
+      profile.keychainService === keychainService &&
+      profile.keychainAccount === keychainAccount,
+  );
+  if (!referenced) {
+    throw new Error('密钥槽位不属于任何已保存配置');
+  }
+}
+
+// 纵深防御：会话命令只允许受支持的 CLI/shell，且带引号参数外不允许 shell 控制字符，
+// 防止 renderer 被注入后升级为任意本机命令执行。
+const SESSION_COMMAND_EXECUTABLES = new Set(['claude', 'codex', 'zsh', 'bash']);
+
+function validateSessionCommand(command: string): void {
+  const executable = command.trim().split(/\s+/)[0]?.split('/').pop() ?? '';
+  if (!SESSION_COMMAND_EXECUTABLES.has(executable)) {
+    throw new Error(`不支持的会话命令: ${executable || '(空)'}`);
+  }
+  const outsideQuotes = command.replace(/'[^']*'/g, "''");
+  if (/[;&|`<>\n]|\$\(/.test(outsideQuotes)) {
+    throw new Error('会话命令包含不允许的 shell 控制字符');
+  }
+}
+
 function hardenWebContents(
   contents: Electron.WebContents,
   devServerUrl: string | undefined,
@@ -294,11 +325,13 @@ function hardenWebContents(
     return { action: 'deny' };
   });
 
-  // 锁定导航：生产只允许本地 file://，开发额外允许 Vite dev server，
-  // 避免注入内容把渲染进程导航到外部页面窃取已展示的密钥
+  // 锁定导航：生产只允许应用自身的 index.html（任意本地 HTML 也会获得 preload API，
+  // 不能放行整个 file:// 协议），开发额外允许 Vite dev server。
+  const appIndexUrl = pathToFileURL(path.join(__dirname, '../renderer/index.html')).href;
   contents.on('will-navigate', (event, url) => {
     const isDevNavigation = Boolean(devServerUrl) && url.startsWith(devServerUrl as string);
-    if (!isDevNavigation && !url.startsWith('file://')) {
+    const isAppNavigation = url === appIndexUrl || url.startsWith(`${appIndexUrl}#`);
+    if (!isDevNavigation && !isAppNavigation) {
       event.preventDefault();
     }
   });
@@ -346,22 +379,28 @@ function registerIpcHandlers(): void {
     return savedProfile;
   });
   ipcMain.handle('profiles:saveSecret', async (_event, request: ProfileSecretSaveRequest) => {
+    await requireProfileSecretSlot(request.keychainService, request.keychainAccount);
     await secretAdapter.writeSecret(
       request.keychainService,
       request.keychainAccount,
       request.secret,
     );
   });
-  ipcMain.handle('profiles:readSecret', (_event, request: ProfileSecretReadRequest) =>
-    secretAdapter.readSecret(request.keychainService, request.keychainAccount),
-  );
+  ipcMain.handle('profiles:readSecret', async (_event, request: ProfileSecretReadRequest) => {
+    await requireProfileSecretSlot(request.keychainService, request.keychainAccount);
+    return secretAdapter.readSecret(request.keychainService, request.keychainAccount);
+  });
   ipcMain.handle('profiles:fetchModels', async (_event, request: ProfileModelsFetchRequest) => {
     const profile = (await listProfiles()).find((item) => item.id === request.profileId);
     if (!profile) {
       throw new Error('所选配置不存在，无法拉取模型列表');
     }
 
-    return fetchProfileModels({ profile, secretAdapter });
+    const baseUrlOverride = request.baseUrlOverride?.trim();
+    return fetchProfileModels({
+      profile: baseUrlOverride ? { ...profile, baseUrl: baseUrlOverride } : profile,
+      secretAdapter,
+    });
   });
   ipcMain.handle('profiles:delete', async (_event, { profileId }: { profileId: string }) => {
     if (isDefaultApiProfileId(profileId)) {
@@ -478,6 +517,7 @@ function registerIpcHandlers(): void {
     if (!profile || !workspace) {
       throw new Error('所选配置或工作区不存在，无法启动会话');
     }
+    validateSessionCommand(request.command);
 
     return sessionServiceForWebContents(event.sender).launch({
       profile,
@@ -502,6 +542,7 @@ function registerIpcHandlers(): void {
     if (!profile || !workspace) {
       throw new Error('所选配置或工作区不存在，无法重启会话');
     }
+    validateSessionCommand(request.command ?? session.command);
 
     return service.restart({
       sessionId: request.sessionId,
@@ -639,4 +680,21 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+// 退出前等待所有会话状态与共享上下文落盘完成，否则 Electron 不会等异步写入，
+// 运行中会话会以 running 状态残留在历史里、最后一段输出可能丢失。
+let quitDisposalDone = false;
+app.on('before-quit', (event) => {
+  if (quitDisposalDone) {
+    return;
+  }
+  event.preventDefault();
+  quitDisposalDone = true;
+  void sessionRegistry
+    .disposeAll()
+    .catch(() => undefined)
+    .then(() => {
+      app.quit();
+    });
 });

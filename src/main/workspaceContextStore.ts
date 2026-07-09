@@ -1,9 +1,14 @@
-import { access, appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentSession, Workspace } from '../shared/agentdockTypes.js';
 import { redactSecrets } from './secretRedaction.js';
 
 const RECENT_OUTPUT_LIMIT = 40_000;
+// index 与 transcript 文件都需要上限，否则长期使用后 .agentdock/ 膨胀数 GB
+// 且每次重建都要全量读入内存。
+const MAX_INDEX_SESSIONS = 20;
+const MAX_SESSION_TRANSCRIPT_BYTES = 2_000_000;
+const SESSION_TRANSCRIPT_KEEP_BYTES = 1_000_000;
 const CONTEXT_DIR_PARTS = ['.agentdock', 'context'];
 const TRANSCRIPT_DIR_PARTS = [...CONTEXT_DIR_PARTS, 'sessions'];
 const SUMMARY_DIR_PARTS = [...CONTEXT_DIR_PARTS, 'summaries'];
@@ -130,6 +135,22 @@ export function createWorkspaceContextStore(
         ...index.sessions.filter((session) => session.sessionId !== input.session.id),
         nextSession,
       ];
+      // 超出上限时淘汰最旧的会话，并删除其 transcript / summary 文件。
+      const evicted = sessions.length > MAX_INDEX_SESSIONS
+        ? sessions.splice(0, sessions.length - MAX_INDEX_SESSIONS)
+        : [];
+      for (const evictedSession of evicted) {
+        await rm(path.join(input.workspace.path, evictedSession.transcriptFile), { force: true })
+          .catch(() => undefined);
+        await rm(
+          path.join(
+            input.workspace.path,
+            ...SUMMARY_DIR_PARTS,
+            `${safeContextFileName(evictedSession.sessionId)}.md`,
+          ),
+          { force: true },
+        ).catch(() => undefined);
+      }
       await writeIndex(input.workspace, {
         ...index,
         workspaceId: input.workspace.id,
@@ -153,6 +174,10 @@ export function createWorkspaceContextStore(
     await enqueue(input.workspace.path, async () => {
       await mkdir(path.dirname(files.sessionTranscriptFile), { recursive: true });
       await appendFile(files.sessionTranscriptFile, redactSecrets(input.data), 'utf-8');
+      const fileStat = await stat(files.sessionTranscriptFile);
+      if (fileStat.size > MAX_SESSION_TRANSCRIPT_BYTES) {
+        await rollFileToTail(files.sessionTranscriptFile, SESSION_TRANSCRIPT_KEEP_BYTES);
+      }
     });
     await requestSharedContextRebuild(input.workspace);
   }
@@ -242,7 +267,8 @@ export function createWorkspaceContextStore(
           const transcriptPath = path.join(workspace.path, session.transcriptFile);
           let transcript = '';
           try {
-            transcript = await readFile(transcriptPath, 'utf-8');
+            // 只读尾部，避免重建时把所有历史 transcript 全量读入内存。
+            transcript = await readFileTail(transcriptPath, RECENT_OUTPUT_LIMIT * 4);
           } catch (error) {
             if (!(isNodeError(error) && error.code === 'ENOENT')) {
               throw error;
@@ -396,4 +422,32 @@ function transcriptHeader(session: AgentSession): string {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error;
+}
+
+function utf8SafeStart(buffer: Buffer): Buffer {
+  let start = 0;
+  while (start < buffer.length && (buffer[start] & 0b1100_0000) === 0b1000_0000) {
+    start += 1;
+  }
+  return buffer.subarray(start);
+}
+
+async function readFileTail(filePath: string, maxBytes: number): Promise<string> {
+  const handle = await open(filePath, 'r');
+  try {
+    const fileStat = await handle.stat();
+    const length = Math.min(fileStat.size, maxBytes);
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, fileStat.size - length);
+    return utf8SafeStart(buffer).toString('utf-8');
+  } finally {
+    await handle.close();
+  }
+}
+
+async function rollFileToTail(filePath: string, keepBytes: number): Promise<void> {
+  const kept = await readFileTail(filePath, keepBytes);
+  const rollPath = `${filePath}.roll`;
+  await writeFile(rollPath, kept, 'utf-8');
+  await rename(rollPath, filePath);
 }
