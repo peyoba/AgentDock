@@ -59,7 +59,7 @@ function shellQuoteForTest(value: string): string {
 
 function restorePromptForTest(contextFile: string): string {
   return [
-    'Read the AgentDock restore context file for a brief memory summary only.',
+    'Read the AgentDock restore context file and use it as background memory.',
     "Reply with one short memory-restored sentence, then wait for the user's next instruction.",
     'Do not continue previous tasks unless the user explicitly asks.',
     contextFile,
@@ -122,6 +122,42 @@ describe('sessionService', () => {
         },
       },
     ]);
+  });
+
+  it('does not reuse session IDs after a record is deleted', async () => {
+    const runtime = createFakeRuntime();
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+    });
+    const launchInput = {
+      profile: {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude' as const,
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/Users/example/Desktop/web/AgentDock',
+      },
+      command: 'claude',
+    };
+
+    const first = await service.launch(launchInput);
+    const second = await service.launch(launchInput);
+    expect(first.id).toBe('session-1');
+    expect(second.id).toBe('session-2');
+
+    await service.killTerminal({ sessionId: first.id });
+    await service.deleteSessionRecord({ sessionId: first.id });
+
+    const third = await service.launch(launchInput);
+    expect(third.id).toBe('session-3');
   });
 
   it('uses a session-local Claude compat proxy when the profile enables it', async () => {
@@ -547,10 +583,10 @@ describe('sessionService', () => {
       expect(restartSpawn?.command).not.toContain('recent output');
       expect(restarted.memoryRestore?.summary).toBe('记忆已恢复：已加载最近会话背景，等待你的下一步指令。');
       await expect(readFile(restoreContextFile, 'utf-8'))
-        .resolves.not.toContain('recent output');
+        .resolves.toContain('recent output');
       await expect(readFile(restoreContextFile, 'utf-8'))
-        .resolves.not.toContain(`sk-${'1'.repeat(24)}`);
-      expect(restartSpawn?.command).not.toContain(`sk-${'1'.repeat(24)}`);
+        .resolves.not.toContain(fakeOpenAiKey);
+      expect(restartSpawn?.command).not.toContain(fakeOpenAiKey);
     } finally {
       await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     }
@@ -610,8 +646,8 @@ describe('sessionService', () => {
       expect(restartSpawn?.command).not.toContain('用户确认：重启前的最近对话必须传给新 Agent。');
       expect(restarted.memoryRestore?.summary).toBe('记忆已恢复：已加载最近会话背景，等待你的下一步指令。');
       const restoreContext = await readFile(restoreContextFile, 'utf-8');
-      expect(restoreContext).not.toContain('用户确认：重启前的最近对话必须传给新 Agent。');
-      expect(restoreContext).not.toContain('> 你好');
+      expect(restoreContext).toContain('用户确认：重启前的最近对话必须传给新 Agent。');
+      expect(restoreContext).toContain('> 你好');
       expect(restoreContext).not.toContain('\u001b');
       expect(restoreContext).not.toContain('[38;5;244m');
       expect(restoreContext).not.toContain('Working(9s');
@@ -674,7 +710,7 @@ describe('sessionService', () => {
         contextFile: restoreContextFile,
       });
       await expect(readFile(restoreContextFile, 'utf-8'))
-        .resolves.not.toContain('用户确认：恢复摘要只显示一句话');
+        .resolves.toContain('用户确认：恢复摘要只显示一句话');
     } finally {
       await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     }

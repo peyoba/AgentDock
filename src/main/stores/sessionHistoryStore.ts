@@ -11,6 +11,7 @@ import {
 export const SESSION_HISTORY_BUFFER_LIMIT_BYTES = 5_000_000;
 export const SESSION_HISTORY_COUNT_LIMIT = 50;
 export const SESSION_TRANSCRIPT_TOTAL_LIMIT_BYTES = 1_000_000_000;
+const METADATA_PERSIST_DELTA_BYTES = 262_144;
 
 type SessionHistoryEntry = {
   id: string;
@@ -120,7 +121,12 @@ async function recoverSessionHistoryEntries(filePath: string): Promise<Array<Ses
     }
 
     const recoveredText = text.slice(0, firstArrayEnd);
-    const recovered: unknown = JSON.parse(recoveredText);
+    let recovered: unknown;
+    try {
+      recovered = JSON.parse(recoveredText);
+    } catch {
+      return [];
+    }
     if (!Array.isArray(recovered)) {
       return [];
     }
@@ -134,15 +140,18 @@ async function recoverSessionHistoryEntries(filePath: string): Promise<Array<Ses
 export function createSessionHistoryStore(
   rootDir: string,
   {
+    maxBufferBytes = SESSION_HISTORY_BUFFER_LIMIT_BYTES,
     maxSessions = SESSION_HISTORY_COUNT_LIMIT,
     maxTranscriptBytes = SESSION_TRANSCRIPT_TOTAL_LIMIT_BYTES,
-    transcriptStore = createSessionTranscriptStore(rootDir),
+    transcriptStore = createSessionTranscriptStore(rootDir, { maxFileBytes: maxBufferBytes }),
   }: CreateSessionHistoryStoreOptions = {},
 ): SessionHistoryStore {
   const sessionsFilePath = path.join(rootDir, 'sessions.json');
   const store = createJsonStore<SessionHistoryEntry>(sessionsFilePath);
   const archiveDir = path.join(rootDir, 'session-archives');
   let operationQueue: Promise<void> = Promise.resolve();
+  let cachedEntries: SessionHistoryEntry[] | undefined;
+  const persistedTranscriptSizes = new Map<string, number>();
 
   async function enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const run = operationQueue.then(operation, operation);
@@ -153,17 +162,21 @@ export function createSessionHistoryStore(
     return run;
   }
 
+  function transcriptMetadata(sessionId: string, byteSize: number): AgentSession['transcript'] {
+    return {
+      filePath: transcriptStore.transcriptPath(sessionId),
+      byteSize,
+      tailBytes: SESSION_TRANSCRIPT_TAIL_BYTES,
+      tailTruncated: byteSize > SESSION_TRANSCRIPT_TAIL_BYTES,
+    };
+  }
+
   async function sessionWithTranscriptMetadata(session: AgentSession): Promise<AgentSession> {
-    const tail = await transcriptStore.readTail(session.id);
+    const byteSize = await transcriptStore.statSize(session.id);
     return {
       ...session,
       historyLimitReached: false,
-      transcript: {
-        filePath: tail.filePath,
-        byteSize: tail.byteSize,
-        tailBytes: SESSION_TRANSCRIPT_TAIL_BYTES,
-        tailTruncated: tail.truncated,
-      },
+      transcript: transcriptMetadata(session.id, byteSize),
     };
   }
 
@@ -176,8 +189,8 @@ export function createSessionHistoryStore(
     for (const entry of entries) {
       const legacyBuffer = 'terminalBuffer' in entry ? entry.terminalBuffer : undefined;
       if (legacyBuffer) {
-        const existingTail = await transcriptStore.readTail(entry.id);
-        if (existingTail.byteSize === 0) {
+        const existingSize = await transcriptStore.statSize(entry.id);
+        if (existingSize === 0) {
           await transcriptStore.appendOutput(entry.id, legacyBuffer);
         }
         changed = true;
@@ -233,11 +246,26 @@ export function createSessionHistoryStore(
   }
 
   async function listEntries(): Promise<SessionHistoryEntry[]> {
-    return migrateLegacyEntries(await recoverSessionHistoryEntries(sessionsFilePath));
+    if (!cachedEntries) {
+      const migratedEntries = await migrateLegacyEntries(await recoverSessionHistoryEntries(sessionsFilePath));
+      // migrateLegacyEntries 内部可能已通过 saveEntries 填充缓存（含清理结果），优先使用。
+      cachedEntries ??= migratedEntries;
+    }
+    return cachedEntries;
   }
 
   async function saveEntries(entries: SessionHistoryEntry[]): Promise<void> {
-    await store.replaceAll(await cleanupEntries(entries));
+    const cleanedEntries = await cleanupEntries(entries);
+    cachedEntries = cleanedEntries;
+    try {
+      await store.replaceAll(cleanedEntries);
+      for (const entry of cleanedEntries) {
+        persistedTranscriptSizes.set(entry.id, entry.session.transcript?.byteSize ?? 0);
+      }
+    } catch (error) {
+      cachedEntries = undefined;
+      throw error;
+    }
   }
 
   async function saveSession(session: AgentSession): Promise<void> {
@@ -314,16 +342,19 @@ export function createSessionHistoryStore(
         if (!currentEntry) {
           return { limitReached: false };
         }
-        await transcriptStore.appendOutput(sessionId, data);
-        const nextEntry = {
-          ...currentEntry,
-          session: await sessionWithTranscriptMetadata(currentEntry.session),
+        const appendResult = await transcriptStore.appendOutput(sessionId, data);
+        currentEntry.session = {
+          ...currentEntry.session,
+          transcript: transcriptMetadata(sessionId, appendResult.byteSize),
         };
 
-        await saveEntries([
-          nextEntry,
-          ...entries.filter((entry) => entry.id !== sessionId),
-        ]);
+        // 每个输出块都重写 sessions.json 会造成写放大，这里按字节增量节流；
+        // 状态变更（saveSession 等）总会全量落盘，崩溃时最多丢失少量字节数元数据。
+        const lastPersisted = persistedTranscriptSizes.get(sessionId);
+        const delta = Math.abs(appendResult.byteSize - (lastPersisted ?? 0));
+        if (lastPersisted === undefined || appendResult.rolled || delta >= METADATA_PERSIST_DELTA_BYTES) {
+          await saveEntries(entries);
+        }
         return { limitReached: false };
       });
     },

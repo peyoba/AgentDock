@@ -94,7 +94,9 @@ export function ProjectPanel({
     return () => {
       cancelled = true;
     };
-  }, [listDirectory, refreshNonce, relativePath, session?.id, workspace]);
+    // 只依赖 workspace.id：metadata 刷新会产生新的 workspace 对象引用，
+    // 若依赖整个对象会导致文件树无关刷新时整棵重拉、界面闪烁。
+  }, [listDirectory, refreshNonce, relativePath, session?.id, workspace?.id]);
 
   const handleSelectEntry = (entry: WorkspaceFileTreeEntry): void => {
     setSelectedEntry(entry);
@@ -102,6 +104,10 @@ export function ProjectPanel({
       setRelativePath(entry.relativePath);
     }
   };
+
+  // 拖拽期间组件卸载时兜底移除 window 监听器。
+  const resizeCleanupRef = React.useRef<(() => void) | null>(null);
+  React.useEffect(() => () => resizeCleanupRef.current?.(), []);
 
   const startResize = (event: React.MouseEvent<HTMLDivElement>): void => {
     event.preventDefault();
@@ -112,13 +118,15 @@ export function ProjectPanel({
       const nextHeight = startHeight - (moveEvent.clientY - startY);
       setInfoHeight(Math.min(320, Math.max(120, nextHeight)));
     };
-    const onMouseUp = (): void => {
+    const stopResize = (): void => {
       window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('mouseup', stopResize);
+      resizeCleanupRef.current = null;
     };
 
     window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('mouseup', stopResize);
+    resizeCleanupRef.current = stopResize;
   };
 
   return (

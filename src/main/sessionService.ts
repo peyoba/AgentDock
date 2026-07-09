@@ -37,6 +37,7 @@ import {
 } from './restoreContextStore.js';
 import { createSessionSummaryStore } from './sessionSummaryStore.js';
 import { sanitizePersistedTerminalOutput } from './terminalOutputSanitizer.js';
+import { redactSecrets, registerKnownSecret } from './secretRedaction.js';
 import type { SessionHistoryStore } from './stores/sessionHistoryStore.js';
 import {
   buildClaudeOptionalEnvironment,
@@ -486,7 +487,7 @@ export function createSessionService(
   const sessionSummaryStore = createSessionSummaryStore();
   const terminalOutputListeners = new Set<TerminalOutputListener>();
   const sessionChangedListeners = new Set<SessionChangedListener>();
-  let historyLoaded = false;
+  let historyLoadPromise: Promise<void> | undefined;
 
   const findSession = (sessionId: string): AgentSession | undefined =>
     sessions.find((session) => session.id === sessionId);
@@ -500,33 +501,32 @@ export function createSessionService(
     await proxy.close().catch(() => undefined);
   };
 
-  const loadHistory = async (): Promise<void> => {
-    if (historyLoaded) {
-      return;
-    }
-
-    historyLoaded = true;
-    if (!restoreHistory) {
-      return;
-    }
-
-    const persistedSessions = await historyStore?.listSessions() ?? [];
-    for (const persistedSession of persistedSessions) {
-      const session = { ...persistedSession };
-      if (session.status === 'running' || session.status === 'starting') {
-        const activeOwner = runtimeOwnerRegistry.get(session.id);
-        if (activeOwner) {
-          session.status = 'running';
-          session.runtimeOwner = activeOwner;
-        } else {
-          session.status = 'interrupted';
-          delete session.runtimeOwner;
-          await historyStore?.saveSession(session);
-        }
+  const loadHistory = (): Promise<void> => {
+    // 缓存同一个 Promise，避免并发调用在首次加载完成前拿到空的 sessions 列表。
+    historyLoadPromise ??= (async () => {
+      if (!restoreHistory) {
+        return;
       }
-      sessions.push(session);
-      terminalBuffers.set(session.id, await historyStore?.readBuffer(session.id) ?? '');
-    }
+
+      const persistedSessions = await historyStore?.listSessions() ?? [];
+      for (const persistedSession of persistedSessions) {
+        const session = { ...persistedSession };
+        if (session.status === 'running' || session.status === 'starting') {
+          const activeOwner = runtimeOwnerRegistry.get(session.id);
+          if (activeOwner) {
+            session.status = 'running';
+            session.runtimeOwner = activeOwner;
+          } else {
+            session.status = 'interrupted';
+            delete session.runtimeOwner;
+            await historyStore?.saveSession(session);
+          }
+        }
+        sessions.push(session);
+        terminalBuffers.set(session.id, await historyStore?.readBuffer(session.id) ?? '');
+      }
+    })();
+    return historyLoadPromise;
   };
 
   const requirePtySession = (sessionId: string): PtySession => {
@@ -559,7 +559,8 @@ export function createSessionService(
 
       pendingHistoryOutput.set(sessionId, '');
       try {
-        const result = await historyStore?.appendOutput(sessionId, data);
+        // 在累积后的整段输出上脱敏，降低密钥被 PTY 分块切断后逃逸匹配的概率。
+        const result = await historyStore?.appendOutput(sessionId, redactSecrets(data));
         const session = findSession(sessionId);
         if (result?.limitReached && session && !session.historyLimitReached) {
           session.historyLimitReached = true;
@@ -675,6 +676,7 @@ export function createSessionService(
       const secret = isLocalShellCommand(command)
         ? undefined
         : await keychain.readSecret(profile.keychainService, profile.keychainAccount);
+      registerKnownSecret(secret ?? undefined);
       const compatProxy =
         !isLocalShellCommand(command) &&
         profile.toolType === 'claude' &&
@@ -802,6 +804,22 @@ export function createSessionService(
     }
   };
 
+  // 基于数组长度生成 ID 会在删除历史记录后复用已有编号，导致新旧会话互相覆盖；
+  // 这里改为“不小于现存最大编号”的单调递增计数器。
+  let sessionIdCounter = 0;
+  const nextSessionId = (): string => {
+    const escapedPrefix = sessionIdPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const idPattern = new RegExp(`^session-${escapedPrefix}(\\d+)$`);
+    for (const existingSession of sessions) {
+      const match = idPattern.exec(existingSession.id);
+      if (match) {
+        sessionIdCounter = Math.max(sessionIdCounter, Number(match[1]));
+      }
+    }
+    sessionIdCounter += 1;
+    return `session-${sessionIdPrefix}${sessionIdCounter}`;
+  };
+
   async function restoreContextForRestart({
     session,
     profile,
@@ -846,7 +864,7 @@ export function createSessionService(
       await loadHistory();
       ensureWorkspaceAvailable(workspace);
       const session: AgentSession = {
-        id: `session-${sessionIdPrefix}${sessions.length + 1}`,
+        id: nextSessionId(),
         title: `${profile.name} · ${workspace.name}`,
         profileId: profile.id,
         workspaceId: workspace.id,

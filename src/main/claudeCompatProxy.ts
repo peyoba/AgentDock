@@ -1,5 +1,7 @@
 import { Buffer } from 'node:buffer';
 import http from 'node:http';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 const INTERLEAVED_THINKING_BETA = 'interleaved-thinking-2025-05-14';
 const UNSUPPORTED_BETAS = new Set([
@@ -176,7 +178,7 @@ function resolveUpstreamUrl(upstreamBaseUrl: string, requestUrl: string): URL {
   const basePath = base.pathname.replace(/\/$/, '');
   const requestPath = request.pathname;
 
-  if (basePath && basePath !== '/' && !requestPath.startsWith(`${basePath}/`)) {
+  if (basePath && basePath !== '/' && requestPath !== basePath && !requestPath.startsWith(`${basePath}/`)) {
     base.pathname = `${basePath}${requestPath}`;
   } else {
     base.pathname = requestPath;
@@ -291,6 +293,14 @@ export async function startClaudeCompatProxy({
     let headers = normalizeInputHeaders(requestHeaders(request));
     let rewrite: CompatRewriteSummary = { thinking: 'unchanged', removedBetas: [] };
 
+    // CLI 中断请求时同步取消上游 fetch，避免继续消耗上游 token。
+    const upstreamAbort = new AbortController();
+    response.once('close', () => {
+      if (!response.writableEnded) {
+        upstreamAbort.abort();
+      }
+    });
+
     try {
       if (request.method === 'POST' && bodyText) {
         const rewritten = rewriteAnthropicMessagesRequest({
@@ -308,10 +318,19 @@ export async function startClaudeCompatProxy({
         method: request.method,
         headers: fetchHeaders(headers),
         body: request.method === 'GET' || request.method === 'HEAD' ? undefined : bodyText,
+        signal: upstreamAbort.signal,
       });
 
       response.writeHead(upstreamResponse.status, responseHeaders(upstreamResponse.headers));
-      response.end(Buffer.from(await upstreamResponse.arrayBuffer()));
+      if (upstreamResponse.body) {
+        // 必须逐块转发：Claude CLI 依赖 SSE 流式输出，整体缓冲会让终端长时间无响应。
+        await pipeline(
+          Readable.fromWeb(upstreamResponse.body as import('node:stream/web').ReadableStream),
+          response,
+        );
+      } else {
+        response.end();
+      }
       log?.({
         sessionId,
         profileId,
@@ -323,6 +342,11 @@ export async function startClaudeCompatProxy({
         removedBetas: rewrite.removedBetas,
       });
     } catch (error) {
+      if (response.headersSent) {
+        // 响应头已发出（如流式中途上游断开），无法再写错误响应，直接断开连接。
+        response.destroy();
+        return;
+      }
       writeProxyError(
         response,
         error instanceof Error && /invalid JSON/.test(error.message) ? 400 : 502,
@@ -348,6 +372,12 @@ export async function startClaudeCompatProxy({
 
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise((resolve) => {
+        server.close(() => resolve());
+        // close() 只会停止接收新连接；主动断开存活连接（如挂起的 SSE 流），
+        // 否则 kill 会话 / 退出应用会被长请求阻塞。
+        server.closeAllConnections();
+      }),
   };
 }

@@ -314,6 +314,10 @@ export default function App(): React.JSX.Element {
   const [profiles, setProfiles] = React.useState<ApiProfile[]>(api ? [] : fallbackProfiles);
   const [workspaces, setWorkspaces] = React.useState<Workspace[]>(api ? [] : fallbackWorkspaces);
   const [sessions, setSessions] = React.useState<AgentSession[]>(api ? [] : fallbackSessions);
+  const sessionsRef = React.useRef(sessions);
+  React.useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
   const [buildInfo, setBuildInfo] = React.useState<AppBuildInfo | undefined>(
     api ? undefined : fallbackBuildInfo,
   );
@@ -660,6 +664,15 @@ export default function App(): React.JSX.Element {
     setActiveSessionId(sessionId);
   };
 
+  // 自动切换 active 会话时跳过已归档和已在本窗口关闭视图的会话。
+  const fallbackSessionIdAfter = (excludedSessionId: string): string | undefined =>
+    sessionsRef.current.find(
+      (session) =>
+        session.id !== excludedSessionId &&
+        !session.archived &&
+        !(session.closedViewIds ?? []).includes('main-window'),
+    )?.id;
+
   const focusNewSessionControls = (): void => {
     setActionStatus(null);
     const focusable = commandBarRef.current?.querySelector('select, button') as
@@ -689,14 +702,11 @@ export default function App(): React.JSX.Element {
       );
     }
 
-    setSessions((current) => {
-      setActiveSessionId((currentActiveSessionId) => {
-        if (currentActiveSessionId !== sessionId) {
-          return currentActiveSessionId;
-        }
-        return current.find((session) => session.id !== sessionId && !session.archived)?.id;
-      });
-      return current;
+    setActiveSessionId((currentActiveSessionId) => {
+      if (currentActiveSessionId !== sessionId) {
+        return currentActiveSessionId;
+      }
+      return fallbackSessionIdAfter(sessionId);
     });
   };
 
@@ -754,7 +764,7 @@ export default function App(): React.JSX.Element {
       if (currentActiveSessionId !== sessionId) {
         return currentActiveSessionId;
       }
-      return sessions.find((session) => session.id !== sessionId && !session.archived)?.id;
+      return fallbackSessionIdAfter(sessionId);
     });
   };
 
@@ -775,15 +785,12 @@ export default function App(): React.JSX.Element {
       }
     }
 
-    setSessions((current) => {
-      const nextSessions = current.filter((session) => session.id !== sessionId);
-      setActiveSessionId((currentActiveSessionId) => {
-        if (currentActiveSessionId !== sessionId) {
-          return currentActiveSessionId;
-        }
-        return nextSessions.find((session) => !session.archived)?.id;
-      });
-      return nextSessions;
+    setSessions((current) => current.filter((session) => session.id !== sessionId));
+    setActiveSessionId((currentActiveSessionId) => {
+      if (currentActiveSessionId !== sessionId) {
+        return currentActiveSessionId;
+      }
+      return fallbackSessionIdAfter(sessionId);
     });
   };
 
@@ -908,6 +915,10 @@ export default function App(): React.JSX.Element {
     return api.listWorkspaceDirectory(request);
   }, [api]);
 
+  // 拖拽期间组件卸载时兜底移除 window 监听器。
+  const projectPanelResizeCleanupRef = React.useRef<(() => void) | null>(null);
+  React.useEffect(() => () => projectPanelResizeCleanupRef.current?.(), []);
+
   const startProjectPanelResize = (event: React.MouseEvent<HTMLDivElement>): void => {
     event.preventDefault();
     const startX = event.clientX;
@@ -917,13 +928,15 @@ export default function App(): React.JSX.Element {
       const nextWidth = startWidth - (moveEvent.clientX - startX);
       setProjectPanelWidth(Math.min(520, Math.max(280, nextWidth)));
     };
-    const onMouseUp = (): void => {
+    const stopResize = (): void => {
       window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('mouseup', stopResize);
+      projectPanelResizeCleanupRef.current = null;
     };
 
     window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('mouseup', stopResize);
+    projectPanelResizeCleanupRef.current = stopResize;
   };
 
   return (

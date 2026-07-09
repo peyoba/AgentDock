@@ -194,6 +194,97 @@ describe('startClaudeCompatProxy', () => {
       await upstream.close();
     }
   });
+  it('streams upstream SSE chunks before the upstream response completes', async () => {
+    let finishUpstream: (() => void) | undefined;
+    const upstream = await new Promise<{ url: string; close(): Promise<void> }>((resolve) => {
+      const server = http.createServer((_request, response) => {
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.write('event: first\n\n');
+        finishUpstream = () => response.end('event: second\n\n');
+      });
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        if (!address || typeof address === 'string') {
+          throw new Error('invalid test server address');
+        }
+        resolve({
+          url: `http://127.0.0.1:${address.port}`,
+          close: () =>
+            new Promise((done) => {
+              server.close(() => done());
+              server.closeAllConnections();
+            }),
+        });
+      });
+    });
+    const proxy = await startClaudeCompatProxy({
+      upstreamBaseUrl: upstream.url,
+      profileId: 'profile-a',
+      sessionId: 'session-a',
+    });
+
+    try {
+      const response = await fetch(`${proxy.baseUrl}/v1/messages`, { method: 'GET' });
+      const reader = response.body!.getReader();
+      const first = await reader.read();
+      expect(Buffer.from(first.value!).toString('utf8')).toContain('event: first');
+
+      finishUpstream?.();
+      let rest = '';
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        rest += Buffer.from(chunk.value!).toString('utf8');
+      }
+      expect(rest).toContain('event: second');
+    } finally {
+      await proxy.close();
+      await upstream.close();
+    }
+  });
+
+  it('close() resolves even while a streaming request is still open', async () => {
+    const upstream = await new Promise<{ url: string; close(): Promise<void> }>((resolve) => {
+      const server = http.createServer((_request, response) => {
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.write('event: hang\n\n');
+        // 故意不结束响应，模拟挂起的长请求。
+      });
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        if (!address || typeof address === 'string') {
+          throw new Error('invalid test server address');
+        }
+        resolve({
+          url: `http://127.0.0.1:${address.port}`,
+          close: () =>
+            new Promise((done) => {
+              server.close(() => done());
+              server.closeAllConnections();
+            }),
+        });
+      });
+    });
+    const proxy = await startClaudeCompatProxy({
+      upstreamBaseUrl: upstream.url,
+      profileId: 'profile-a',
+      sessionId: 'session-a',
+    });
+
+    try {
+      const response = await fetch(`${proxy.baseUrl}/v1/messages`, { method: 'GET' });
+      await response.body!.getReader().read();
+
+      await expect(
+        Promise.race([
+          proxy.close().then(() => 'closed'),
+          new Promise((resolve) => setTimeout(() => resolve('timeout'), 2000)),
+        ]),
+      ).resolves.toBe('closed');
+    } finally {
+      await upstream.close();
+    }
+  });
 });
 
 async function createJsonUpstream(

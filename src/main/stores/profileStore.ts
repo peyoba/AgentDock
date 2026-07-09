@@ -112,7 +112,16 @@ export function createProfileStore(rootDir: string) {
 
   async function list(): Promise<ApiProfile[]> {
     const stored = await store.list();
-    return stored.map((item) => sanitizeProfile(migrateProfile(item)));
+    const profiles: ApiProfile[] = [];
+    for (const item of stored) {
+      try {
+        profiles.push(sanitizeProfile(migrateProfile(item)));
+      } catch (error) {
+        // 单条记录损坏（格式非法、版本过新等）时跳过，不让一条坏数据拖垮全部配置。
+        console.error('[profileStore] 跳过无法解析的配置记录', item?.id, error);
+      }
+    }
+    return profiles;
   }
 
   function save(profile: ApiProfile): Promise<void> {

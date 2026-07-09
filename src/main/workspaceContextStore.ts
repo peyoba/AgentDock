@@ -1,6 +1,7 @@
-import { access, appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentSession, Workspace } from '../shared/agentdockTypes.js';
+import { redactSecrets } from './secretRedaction.js';
 
 const RECENT_OUTPUT_LIMIT = 40_000;
 const CONTEXT_DIR_PARTS = ['.agentdock', 'context'];
@@ -335,17 +336,23 @@ async function isGitWorkspace(workspace: Workspace): Promise<boolean> {
 
 async function readIndex(workspace: Workspace, updatedAt: string): Promise<ContextIndex> {
   const indexPath = path.join(workspace.path, ...CONTEXT_DIR_PARTS, 'index.json');
+  const emptyIndex: ContextIndex = {
+    version: 1,
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    updatedAt,
+    sessions: [],
+  };
   try {
     return JSON.parse(await readFile(indexPath, 'utf-8')) as ContextIndex;
   } catch (error) {
     if (isNodeError(error) && error.code === 'ENOENT') {
-      return {
-        version: 1,
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        updatedAt,
-        sessions: [],
-      };
+      return emptyIndex;
+    }
+    if (error instanceof SyntaxError) {
+      // index.json 损坏时备份并从空索引重建，避免共享上下文管线永久失效。
+      await rename(indexPath, `${indexPath}.corrupt`).catch(() => undefined);
+      return emptyIndex;
     }
     throw error;
   }
@@ -354,7 +361,9 @@ async function readIndex(workspace: Workspace, updatedAt: string): Promise<Conte
 async function writeIndex(workspace: Workspace, index: ContextIndex): Promise<void> {
   const indexPath = path.join(workspace.path, ...CONTEXT_DIR_PARTS, 'index.json');
   await mkdir(path.dirname(indexPath), { recursive: true });
-  await writeFile(indexPath, `${JSON.stringify(index, null, 2)}\n`, 'utf-8');
+  const tempPath = `${indexPath}.tmp`;
+  await writeFile(tempPath, `${JSON.stringify(index, null, 2)}\n`, 'utf-8');
+  await rename(tempPath, indexPath);
 }
 
 function indexSession(session: AgentSession): ContextIndexSession {
@@ -383,14 +392,6 @@ function transcriptHeader(session: AgentSession): string {
     '## Output',
     '',
   ].join('\n');
-}
-
-function redactSecrets(value: string): string {
-  return value
-    .replace(/local-development-secret/g, '[REDACTED]')
-    .replace(/sk-ant-[A-Za-z0-9_-]{16,}/g, '[REDACTED]')
-    .replace(/sk-[A-Za-z0-9_-]{16,}/g, '[REDACTED]')
-    .replace(/\b(ANTHROPIC_AUTH_TOKEN|ANTHROPIC_API_KEY|OPENAI_API_KEY)=\S*/g, '$1=[REDACTED]');
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
