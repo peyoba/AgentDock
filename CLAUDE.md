@@ -204,6 +204,7 @@ npm run package:mac     # 打包 macOS app
 
 | 日期 | 类型 | 内容 |
 |------|------|------|
+| 2026-07-09 | 修复 | 全面代码审查修复两批（09a0db2、1fd17d8）：历史写入性能放大+transcript 滚动截断、session ID 复用、compat proxy 流式转发/关闭阻塞、JSON 原子写+损坏兜底、历史 transcript 密钥脱敏、退出可靠落盘、ApiConfigPanel 修复、IPC 纵深防御、workspace 上下文容量控制、renderer 批量修复 |
 | 2026-07-06 | 修复 | 复制粘贴补全：Edit 菜单加全选（Cmd+A）、输入框/选中文本右键编辑菜单、终端右键"有选中复制、无选中粘贴" |
 | 2026-07-05 | 修复 | vault 密钥材料 v2（去除 hostname/目录依赖 + legacy 自愈），9 条已存记录已迁移；标签悬停 0.3s 自定义 tooltip；打包排除本地工具文件；出厂配置去除本机代理 |
 | 2026-07-05 | 构建 | 打包改用本机自签名证书 `AgentDock Codesign`（解决 TCC 权限反复弹窗）；GitHub 直连失败时用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` |
