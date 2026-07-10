@@ -5,6 +5,7 @@ import type {
   Workspace,
   WorkspaceFileTreeEntry,
 } from '../../shared/agentdockTypes';
+import { sessionStatusLabel } from '../../shared/sessionStatusLabels';
 import { terminalOutputToPlainText } from '../../shared/terminalText';
 
 type ProjectPanelInfoSectionsProps = {
@@ -20,22 +21,6 @@ function absolutePath(workspace: Workspace | undefined, relativePath: string | u
   }
 
   return `${workspace.path.replace(/\/+$/, '')}/${relativePath}`;
-}
-
-function sessionStatusLabel(session: AgentSession | undefined): string {
-  if (!session) {
-    return '未选择';
-  }
-
-  const labels: Record<AgentSession['status'], string> = {
-    starting: '启动中',
-    running: '运行中',
-    stopped: '已停止',
-    exited: '已退出',
-    interrupted: '已中断',
-    failed: '失败',
-  };
-  return labels[session.status];
 }
 
 function restoreMethodLabel(session: AgentSession | undefined): string {
@@ -69,11 +54,8 @@ function restoreSummary(session: AgentSession | undefined): string {
     .filter(Boolean)[0] ?? '恢复摘要不可读';
 }
 
-function statLabel(entry: WorkspaceFileTreeEntry | undefined): string {
-  if (typeof entry?.additions === 'number' || typeof entry?.deletions === 'number') {
-    return `+${entry.additions ?? 0} / -${entry.deletions ?? 0}`;
-  }
-  return '未计算';
+function hasDiffStats(entry: WorkspaceFileTreeEntry | undefined): boolean {
+  return typeof entry?.additions === 'number' || typeof entry?.deletions === 'number';
 }
 
 export function ProjectPanelInfoSections({
@@ -115,14 +97,18 @@ export function ProjectPanelInfoSections({
                     <dt>Git</dt>
                     <dd>{selectedEntry.gitStatus ?? 'clean'}</dd>
                   </div>
-                  <div>
-                    <dt>变化</dt>
-                    <dd>{selectedEntry.touchedInSession ? '本会话期间发生变化' : '未标记'}</dd>
-                  </div>
-                  <div>
-                    <dt>统计</dt>
-                    <dd>{statLabel(selectedEntry)}</dd>
-                  </div>
+                  {selectedEntry.touchedInSession ? (
+                    <div>
+                      <dt>变化</dt>
+                      <dd>本会话期间发生变化</dd>
+                    </div>
+                  ) : null}
+                  {hasDiffStats(selectedEntry) ? (
+                    <div>
+                      <dt>统计</dt>
+                      <dd>{`+${selectedEntry.additions ?? 0} / -${selectedEntry.deletions ?? 0}`}</dd>
+                    </div>
+                  ) : null}
                 </dl>
                 <div className="project-info-actions">
                   <button type="button" onClick={copySelectedPath}>

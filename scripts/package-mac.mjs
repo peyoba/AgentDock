@@ -85,15 +85,7 @@ function gitCommit() {
 function gitDirty() {
   const result = spawnSync(
     'git',
-    [
-      'status',
-      '--porcelain',
-      '--',
-      'package.json',
-      'package-lock.json',
-      'src',
-      'scripts/package-mac.mjs',
-    ],
+    ['status', '--porcelain', '--untracked-files=all'],
     { encoding: 'utf8' },
   );
   return result.status === 0 && result.stdout.trim().length > 0;

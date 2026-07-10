@@ -12,7 +12,7 @@ AgentDock 是一个面向 Claude CLI / Codex CLI 的多配置内嵌终端工作�
 
 ## 当前阶段
 
-MVP 基础能力已进入可打包验证阶段。
+核心 MVP 已完成，当前处于 macOS arm64 本地 Beta 稳定性与真实端到端验收阶段。
 
 已完成：
 
@@ -31,18 +31,25 @@ MVP 基础能力已进入可打包验证阶段。
 - 完成 macOS 稳定自签名打包和标签快速 tooltip。
 - 完成 Claude StatusLine 的 CCometixLine 内嵌：优先使用 PATH 中用户已安装版本，缺失时回退到随包内嵌的 `ccline`。
 - 完成 Context Budget Guard + 手动总结/续开：支持 Claude `--print` / Codex `exec` one-shot summary runner，并写入 workspace 本地 summary/handoff。
+- 完成长期会话库：Session Record、Open View 与 PTY Process 分层，支持搜索、归档、关闭视图和恢复。
+- 完成分层记忆恢复：原生 resume 探针优先，不可用时读取脱敏 summary 与 transcript tail。
+- 完成右侧只读项目文件树、构建版本信息和 Claude Profile 会话级兼容改写代理。
 
-当前可复测包：
+本地可复测包不会提交到 Git。请从干净工作区执行：
 
-```text
-release/packages/20260706-190128/AgentDock-darwin-arm64/AgentDock.app
+```bash
+npm run package:mac
 ```
+
+命令会在 `release/packages/<buildId>/AgentDock-darwin-arm64/AgentDock.app` 生成新包；
+具体 commit、buildId 和 dirty 状态以包内 `Contents/Resources/build-info.json` 为准。
 
 下一批计划：
 
-- 用户授权使用本机 API 额度后，做真实 Claude/Codex summary API smoke。
+- 冻结干净发布基线，并完成最新包的人工 GUI 验收。
 - 补真实终端体验验收：Ctrl+C、中文输入、粘贴长文本、resize、真实 Claude/Codex 请求。
-- 继续复测标签 tooltip、StatusLine/ccline、TCC 一次性授权、多窗口同 workspace、CLI 退出提示。
+- 在用户授权使用本机 API 额度后，复测 Claude native resume、summary 和兼容代理外部上游。
+- 外部分发前补 Developer ID 签名、notarization 与 Gatekeeper 验证。
 
 ## 开发命令
 

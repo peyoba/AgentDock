@@ -24,20 +24,21 @@ describe('layout polish styles', () => {
   it('keeps the project panel collapsed by default and protects terminal width', () => {
     const css = styles();
 
-    expect(css).toMatch(/\.workbench-layout\s*\{[^}]*--project-panel-width:\s*360px/s);
-    expect(css).toMatch(/\.workbench-layout\s*\{[^}]*grid-template-columns:\s*var\(--session-library-width\) minmax\(0,\s*1fr\) 40px/s);
-    expect(css).toMatch(/\.workbench-layout\.project-open\s*\{[^}]*grid-template-columns:[^}]*6px[^}]*minmax\(280px,\s*var\(--project-panel-width\)\)/s);
+    expect(css).toMatch(/\.workbench-layout\s*\{[^}]*--project-panel-width:\s*320px/s);
+    expect(css).toMatch(/\.workbench-layout\s*\{[^}]*grid-template-columns:\s*var\(--session-library-width\) minmax\(0,\s*1fr\) 32px/s);
+    expect(css).toMatch(/\.workbench-layout\.project-open\s*\{[^}]*grid-template-columns:[^}]*6px[^}]*minmax\(260px,\s*var\(--project-panel-width\)\)/s);
     expect(css).toMatch(/\.project-panel-resizer\s*\{[^}]*cursor:\s*col-resize/s);
-    expect(css).toMatch(/\.project-panel-rail\s*\{/);
+    expect(css).toMatch(/\.project-panel-rail\s*\{[^}]*border-radius:\s*8px/s);
+    expect(css).toMatch(/\.project-panel-rail\s*\{[^}]*letter-spacing:\s*1px/s);
     expect(css).toMatch(/\.project-panel\.collapsed\s*\{/);
   });
 
-  it('renders running sessions as compact non-wrapping tabs', () => {
+  it('keeps the claude launch mode column sized to its content so the labels stay readable', () => {
     const css = styles();
 
-    expect(css).toMatch(/\.session-tabs\s*\{[^}]*overflow-x:\s*auto/s);
-    expect(css).toMatch(/\.session-tab button\s*\{[^}]*white-space:\s*nowrap/s);
-    expect(css).toMatch(/\.session-tab button\s*\{[^}]*text-overflow:\s*ellipsis/s);
+    // 启动模式列曾被压缩截断成"空 MC"；列宽必须跟随内容，不参与收缩。
+    expect(css).toMatch(/\.command-fields\.with-claude-mode\s*\{[^}]*grid-template-columns:[^}]*auto\s*\n\s*auto/s);
+    expect(css).toMatch(/\.command-bar select\s*\{[^}]*text-overflow:\s*ellipsis/s);
   });
 
   it('hides the native xterm scrollbar and styles the overlay scrollbar like macOS', () => {

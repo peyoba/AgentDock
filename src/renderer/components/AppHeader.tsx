@@ -1,7 +1,8 @@
 import React from 'react';
 
 type AppHeaderProps = {
-  onShowApiConfig(): void;
+  /** 不传时隐藏入口（例如已经在接口配置页内，避免重复入口）。 */
+  onShowApiConfig?(): void;
   onOpenNewWindow?(): void;
 };
 
@@ -24,9 +25,11 @@ export function AppHeader({
             新窗口
           </button>
         ) : null}
-        <button type="button" className="ghost-button" onClick={onShowApiConfig}>
-          🔑 接口配置
-        </button>
+        {onShowApiConfig ? (
+          <button type="button" className="ghost-button" onClick={onShowApiConfig}>
+            🔑 接口配置
+          </button>
+        ) : null}
       </div>
     </header>
   );

@@ -16,6 +16,7 @@ describe('macOS package script', () => {
     expect(packageJson.optionalDependencies['@cometix/ccline-darwin-arm64']).toBe('1.1.2');
     expect(script).toContain('release/packages');
     expect(script).toContain('AGENTDOCK_PACKAGE_OUT');
+    expect(script).toContain('--untracked-files=all');
     expect(script).toContain('codesign');
     expect(script).toContain('--no-install');
     expect(script).toContain('spawn-helper,ccline');
@@ -25,6 +26,7 @@ describe('macOS package script', () => {
     expect(script).toContain('\\\\.env');
     expect(script).toContain('\\\\.log');
     expect(script).not.toContain('--overwrite');
+    expect(script).not.toContain("'package-lock.json',\n      'src',");
     expect(script).not.toContain('release/AgentDock-darwin-arm64/AgentDock.app');
   });
 });

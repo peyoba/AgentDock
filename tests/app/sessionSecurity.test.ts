@@ -209,7 +209,7 @@ describe('sessionService security boundary', () => {
       expect(spawnCommands.at(-1)).toBe(
         [
           'claude --resume c4bf-b857 --append-system-prompt ',
-          "'Read the AgentDock restore context file for a brief memory summary only. ",
+          "'Read the AgentDock restore context file and use it as background memory. ",
           "Reply with one short memory-restored sentence, then wait for the user'\\''s next instruction. ",
           `Do not continue previous tasks unless the user explicitly asks. ${restoreContextFile}'`,
         ].join(''),
@@ -222,7 +222,7 @@ describe('sessionService security boundary', () => {
       expect(returnedPayload).not.toContain('OPENAI_API_KEY');
 
       const restoreContext = await readFile(restoreContextFile, 'utf-8');
-      expect(restoreContext).not.toContain('Current task relies on short memory restore.');
+      expect(restoreContext).toContain('Current task relies on short memory restore.');
       expect(restoreContext).not.toContain('OPENAI_API_KEY');
       expect(restoreContext).not.toContain(fakeOpenAiKey);
     } finally {

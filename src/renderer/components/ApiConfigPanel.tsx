@@ -29,11 +29,11 @@ const editableToolTypes: Array<{ label: string; value: ToolType }> = [
 ];
 
 const claudeLaunchModes = [
-  { label: 'Default', value: 'default' },
+  { label: '默认（跟随 CLI）', value: 'default' },
   { label: 'Opus', value: 'opus' },
   { label: 'Sonnet', value: 'sonnet' },
   { label: 'Haiku', value: 'haiku' },
-  { label: 'Custom', value: 'custom' },
+  { label: '自定义', value: 'custom' },
 ] as const;
 
 type ApiConfigPanelProps = {

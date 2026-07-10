@@ -29,7 +29,21 @@ function safeRestoreFileName(sessionId: string): string {
 }
 
 function normalizeReadableText(value: string | undefined): string {
-  return redactSummarySecrets(terminalOutputToPlainText(value ?? '').trim());
+  return redactSummarySecrets(terminalOutputToPlainText(value ?? '').trim())
+    .split('\n')
+    .filter((line) => !hasSecretAssignment(line))
+    .join('\n')
+    .trim();
+}
+
+function hasSecretAssignment(line: string): boolean {
+  return /\b[A-Z_]*(?:API_KEY|AUTH_TOKEN|TOKEN|SECRET)\b\s*=/.test(line);
+}
+
+function sanitizeRestoreCommand(command: string): string {
+  return redactSummarySecrets(command)
+    .replace(/\b[A-Z_]*(?:API_KEY|AUTH_TOKEN|TOKEN|SECRET)\b\s*=\s*\S+/g, '[REDACTED]')
+    .trim();
 }
 
 function isIgnoredMemoryLine(line: string): boolean {
@@ -37,7 +51,7 @@ function isIgnoredMemoryLine(line: string): boolean {
     /^agentdock session summary$/i.test(line) ||
     /^\[AgentDock\]/.test(line) ||
     /^(current goal|instructions|discoveries|accomplished|next steps|relevant files)$/i.test(line) ||
-    /\b[A-Z_]*(?:API_KEY|AUTH_TOKEN|TOKEN|SECRET)\b\s*=/.test(line) ||
+    hasSecretAssignment(line) ||
     line === '[REDACTED]'
   );
 }
@@ -85,7 +99,7 @@ export function summarizeRestoreMemory({
 
 export function buildRestoreInstruction(contextFile: string): string {
   return [
-    'Read the AgentDock restore context file for a brief memory summary only.',
+    'Read the AgentDock restore context file and use it as background memory.',
     "Reply with one short memory-restored sentence, then wait for the user's next instruction.",
     'Do not continue previous tasks unless the user explicitly asks.',
     contextFile,
@@ -108,7 +122,7 @@ export function createRestoreContextStore(): RestoreContextStore {
     }: RestoreContextInput): Promise<RestoreContextResult> {
       const safeSummary = normalizeReadableText(summaryMarkdown);
       const safeTranscriptTail = normalizeReadableText(transcriptTail);
-      const safeCommand = redactSummarySecrets(session.command);
+      const safeCommand = sanitizeRestoreCommand(session.command);
       const summary = summarizeRestoreMemory({
         summaryMarkdown: safeSummary,
         transcriptTail: safeTranscriptTail,
@@ -131,6 +145,12 @@ export function createRestoreContextStore(): RestoreContextStore {
         '',
         '## One Sentence Summary',
         summary,
+        '',
+        '## Long-Term Summary',
+        safeSummary || 'No long-term summary is available for this session.',
+        '',
+        '## Recent Transcript Tail',
+        safeTranscriptTail || 'No recent transcript tail is available for this session.',
         '',
         '## Restore Behavior',
         "Reply with one short memory-restored sentence, then wait for the user's next instruction.",

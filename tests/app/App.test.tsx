@@ -175,11 +175,114 @@ describe('AgentDock shell', () => {
     render(<App />);
 
     const versionInfo = await screen.findByLabelText('AgentDock 版本信息');
-    expect(versionInfo).toHaveTextContent('v0.2.0 · 20260708-061530');
+    // 列表里只显示版本号，冗长的 buildId/commit 收进悬停提示。
+    expect(versionInfo).toHaveTextContent('v0.2.0');
+    expect(versionInfo).toHaveAttribute(
+      'title',
+      expect.stringContaining('build 20260708-061530'),
+    );
     expect(versionInfo).toHaveAttribute(
       'title',
       expect.stringContaining('commit 01d1331'),
     );
+  });
+
+  it('shows a compact session command in the terminal header without losing the full tooltip', async () => {
+    const longCommand = 'codex --no-alt-screen --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust';
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Codex A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: longCommand,
+          status: 'running',
+          startedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    await screen.findByRole('heading', { name: 'Codex A · AgentDock' });
+    const commandSubtitle = screen.getByTitle(longCommand);
+    expect(commandSubtitle).toHaveTextContent('codex --no-alt-screen ... --dangerously-bypass-hook-trust');
+    expect(commandSubtitle).not.toHaveTextContent(longCommand);
+  });
+
+  it('shows a shared-directory chip when multiple live sessions use the same workspace', async () => {
+    const sharedSession = {
+      title: 'Claude A · AgentDock',
+      profileId: 'profile-a',
+      workspaceId: 'workspace-a',
+      command: 'claude',
+      status: 'running' as const,
+      startedAt: '2026-07-02T00:00:00.000Z',
+    };
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        { ...sharedSession, id: 'session-1' },
+        { ...sharedSession, id: 'session-2' },
+      ]),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('共享目录 · 2 个会话')).toBeInTheDocument();
+  });
+
+  it('wires the terminal header more-actions menu to real session operations', async () => {
+    const api = installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Claude A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude',
+          status: 'running',
+          startedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ]),
+      readTerminalBuffer: vi.fn().mockResolvedValue('terminal output'),
+    });
+
+    render(<App />);
+
+    await screen.findByRole('heading', { name: 'Claude A · AgentDock' });
+    fireEvent.click(screen.getByLabelText('更多会话操作'));
+    fireEvent.click(screen.getByRole('button', { name: '复制输出' }));
+
+    await waitFor(() => {
+      expect(api.readTerminalBuffer).toHaveBeenCalledWith({ sessionId: 'session-1' });
+    });
+  });
+
+  it('lets the user dismiss the memory restore banner', async () => {
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Claude A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude',
+          status: 'running',
+          startedAt: '2026-07-02T00:00:00.000Z',
+          memoryRestore: {
+            status: 'loaded',
+            summary: '记忆已恢复：加载了上次的会话背景。',
+          },
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('记忆已恢复：加载了上次的会话背景。')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('隐藏记忆恢复提示'));
+    expect(screen.queryByText('记忆已恢复：加载了上次的会话背景。')).not.toBeInTheDocument();
   });
 
   it('opens a new AgentDock window from the header action', async () => {
@@ -457,6 +560,9 @@ describe('AgentDock shell', () => {
         workspaceId: 'workspace-a',
         relativePath: '.',
         entries: [
+          { name: '.DS_Store', relativePath: '.DS_Store', type: 'file' },
+          { name: '.pytest_cache', relativePath: '.pytest_cache', type: 'directory' },
+          { name: '.agentdock', relativePath: '.agentdock', type: 'directory' },
           { name: 'src', relativePath: 'src', type: 'directory' },
           {
             name: 'App.tsx',
@@ -488,8 +594,14 @@ describe('AgentDock shell', () => {
       '项目面板只用于查看文件和状态，AgentDock 不在这里编辑代码。',
     );
     expect(screen.getByRole('treeitem', { name: /App\.tsx/ })).toBeInTheDocument();
-    expect(within(fileTree).getByText('M')).toBeInTheDocument();
-    expect(within(fileTree).getByText('本会话期间发生变化')).toBeInTheDocument();
+    expect(screen.queryByRole('treeitem', { name: /\.DS_Store/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('treeitem', { name: /\.pytest_cache/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('treeitem', { name: /\.agentdock/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '显示隐藏项' }));
+    expect(await screen.findByRole('treeitem', { name: /\.DS_Store/ })).toBeInTheDocument();
+    const expandedFileTree = screen.getByRole('tree', { name: '项目文件树' });
+    expect(within(expandedFileTree).getByText('M')).toBeInTheDocument();
+    expect(within(expandedFileTree).getByText('本会话期间发生变化')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '选中文件' })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('src/App.tsx')).toBeInTheDocument();
     expect(screen.getByText('+148 / -37')).toBeInTheDocument();
@@ -674,6 +786,28 @@ describe('AgentDock shell', () => {
 });
 
 describe('AgentDock session launch flow', () => {
+  it('starts a new session from the left session library action', async () => {
+    const api = installAgentDockApi();
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('选择 API 配置')).toHaveValue('profile-a');
+    });
+    const newSessionButton = screen.getByRole('button', { name: '新会话' });
+    expect(newSessionButton).toHaveAttribute('title', '使用当前 API 配置和工作区启动新会话');
+    fireEvent.click(newSessionButton);
+
+    await waitFor(() => {
+      expect(api.launchSession).toHaveBeenCalledWith({
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude --dangerously-skip-permissions',
+        claudeLaunchMode: 'lite',
+      });
+    });
+  });
+
   it('loads metadata and launches a real IPC session from the command bar', async () => {
     const api = installAgentDockApi();
 

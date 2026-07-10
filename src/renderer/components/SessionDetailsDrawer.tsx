@@ -1,5 +1,6 @@
 import React from 'react';
 import type { AgentSession, ApiProfile, Workspace } from '../../shared/agentdockTypes';
+import { sessionStatusLabel } from '../../shared/sessionStatusLabels';
 
 type SessionDetailsDrawerProps = {
   open: boolean;
@@ -70,7 +71,7 @@ export function SessionDetailsDrawer({
           <dt>API 配置</dt>
           <dd>{profile.name}</dd>
           <dt>状态</dt>
-          <dd>{session.status}</dd>
+          <dd>{sessionStatusLabel(session)}</dd>
           <dt>命令</dt>
           <dd>{session.command}</dd>
           <dt>Endpoint</dt>

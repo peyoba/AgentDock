@@ -10,7 +10,7 @@
 | 项目类型 | Desktop App / AI CLI Terminal Workspace |
 | 主要语言 | TypeScript |
 | 主要框架 | Electron + React + Vite |
-| 终端技术 | xterm.js + node-pty（MVP 后续接入真实 PTY） |
+| 终端技术 | xterm.js + node-pty（真实 PTY 已接入） |
 | 运行环境 | macOS first；后续可扩展 Windows/Linux |
 
 ## 2. 包管理器
@@ -46,7 +46,7 @@
 | `docs/assets/ui-references/` | 竞品 UI 参考图 |
 | `.agent-workflow/` | agent-workflow-template 工作流 |
 | `scripts/` | 工作流 CLI 和后续维护脚本 |
-| `tests/` | 工作流 CLI 测试；后续增加应用测试 |
+| `tests/` | Vitest 应用测试与 pytest 工作流 CLI 测试 |
 
 ## 5. 环境变量
 
@@ -74,7 +74,7 @@
 - 类型检查：`npm run typecheck`
 - 构建验证：`npm run build`
 - MVP UI 验证：`npm run dev` 手动打开 Electron 窗口
-- 后续真实验证：实际启动 Claude/Codex PTY 会话，确认 endpoint/API key/CODEX_HOME 隔离
+- 持续真实验证：实际启动 Claude/Codex PTY 会话，确认 endpoint/API key/CODEX_HOME 隔离
 - 允许 mock：Profile/Workspace metadata、secret adapter 测试替身
 - 必须真实验证：node-pty 启动、键盘输入、Ctrl+C、中文输入、Codex 独立 CODEX_HOME、本机加密 vault 读写
 
@@ -90,12 +90,12 @@
 ## 9. 项目约束
 
 - AgentDock 是“终端优先的内嵌终端工作台”，不是 API 网关后台，也不是完整 IDE。
-- 主界面必须简洁：顶部启动条 + 会话标签 + 大终端区域；当前会话详情默认收起。
-- API 配置界面按工具类型分类：Claude / Codex / Gemini / OpenCode / 全部，参考 CC Switch。
+- 主界面必须简洁：左侧长期会话库 + 顶部启动条 + 大终端区域 + 默认收起的右侧项目面板。
+- API 配置界面按当前支持范围分类：Claude / Codex / 全部，参考 CC Switch；Gemini / OpenCode 在启动环境完成前保持隐藏。
 - API Profile 与 Workspace 必须解耦。
 - Claude 每个会话通过独立 PTY 环境变量隔离 endpoint/key。
 - Codex 每个会话必须隔离 endpoint/key；每个 Profile 使用独立 `CODEX_HOME`。
-- Renderer / preload / IPC 不得返回完整 secret，也不得返回完整环境变量对象；只能返回脱敏预览或最小必要 metadata。
+- Renderer / preload / IPC 默认不得返回完整 secret，也不得返回完整环境变量对象；仅当用户明确点击查看某个已保存 Profile 的 API Key 时，专用 IPC 可按需返回该单个 secret，且不得广播、记录日志或持久化到前端状态。
 - API Key 不得明文写入代码、文档、测试 fixture、日志或前端状态持久化；只进入本机加密 vault，配置中只保存脱敏状态和引用信息。
 - 不做全局 provider 切换，不修改正在运行的其他终端会话。
 - MVP 暂不做成本统计、请求日志、自动路由、fallback、复杂 Dashboard、分屏 IDE。

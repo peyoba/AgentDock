@@ -1,5 +1,7 @@
 # AgentDock MVP 功能清单
 
+> 历史清单（不再作为当前完成状态）：其中外部 Terminal.app/iTerm2、SwiftUI 等早期方向已被 Electron 内嵌 xterm.js + node-pty 路线取代；当前完成状态以 `README.md`、`.agent-workflow/state.md` 和 verification 记录为准。
+
 ## 第一阶段：MVP 必须实现
 
 - [ ] Profile 增删改查

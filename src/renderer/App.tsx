@@ -10,6 +10,7 @@ import { SessionDetailsDrawer } from './components/SessionDetailsDrawer';
 import { SessionLibrary } from './components/SessionLibrary';
 import { TerminalPane } from './components/TerminalPane';
 import { defaultApiProfiles } from '../shared/defaultApiProfiles';
+import { sessionStatusLabel } from '../shared/sessionStatusLabels';
 import { terminalOutputToPlainText } from '../shared/terminalText';
 import type {
   AgentSession,
@@ -23,12 +24,6 @@ import type {
   WorkspaceDirectoryResult,
   Workspace,
 } from '../shared/agentdockTypes';
-
-export type SessionTab = {
-  id: string;
-  title: string;
-  active?: boolean;
-};
 
 type ActivePage = 'workbench' | 'apiConfig';
 
@@ -143,22 +138,6 @@ function inactiveSessionLabel(session: AgentSession): string {
   return exitedSessionLabel(session);
 }
 
-function sessionStatusLabel(session: AgentSession | undefined): string {
-  if (!session) {
-    return '未选择';
-  }
-
-  const labels: Record<AgentSession['status'], string> = {
-    starting: '启动中',
-    running: '运行中',
-    stopped: '已停止',
-    exited: '已退出',
-    interrupted: '已中断',
-    failed: '失败',
-  };
-  return labels[session.status];
-}
-
 function isLiveSession(session: AgentSession | undefined): boolean {
   return session?.status === 'running' || session?.status === 'starting';
 }
@@ -166,6 +145,15 @@ function isLiveSession(session: AgentSession | undefined): boolean {
 function commandExecutableName(command: string): string {
   const executable = command.trim().split(/\s+/)[0] ?? '';
   return executable.split('/').pop() ?? executable;
+}
+
+function compactCommandLabel(command: string): string {
+  const parts = command.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 3) {
+    return command;
+  }
+
+  return `${parts.slice(0, 2).join(' ')} ... ${parts[parts.length - 1]}`;
 }
 
 function isSummarySupportedAgentSession(
@@ -282,8 +270,10 @@ function SessionContextBar({
 
 function SessionMemoryRestoreBar({
   restore,
+  onDismiss,
 }: {
   restore?: AgentSession['memoryRestore'];
+  onDismiss?(): void;
 }): React.JSX.Element | null {
   if (!restore) {
     return null;
@@ -300,13 +290,23 @@ function SessionMemoryRestoreBar({
   return (
     <div className={className} role="status" aria-label="记忆恢复状态">
       <span>{summary}</span>
+      {onDismiss ? (
+        <button
+          type="button"
+          className="session-memory-restore-dismiss"
+          aria-label="隐藏记忆恢复提示"
+          title="隐藏这条提示"
+          onClick={onDismiss}
+        >
+          ×
+        </button>
+      ) : null}
     </div>
   );
 }
 
 export default function App(): React.JSX.Element {
   const api = typeof window === 'undefined' ? undefined : window.agentDock;
-  const commandBarRef = React.useRef<HTMLElement>(null);
   const [activePage, setActivePage] = React.useState<ActivePage>('workbench');
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [projectPanelOpen, setProjectPanelOpen] = React.useState(false);
@@ -340,6 +340,10 @@ export default function App(): React.JSX.Element {
   >({});
   const [summaryHandoffPrompt, setSummaryHandoffPrompt] = React.useState<string | undefined>();
   const [pendingMemoryRestoreSessionId, setPendingMemoryRestoreSessionId] = React.useState<string | undefined>();
+  const [sessionMenuOpen, setSessionMenuOpen] = React.useState(false);
+  const [dismissedRestoreSessionIds, setDismissedRestoreSessionIds] = React.useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
 
   const refreshMetadata = React.useCallback(async (): Promise<void> => {
     if (!api) {
@@ -451,6 +455,13 @@ export default function App(): React.JSX.Element {
     activeSessionProfile,
   );
   const visibleActionStatus = pendingMemoryRestoreSessionId ? '正在重新启动会话...' : actionStatus;
+  // 需求约定：同一工作区目录被多个运行中的会话共享时给轻量提示（不是错误）。
+  const sharedWorkspaceSessionCount = activeSession
+    ? sessions.filter(
+        (session) =>
+          session.workspaceId === activeSession.workspaceId && isLiveSession(session),
+      ).length
+    : 0;
 
   const selectProfile = (profileId: string): void => {
     const nextProfile = profiles.find((profile) => profile.id === profileId);
@@ -463,7 +474,23 @@ export default function App(): React.JSX.Element {
   React.useEffect(() => {
     setActionStatus(null);
     setSummaryHandoffPrompt(undefined);
+    setSessionMenuOpen(false);
   }, [activeSessionId]);
+
+  // 点击菜单区域外时收起终端头部的"更多操作"菜单。
+  React.useEffect(() => {
+    if (!sessionMenuOpen) {
+      return undefined;
+    }
+    const onPointerDown = (event: MouseEvent): void => {
+      const target = event.target as Element | null;
+      if (!target?.closest('.terminal-session-menu')) {
+        setSessionMenuOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', onPointerDown);
+    return () => window.removeEventListener('mousedown', onPointerDown);
+  }, [sessionMenuOpen]);
 
   React.useEffect(() => {
     if (!api || !activeSessionId || !activeSessionSupportsSummary) {
@@ -678,16 +705,6 @@ export default function App(): React.JSX.Element {
         !session.archived &&
         !(session.closedViewIds ?? []).includes('main-window'),
     )?.id;
-
-  const focusNewSessionControls = (): void => {
-    setActionStatus(null);
-    const focusable = commandBarRef.current?.querySelector('select, button') as
-      | HTMLElement
-      | null
-      | undefined;
-    commandBarRef.current?.scrollIntoView({ block: 'nearest' });
-    focusable?.focus();
-  };
 
   const closeSessionView = async (sessionId: string): Promise<void> => {
     if (api) {
@@ -951,7 +968,7 @@ export default function App(): React.JSX.Element {
   return (
     <main className="app-shell">
       <AppHeader
-        onShowApiConfig={showApiConfig}
+        onShowApiConfig={activePage === 'apiConfig' ? undefined : showApiConfig}
         onOpenNewWindow={api ? openNewWindow : undefined}
       />
       {activePage === 'workbench' ? (
@@ -965,7 +982,7 @@ export default function App(): React.JSX.Element {
             workspaces={workspaces}
             activeSessionId={activeSessionId}
             buildInfo={buildInfo}
-            onNewSession={focusNewSessionControls}
+            onNewSession={() => void launchSession()}
             onOpenSession={openSessionView}
             onContinueSession={(sessionId) => void continueSession(sessionId)}
             onCloseView={(sessionId) => void closeSessionView(sessionId)}
@@ -975,7 +992,6 @@ export default function App(): React.JSX.Element {
           />
           <div className="workbench-main">
             <CommandBar
-              ref={commandBarRef}
               profiles={profiles}
               profile={selectedProfile}
               profileId={selectedProfile?.id}
@@ -1006,13 +1022,21 @@ export default function App(): React.JSX.Element {
                       aria-hidden="true"
                     />
                     <div>
-                      <h2>{activeSession?.title ?? '未选择会话'}</h2>
-                      <p>
-                        {activeSessionProfile?.name ?? '未选择配置'} · {activeSessionWorkspace?.name ?? '未选择工作区'}
+                      <h2 title={activeSession?.title}>{activeSession?.title ?? '未选择会话'}</h2>
+                      <p className="terminal-session-command" title={activeSession?.command}>
+                        {activeSession ? compactCommandLabel(activeSession.command) : '从左侧会话库选择，或在上方启动新会话'}
                       </p>
                     </div>
                   </div>
                   <div className="terminal-session-actions">
+                    {sharedWorkspaceSessionCount > 1 ? (
+                      <span
+                        className="shared-workspace-chip"
+                        title="多个运行中的会话正在使用同一个工作区目录；注意避免同时改动相同文件。"
+                      >
+                        共享目录 · {sharedWorkspaceSessionCount} 个会话
+                      </span>
+                    ) : null}
                     <span className={`session-status-chip ${activeSession?.status ?? 'exited'}`}>
                       {sessionStatusLabel(activeSession)}
                     </span>
@@ -1034,18 +1058,77 @@ export default function App(): React.JSX.Element {
                     >
                       会话详情 {detailsOpen ? '‹' : '›'}
                     </button>
-                    <button type="button" className="terminal-more-button" aria-label="更多会话操作">
-                      ...
-                    </button>
+                    {activeSession ? (
+                      <details
+                        className="session-library-menu terminal-session-menu"
+                        open={sessionMenuOpen}
+                      >
+                        <summary
+                          aria-label="更多会话操作"
+                          title="更多会话操作"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            setSessionMenuOpen((open) => !open);
+                          }}
+                        >
+                          ...
+                        </summary>
+                        <div className="session-library-menu-popover" hidden={!sessionMenuOpen}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSessionMenuOpen(false);
+                              void copySessionOutput(activeSession.id);
+                            }}
+                          >
+                            复制输出
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSessionMenuOpen(false);
+                              void closeSessionView(activeSession.id);
+                            }}
+                          >
+                            关闭视图
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSessionMenuOpen(false);
+                              void archiveSession(activeSession.id);
+                            }}
+                          >
+                            归档
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSessionMenuOpen(false);
+                              void deleteSession(activeSession.id);
+                            }}
+                          >
+                            删除记录
+                          </button>
+                        </div>
+                      </details>
+                    ) : null}
                   </div>
                 </header>
                 {pendingMemoryRestoreSessionId === activeSessionId ? (
                   <div className="session-memory-restore" role="status" aria-label="记忆恢复状态">
                     <span>正在恢复记忆</span>
                   </div>
-                ) : (
-                  <SessionMemoryRestoreBar restore={activeSession?.memoryRestore} />
-                )}
+                ) : activeSessionId && !dismissedRestoreSessionIds.has(activeSessionId) ? (
+                  <SessionMemoryRestoreBar
+                    restore={activeSession?.memoryRestore}
+                    onDismiss={() =>
+                      setDismissedRestoreSessionIds(
+                        (current) => new Set([...current, activeSessionId]),
+                      )
+                    }
+                  />
+                ) : null}
                 <TerminalPane
                   sessionId={activeSessionId}
                   preserveHistory={activeSession ? !['zsh', 'bash'].includes(commandExecutableName(activeSession.command)) : true}
@@ -1108,9 +1191,10 @@ export default function App(): React.JSX.Element {
                 type="button"
                 className="project-panel-rail"
                 aria-label="展开项目面板"
+                title="展开项目面板"
                 onClick={() => setProjectPanelOpen(true)}
               >
-                文
+                项目
               </button>
             )}
           </aside>

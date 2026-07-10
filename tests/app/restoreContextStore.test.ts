@@ -42,7 +42,7 @@ describe('restoreContextStore', () => {
       expect(result.contextFile).toBe(path.join(workspacePath, '.agentdock/context/restores/session-w1-12.md'));
       expect(result.instruction).toBe(
         [
-          'Read the AgentDock restore context file for a brief memory summary only.',
+          'Read the AgentDock restore context file and use it as background memory.',
           "Reply with one short memory-restored sentence, then wait for the user's next instruction.",
           'Do not continue previous tasks unless the user explicitly asks.',
           result.contextFile,
@@ -51,10 +51,10 @@ describe('restoreContextStore', () => {
 
       const content = await readFile(result.contextFile as string, 'utf-8');
       expect(content).toContain('修复 AgentDock 会话恢复');
+      expect(content).toContain('## Long-Term Summary');
+      expect(content).toContain('## Recent Transcript Tail');
+      expect(content).toContain('用户确认采用分层记忆恢复');
       expect(content).toContain("wait for the user's next instruction");
-      expect(content).not.toContain('用户确认采用分层记忆恢复');
-      expect(content).not.toContain('Recent Transcript Tail');
-      expect(content).not.toContain('Long-Term Summary');
       expect(content).not.toContain(fakeTranscriptKey);
       expect(content).not.toContain(fakeCommandKey);
       expect(content).toContain('[REDACTED]');
@@ -104,7 +104,7 @@ describe('restoreContextStore', () => {
   it('keeps restore instruction short and path-only', () => {
     expect(buildRestoreInstruction('/tmp/agentdock restore/context.md')).toBe(
       [
-        'Read the AgentDock restore context file for a brief memory summary only.',
+        'Read the AgentDock restore context file and use it as background memory.',
         "Reply with one short memory-restored sentence, then wait for the user's next instruction.",
         'Do not continue previous tasks unless the user explicitly asks.',
         '/tmp/agentdock restore/context.md',

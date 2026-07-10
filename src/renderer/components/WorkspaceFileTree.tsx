@@ -7,8 +7,8 @@ type WorkspaceFileTreeProps = {
   onSelect(entry: WorkspaceFileTreeEntry): void;
 };
 
-function typeLabel(entry: WorkspaceFileTreeEntry): string {
-  return entry.type === 'directory' ? 'DIR' : 'FILE';
+function typeIcon(entry: WorkspaceFileTreeEntry): string {
+  return entry.type === 'directory' ? '📁' : '📄';
 }
 
 function treeItemLabel(entry: WorkspaceFileTreeEntry): string {
@@ -46,7 +46,7 @@ export function WorkspaceFileTree({
               className={selected ? 'workspace-file-tree-item selected' : 'workspace-file-tree-item'}
               onClick={() => onSelect(entry)}
             >
-              <span className="workspace-file-tree-type">{typeLabel(entry)}</span>
+              <span className="workspace-file-tree-type" aria-hidden="true">{typeIcon(entry)}</span>
               <span className="workspace-file-tree-name">{entry.name}</span>
               {entry.gitStatus ? (
                 <span className={`workspace-file-git-status status-${entry.gitStatus}`}>

@@ -24,16 +24,34 @@ function workspaceNameFor(workspaces: Workspace[], workspaceId: string): string 
   return workspaces.find((workspace) => workspace.id === workspaceId)?.name ?? workspaceId;
 }
 
+// 分组标题已经写明工作区，列表项标题里再带一遍只会挤占宽度；
+// 去掉与所在分组重复的工作区后缀（完整标题保留在悬停提示里）。
+function sessionDisplayTitle(session: AgentSession, workspaceName: string): string {
+  const suffix = ` · ${workspaceName}`;
+  return session.title.endsWith(suffix)
+    ? session.title.slice(0, session.title.length - suffix.length)
+    : session.title;
+}
+
+function commandExecutableName(command: string): string {
+  const executable = command.trim().split(/\s+/)[0] ?? '';
+  return executable.split('/').pop() ?? executable;
+}
+
 function relativeTimeLabel(startedAt: string): string {
   const timestamp = Date.parse(startedAt);
   if (!Number.isFinite(timestamp)) {
     return '';
   }
 
-  const hours = Math.max(0, Math.floor((Date.now() - timestamp) / 3_600_000));
-  if (hours < 1) {
-    return '现在';
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
+  if (minutes < 1) {
+    return '刚刚';
   }
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) {
     return `${hours}h`;
   }
@@ -128,11 +146,16 @@ export function SessionLibrary({
               aria-label="AgentDock 版本信息"
               title={buildInfoTitle(buildInfo)}
             >
-              v{buildInfo.version} · {buildInfo.buildId}
+              v{buildInfo.version}
             </span>
           ) : null}
         </div>
-        <button type="button" className="primary-button session-new-button" onClick={onNewSession}>
+        <button
+          type="button"
+          className="primary-button session-new-button"
+          title="使用当前 API 配置和工作区启动新会话"
+          onClick={onNewSession}
+        >
           新会话
         </button>
       </div>
@@ -151,75 +174,79 @@ export function SessionLibrary({
       >
         全部记录
       </button>
-      {[...groupedWorkspaces, unknownSessions.length > 0 ? {
-        workspace: { id: '__unknown__', name: '未归类', path: '' },
-        sessions: unknownSessions,
-      } : undefined]
-        .filter((group): group is { workspace: Workspace; sessions: AgentSession[] } => Boolean(group))
-        .map(({ workspace, sessions: workspaceSessions }) => (
-          <section key={workspace.id} className="session-library-group">
-            <h3>{workspace.name}</h3>
-            {workspaceSessions.map((session) => {
-              const profileName = profileNameFor(profiles, session.profileId);
-              const isActive = session.id === activeSessionId;
-              return (
-                <article
-                  key={session.id}
-                  className={isActive ? 'session-library-item active' : 'session-library-item'}
-                >
-                  <button
-                    type="button"
-                    className="session-library-open"
-                    aria-label={session.title}
-                    onClick={() => onOpenSession(session.id)}
+      <div className="session-library-list">
+        {[...groupedWorkspaces, unknownSessions.length > 0 ? {
+          workspace: { id: '__unknown__', name: '未归类', path: '' },
+          sessions: unknownSessions,
+        } : undefined]
+          .filter((group): group is { workspace: Workspace; sessions: AgentSession[] } => Boolean(group))
+          .map(({ workspace, sessions: workspaceSessions }) => (
+            <section key={workspace.id} className="session-library-group">
+              <h3>{workspace.name}</h3>
+              {workspaceSessions.map((session) => {
+                const isActive = session.id === activeSessionId;
+                return (
+                  <article
+                    key={session.id}
+                    className={isActive ? 'session-library-item active' : 'session-library-item'}
                   >
-                    <span className={`session-status-dot ${session.status}`} aria-hidden="true" />
-                    <span className="session-library-title">{session.title}</span>
-                    <span className="session-library-meta">
-                      {profileName} · {relativeTimeLabel(session.startedAt)}
-                    </span>
-                  </button>
-                  <details className="session-library-menu" open={openMenuSessionId === session.id}>
-                    <summary
-                      aria-label={`${session.title} 更多操作`}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        setOpenMenuSessionId((current) => (current === session.id ? undefined : session.id));
-                      }}
+                    <button
+                      type="button"
+                      className="session-library-open"
+                      aria-label={session.title}
+                      title={session.title}
+                      onClick={() => onOpenSession(session.id)}
                     >
-                      ...
-                    </summary>
-                    <div
-                      className="session-library-menu-popover"
-                      hidden={openMenuSessionId !== session.id}
-                    >
-                      <button type="button" onClick={() => menuAction(onOpenSession, session.id)}>
-                        打开视图
-                      </button>
-                      <button type="button" onClick={() => menuAction(onCloseView, session.id)}>
-                        关闭视图
-                      </button>
-                      <button type="button" onClick={() => menuAction(onContinueSession, session.id)}>
-                        继续会话
-                      </button>
-                      {session.status === 'running' || session.status === 'starting' ? (
-                        <button type="button" onClick={() => menuAction(onStopSession, session.id)}>
-                          停止
+                      <span className={`session-status-dot ${session.status}`} aria-hidden="true" />
+                      <span className="session-library-title">
+                        {sessionDisplayTitle(session, workspace.name)}
+                      </span>
+                      <span className="session-library-meta">
+                        {commandExecutableName(session.command)} · {relativeTimeLabel(session.startedAt)}
+                      </span>
+                    </button>
+                    <details className="session-library-menu" open={openMenuSessionId === session.id}>
+                      <summary
+                        aria-label={`${session.title} 更多操作`}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setOpenMenuSessionId((current) => (current === session.id ? undefined : session.id));
+                        }}
+                      >
+                        ...
+                      </summary>
+                      <div
+                        className="session-library-menu-popover"
+                        hidden={openMenuSessionId !== session.id}
+                      >
+                        <button type="button" onClick={() => menuAction(onOpenSession, session.id)}>
+                          打开视图
                         </button>
-                      ) : null}
-                      <button type="button" onClick={() => menuAction(onArchiveSession, session.id)}>
-                        归档
-                      </button>
-                      <button type="button" onClick={() => menuAction(onDeleteSession, session.id)}>
-                        删除记录
-                      </button>
-                    </div>
-                  </details>
-                </article>
-              );
-            })}
-          </section>
-        ))}
+                        <button type="button" onClick={() => menuAction(onCloseView, session.id)}>
+                          关闭视图
+                        </button>
+                        <button type="button" onClick={() => menuAction(onContinueSession, session.id)}>
+                          继续会话
+                        </button>
+                        {session.status === 'running' || session.status === 'starting' ? (
+                          <button type="button" onClick={() => menuAction(onStopSession, session.id)}>
+                            停止
+                          </button>
+                        ) : null}
+                        <button type="button" onClick={() => menuAction(onArchiveSession, session.id)}>
+                          归档
+                        </button>
+                        <button type="button" onClick={() => menuAction(onDeleteSession, session.id)}>
+                          删除记录
+                        </button>
+                      </div>
+                    </details>
+                  </article>
+                );
+              })}
+            </section>
+          ))}
+      </div>
     </nav>
   );
 }

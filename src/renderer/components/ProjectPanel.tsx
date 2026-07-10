@@ -32,6 +32,10 @@ function firstSelectableEntry(entries: WorkspaceFileTreeEntry[]): WorkspaceFileT
   return entries.find((entry) => entry.type === 'file') ?? entries[0];
 }
 
+function isHiddenProjectEntry(entry: WorkspaceFileTreeEntry): boolean {
+  return entry.name.startsWith('.');
+}
+
 export function ProjectPanel({
   workspace,
   session,
@@ -46,6 +50,7 @@ export function ProjectPanel({
   const [error, setError] = React.useState<string | undefined>();
   const [infoHeight, setInfoHeight] = React.useState(180);
   const [refreshNonce, setRefreshNonce] = React.useState(0);
+  const [showHiddenEntries, setShowHiddenEntries] = React.useState(false);
 
   React.useEffect(() => {
     setRelativePath('.');
@@ -71,10 +76,13 @@ export function ProjectPanel({
         if (cancelled) {
           return;
         }
+        const visibleEntries = showHiddenEntries
+          ? result.entries
+          : result.entries.filter((entry) => !isHiddenProjectEntry(entry));
         setEntries(result.entries);
         setSelectedEntry((current) =>
-          result.entries.find((entry) => entry.relativePath === current?.relativePath) ??
-          firstSelectableEntry(result.entries),
+          visibleEntries.find((entry) => entry.relativePath === current?.relativePath) ??
+          firstSelectableEntry(visibleEntries),
         );
       })
       .catch((nextError: unknown) => {
@@ -96,7 +104,11 @@ export function ProjectPanel({
     };
     // 只依赖 workspace.id：metadata 刷新会产生新的 workspace 对象引用，
     // 若依赖整个对象会导致文件树无关刷新时整棵重拉、界面闪烁。
-  }, [listDirectory, refreshNonce, relativePath, session?.id, workspace?.id]);
+  }, [listDirectory, refreshNonce, relativePath, session?.id, showHiddenEntries, workspace?.id]);
+
+  const visibleEntries = showHiddenEntries
+    ? entries
+    : entries.filter((entry) => !isHiddenProjectEntry(entry));
 
   const handleSelectEntry = (entry: WorkspaceFileTreeEntry): void => {
     setSelectedEntry(entry);
@@ -167,12 +179,19 @@ export function ProjectPanel({
             <button type="button" onClick={() => setRefreshNonce((current) => current + 1)}>
               刷新
             </button>
+            <button
+              type="button"
+              aria-pressed={showHiddenEntries}
+              onClick={() => setShowHiddenEntries((current) => !current)}
+            >
+              {showHiddenEntries ? '隐藏隐藏项' : '显示隐藏项'}
+            </button>
           </div>
           {loading ? <p className="project-tree-status">正在读取文件树</p> : null}
           {error ? <p role="alert" className="project-tree-error">{error}</p> : null}
           {!loading && !error ? (
             <WorkspaceFileTree
-              entries={entries}
+              entries={visibleEntries}
               selectedRelativePath={selectedEntry?.relativePath}
               onSelect={handleSelectEntry}
             />

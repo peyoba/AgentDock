@@ -53,6 +53,7 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
           <span>API 配置</span>
           <select
             aria-label="选择 API 配置"
+            title={profile?.name}
             value={profileId ?? ''}
             disabled={profiles.length === 0}
             onChange={(event) => onProfileChange(event.target.value)}
@@ -69,6 +70,7 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
           <span>工作区</span>
           <select
             aria-label="选择工作区"
+            title={workspace ? `${workspace.name} · ${workspace.path}` : undefined}
             value={workspaceId ?? ''}
             disabled={workspaces.length === 0 && !onChooseWorkspace}
             onChange={(event) => handleWorkspaceChange(event.target.value)}
@@ -87,6 +89,7 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
             <span>启动模式</span>
             <select
               aria-label="Claude 启动模式"
+              title={claudeLaunchMode === 'lite' ? '轻量：不加载 MCP，会话更快更省' : '完整：加载 Claude MCP 配置'}
               value={claudeLaunchMode}
               onChange={(event) =>
                 onClaudeLaunchModeChange(event.target.value as ClaudeLaunchMode)
@@ -100,6 +103,7 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
         <button
           type="button"
           className="local-shell-button"
+          title="用当前配置的环境变量打开本地 zsh"
           disabled={launching || !profile || !workspace}
           onClick={onLaunchLocalShell}
         >

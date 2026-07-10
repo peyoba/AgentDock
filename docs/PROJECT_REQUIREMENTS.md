@@ -29,11 +29,11 @@ Codex D  -> Endpoint D -> Key D -> 项目 Y
 必须实现：
 
 1. API Profile 管理：新增、编辑、删除、测试连接（测试连接可后置到第二小版本）。
-2. API 配置按工具类型分类：Claude / Codex / Gemini / OpenCode / 全部。
+2. API 配置按当前正式支持的工具类型分类：Claude / Codex / 全部。Gemini / OpenCode 保留为后续方向，在启动环境和凭证注入实现前不显示入口。
 3. API Key 安全保存：本机加密 vault，不明文落盘；旧 Keychain 数据仅用于迁移/适配。
 4. Workspace 管理：保存项目名称和本地目录。
 5. 启动器：选择 Profile + Workspace + 命令 + 启动模式。
-6. 内嵌终端标签页：每个会话一个标签页。
+6. 长期会话库与内嵌终端视图：Session Record、打开视图和 PTY Process 分离，关闭视图不自动删除历史记录。
 7. Claude 会话隔离：每个 PTY 注入独立 `ANTHROPIC_BASE_URL` 和 Key。
 8. Codex 会话隔离：每个会话注入独立 endpoint/key，每个 Profile 使用独立 `CODEX_HOME`。
 9. 当前会话详情：默认收起，可展开，显示 endpoint/key 来源/workspace/操作。
@@ -55,11 +55,12 @@ Codex D  -> Endpoint D -> Key D -> 项目 Y
 要求：
 
 - 终端优先。
-- 无常驻左侧复杂导航。
-- 顶部只保留搜索、接口配置、工作目录、设置、新建会话等关键入口。
+- 左侧只常驻长期会话库，不放置复杂的 Dashboard/设置导航。
+- 顶部只保留接口配置、新窗口和紧凑启动条等关键入口。
 - 新建会话区是一条紧凑 command bar：Profile / Workspace / command / 启动模式 / 启动。
-- 中间为会话标签页 + 大面积终端。
+- 中间为当前会话视图和大面积终端；会话切换、搜索和归档统一放在左侧会话库。
 - 当前会话详情默认收起，点击“会话详情”或右侧把手展开。
+- 右侧只读项目面板默认收起为 rail，不承担代码编辑职责。
 - 共享目录风险用轻量 chip：`共享目录 · 3 个会话`。
 
 ### 4.2 API 配置界面
@@ -68,13 +69,13 @@ Codex D  -> Endpoint D -> Key D -> 项目 Y
 
 要求：
 
-- 参考 CC Switch，顶部按工具类型分组：Claude / Codex / Gemini / OpenCode / 全部。
+- 参考 CC Switch，顶部按当前支持范围分组：Claude / Codex / 全部；Gemini / OpenCode 在具备完整启动能力后再启用。
 - 左侧只显示当前工具类型下的配置。
 - 右侧表单根据工具类型显示不同字段。
 - Claude 类型展示：Base URL、模型、Anthropic 协议、API Key、本机密钥存储状态、环境变量预览。
 - Codex 类型展示：OpenAI base URL、model_provider、默认模型、独立 `CODEX_HOME`、Responses/Chat 适配方式、API Key。
 - API Key 默认脱敏，只能通过用户操作显示/替换。
-- Renderer / preload / IPC 不得返回完整 secret 或完整环境变量对象；环境变量只能以脱敏预览或最小必要字段展示。
+- Renderer / preload / IPC 的默认查询和事件不得返回完整 secret 或完整环境变量对象；环境变量只能以脱敏预览或最小必要字段展示。只有用户明确点击查看某个已保存 Profile 的 API Key 时，专用 IPC 才可按需返回该单个 secret。
 
 ## 5. 技术架构要求
 
@@ -97,11 +98,11 @@ Electron + React + TypeScript + xterm.js + node-pty
 ## 6. 安全要求
 
 - 不得在代码、文档、测试、日志、前端持久化中保存完整 API Key。
-- Key 必须进入本机加密 vault；Renderer / preload / IPC 不得返回完整 secret。
+- Key 必须进入本机加密 vault；Renderer / preload / IPC 默认不得返回完整 secret。用户明确查看单个已保存 Profile 时允许专用 IPC 按需读取，但不得广播、写入日志、前端持久化状态或普通 metadata 响应。
 - UI 仅展示脱敏 key，例如 `sk-••••A7f`。
 - 复制环境变量时默认隐藏 key，除非用户明确选择显示。
 - 错误日志不得输出 secret。
-- IPC 响应不得包含完整 secret 或完整 env；测试必须覆盖这一边界。
+- 除用户明确触发的单 Profile 密钥查看响应外，IPC 响应不得包含完整 secret 或完整 env；测试必须覆盖这一边界。
 
 ## 7. 验收标准
 

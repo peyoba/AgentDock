@@ -1,22 +1,24 @@
 # Agent Workflow State
 
 ## 当前任务
-2026-07-08 AgentDock Claude Profile 内置 Anthropic 兼容改写层：实现、验证记录和交付报告已完成；外部 Claude endpoint 真机验证 1 个 Profile PASS，其余已配置上游返回 503。
+2026-07-10 AgentDock 发布基线收口：审查未提交 UI/恢复改动，同步主文档，修复完整 Git dirty 检测，建立 clean commit 后执行全量验证、macOS 打包、签名和 smoke。
 
 ## 风险等级
 L3
 
-触发原因：本任务将修改 Claude API 请求链路、环境变量注入结果、本地 loopback 转发器生命周期、API Key/Authorization header 处理、PTY 启动与退出边界，并涉及外部 LLM endpoint 真实验证。
+触发原因：本任务覆盖会话恢复、安全边界、Electron UI、Git 提交、远端同步、构建追溯和 macOS 发布产物，属于 L3 发布收口。
 
 ## 当前 Hook
-delivery_hook
+quality_gate_hook
 
 ## 当前阶段
-delivery
+quality
 
 ## 已派发角色
 | 角色 | 状态 | 产出 |
 |------|------|------|
+| 主 Agent | RUNNING | 发布基线收口：审查 dirty worktree、同步需求/决策/项目画像、修复 package dirty 检测，待全量验证、提交、推送和 clean package |
+| 主 Agent | PASS | 记忆恢复真实加载与窗口拖拽修复：`src/main/restoreContextStore.ts` 恢复写入 Long-Term Summary/Recent Transcript Tail 并要求作为 background memory 读取；`src/renderer/styles.css` 恢复顶部 34px drag strip；Vitest/workflow/typecheck/build/真实文件写入 smoke/CSS 产物扫描/macOS package/codesign/包内 marker scan 通过；新包 `release/packages/20260709-064902/AgentDock-darwin-arm64/AgentDock.app`；验证记录 `.agent-workflow/verification/2026-07-09-memory-restore-window-drag-fix.md`；交付报告 `.agent-workflow/delivery/2026-07-09-memory-restore-window-drag-fix-delivery-report.md` |
 | 主 Agent | PASS | Claude Profile 内置 Anthropic 兼容改写层实现：`src/main/claudeCompatProxy.ts`、Profile 字段持久化、SessionService 生命周期接线、Renderer 开关；Vitest/workflow/typecheck/build/local HTTP smoke 通过；`claude-custom-1` 外部 endpoint PASS，其余 AnyRouter/fcapp 上游 503 |
 | 主 Agent | PASS | Claude Profile 内置 Anthropic 兼容改写层实施计划：`docs/superpowers/plans/2026-07-08-agentdock-claude-compat-proxy.md`；覆盖 proxy rewrite、Profile 持久化、SessionService 生命周期、UI 开关、L3 真实验证和交付 |
 | 主 Agent | PASS | Batch 0 基线已提交：`b9ee2bd chore: stabilize session restore baseline`；已删除未跟踪构建产物和 SPEC 副本目录；workflow/test/typecheck/build/secret scan 通过 |
@@ -112,7 +114,7 @@ delivery
 无
 
 ## 下一步
-等待用户验收；如需验证 AnyRouter/fcapp endpoint，待上游 503 恢复后复测。
+完成并行代码/安全/发布审查，修复阻塞问题后进入 integration_hook，建立 clean commit 并从该基线重新打包。
 
 ## Phase 1 暂停规则
 Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入真实 node-pty/Keychain 集成、修改产品范围或遇到安全风险时才暂停请求用户确认。
@@ -143,6 +145,7 @@ Phase 1 内部任务不需要逐项再确认；只有新增生产依赖、进入
 | 2026-07-07 | 记忆恢复采用分层存储：短期 transcript tail 快速保存，长期 summary/handoff 压缩落盘，重启时后台生成 restore context 文件并只注入短读取指令 | 用户明确要求输入窗口不要显示长提示词，只展示加载/恢复状态；恢复后摘要只用一句话 |
 | 2026-07-07 | 长期会话库恢复策略采用 verified-native-first：Claude 优先探针 `--session-id`/`--resume`，Codex 必须先验证稳定 id 来源；不可验证时显式降级到 AgentDock restore context | 原生 resume 不能依赖脆弱 TUI 文本解析；Codex 当前 CLI 未暴露启动时指定 session id；必须避免静默伪装成原生恢复 |
 | 2026-07-07 | 同一 Session Record 的 running PTY 同时只能有一个 owner window；其他窗口只能只读观察，不能抢占或启动第二个 PTY | 保留当前多窗口隔离安全边界，避免多个窗口同时写同一 Claude/Codex TUI |
+| 2026-07-10 | 发布候选构建信息必须以整个 Git 工作区判断 dirty，而不是只检查 `src` 和少数打包文件 | 测试、配置、工作流报告或未跟踪文件同样会破坏构建可复现性；clean baseline 必须可由 commit 重建 |
 | 2026-07-07 | 用户主动停止 PTY 使用正式 `stopped` 运行状态；`archived` 是独立归档标记，不是运行状态 | 现有 `SessionStatus` 已包含 `stopped`；主动停止、自然退出 `exited`、异常/重启中断 `interrupted` 在会话库中需要可区分 |
 | 2026-07-07 | Batch 0 在主 worktree 直接整理并提交基线 `b9ee2bd` | 用户确认没有其他分支，要求把整个工程整理干净并提交；已排除并删除未跟踪构建产物和 SPEC 副本目录 |
 | 2026-07-07 | Batch 1 native resume 决策：Codex native resume verified；Claude native resume partial | Codex `exec --json` 稳定输出 `thread_id` 且 `exec ... resume --json <thread_id>` 恢复 marker 成功；Claude help 有 `--session-id`/`--resume`，但 direct CLI 未登录，profile smoke 超时，未达到 verified 标准 |
