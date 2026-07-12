@@ -1,5 +1,10 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile, rename } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  ensurePrivateDirectory,
+  ensurePrivateFile,
+  writePrivateFileAtomically,
+} from '../privateFileSystem.js';
 
 type Identified = {
   id: string;
@@ -22,6 +27,9 @@ export function createJsonStore<T extends Identified>(filePath: string): JsonSto
   }
 
   async function list(): Promise<T[]> {
+    await ensurePrivateDirectory(path.dirname(filePath));
+    await ensurePrivateFile(filePath);
+
     let text: string;
     try {
       text = await readFile(filePath, 'utf-8');
@@ -45,18 +53,15 @@ export function createJsonStore<T extends Identified>(filePath: string): JsonSto
         path.dirname(filePath),
         `${path.basename(filePath, '.json')}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
       );
-      await rename(filePath, backupPath).catch(() => undefined);
+      await rename(filePath, backupPath);
+      await ensurePrivateFile(backupPath);
       console.error(`[jsonStore] ${filePath} 损坏，已备份到 ${backupPath}`, error);
       return [];
     }
   }
 
   async function writeItems(items: T[]): Promise<void> {
-    await mkdir(path.dirname(filePath), { recursive: true });
-    // 先写临时文件再 rename，保证任意时刻磁盘上的文件都是完整 JSON。
-    const tempPath = `${filePath}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(items, null, 2)}\n`, 'utf-8');
-    await rename(tempPath, filePath);
+    await writePrivateFileAtomically(filePath, `${JSON.stringify(items, null, 2)}\n`);
   }
 
   function save(item: T): Promise<void> {

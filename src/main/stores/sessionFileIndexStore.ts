@@ -1,6 +1,11 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { SessionFileIndex } from '../../shared/agentdockTypes.js';
+import {
+  ensurePrivateDirectory,
+  ensurePrivateFile,
+  writePrivateFileAtomically,
+} from '../privateFileSystem.js';
 
 export type SessionFileIndexStore = {
   saveIndex(sessionId: string, index: SessionFileIndex): Promise<void>;
@@ -20,11 +25,16 @@ export function createSessionFileIndexStore(rootDir: string): SessionFileIndexSt
 
   return {
     async saveIndex(sessionId, index): Promise<void> {
-      await mkdir(indexDir, { recursive: true });
-      await writeFile(filePathFor(sessionId), `${JSON.stringify(index, null, 2)}\n`, 'utf-8');
+      await ensurePrivateDirectory(indexDir);
+      await writePrivateFileAtomically(
+        filePathFor(sessionId),
+        `${JSON.stringify(index, null, 2)}\n`,
+      );
     },
 
     async readIndex(sessionId): Promise<SessionFileIndex> {
+      await ensurePrivateDirectory(indexDir);
+      await ensurePrivateFile(filePathFor(sessionId));
       try {
         const raw = await readFile(filePathFor(sessionId), 'utf-8');
         const parsed = JSON.parse(raw) as SessionFileIndex;

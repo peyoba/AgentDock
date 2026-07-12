@@ -1,8 +1,13 @@
 import crypto from 'node:crypto';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { KeychainAdapter } from './keychainAdapter.js';
+import {
+  ensurePrivateDirectory,
+  ensurePrivateFile,
+  writePrivateFileAtomically,
+} from '../privateFileSystem.js';
 
 type VaultRecord = {
   version: 1;
@@ -142,16 +147,17 @@ function parseVault(text: string): VaultFile {
 }
 
 async function defaultEnsureDirectory(directoryPath: string): Promise<void> {
-  await mkdir(directoryPath, { recursive: true });
+  await ensurePrivateDirectory(directoryPath);
 }
 
 async function defaultReadTextFile(filePath: string): Promise<string> {
+  await ensurePrivateDirectory(path.dirname(filePath));
+  await ensurePrivateFile(filePath);
   return readFile(filePath, 'utf8');
 }
 
 async function defaultWriteTextFile(filePath: string, content: string): Promise<void> {
-  await writeFile(filePath, content, { encoding: 'utf8', mode: 0o600 });
-  await chmod(filePath, 0o600);
+  await writePrivateFileAtomically(filePath, content);
 }
 
 export function createEncryptedVaultAdapter({
@@ -162,6 +168,15 @@ export function createEncryptedVaultAdapter({
   readTextFile = defaultReadTextFile,
   writeTextFile = defaultWriteTextFile,
 }: EncryptedVaultAdapterOptions): KeychainAdapter {
+  // 所有 read-modify-write 操作必须串行，避免多窗口同时保存或迁移时互相覆盖。
+  let mutationQueue: Promise<unknown> = Promise.resolve();
+
+  function enqueueMutation<Result>(operation: () => Promise<Result>): Promise<Result> {
+    const runningOperation = mutationQueue.then(operation, operation);
+    mutationQueue = runningOperation.catch(() => undefined);
+    return runningOperation;
+  }
+
   async function readVault(): Promise<VaultFile> {
     try {
       return parseVault(await readTextFile(filePath));
@@ -197,9 +212,12 @@ export function createEncryptedVaultAdapter({
         const legacySecret = tryDecryptSecret(record, legacyMaterial);
         if (legacySecret !== null) {
           // 自愈：用当前稳定材料重加密回写，之后不再依赖 legacy 材料
-          vault.secrets[id] = encryptSecret(legacySecret, keyMaterial);
           try {
-            await writeVault(vault);
+            await enqueueMutation(async () => {
+              const latestVault = await readVault();
+              latestVault.secrets[id] = encryptSecret(legacySecret, keyMaterial);
+              await writeVault(latestVault);
+            });
           } catch (error) {
             console.warn('[secret-vault] 自愈回写失败（不影响本次读取）:', error);
           }
@@ -211,15 +229,19 @@ export function createEncryptedVaultAdapter({
     },
 
     async writeSecret(service: string, account: string, secret: string): Promise<void> {
-      const vault = await readVault();
-      vault.secrets[secretId(service, account)] = encryptSecret(secret, keyMaterial);
-      await writeVault(vault);
+      await enqueueMutation(async () => {
+        const vault = await readVault();
+        vault.secrets[secretId(service, account)] = encryptSecret(secret, keyMaterial);
+        await writeVault(vault);
+      });
     },
 
     async deleteSecret(service: string, account: string): Promise<void> {
-      const vault = await readVault();
-      delete vault.secrets[secretId(service, account)];
-      await writeVault(vault);
+      await enqueueMutation(async () => {
+        const vault = await readVault();
+        delete vault.secrets[secretId(service, account)];
+        await writeVault(vault);
+      });
     },
   };
 }

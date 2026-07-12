@@ -542,13 +542,18 @@ function registerIpcHandlers(): void {
     if (!profile || !workspace) {
       throw new Error('所选配置或工作区不存在，无法重启会话');
     }
-    validateSessionCommand(request.command ?? session.command);
+    validateSessionCommand(
+      request.command ?? (
+        request.strategy === 'resume' ? session.resumeCommand : undefined
+      ) ?? session.command,
+    );
 
     return service.restart({
       sessionId: request.sessionId,
       profile,
       workspace,
-      command: request.command ?? session.command,
+      strategy: request.strategy,
+      command: request.command,
       claudeLaunchMode: request.claudeLaunchMode,
     });
   });

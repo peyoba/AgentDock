@@ -1,6 +1,11 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentSession } from '../../shared/agentdockTypes.js';
+import {
+  ensurePrivateDirectory,
+  ensurePrivateFile,
+  writePrivateFileAtomically,
+} from '../privateFileSystem.js';
 import { createJsonStore } from './jsonStore.js';
 import {
   createSessionTranscriptStore,
@@ -92,6 +97,8 @@ function findFirstJsonArrayEnd(text: string): number | undefined {
 }
 
 async function recoverSessionHistoryEntries(filePath: string): Promise<Array<SessionHistoryEntry | LegacySessionHistoryEntry>> {
+  await ensurePrivateDirectory(path.dirname(filePath));
+  await ensurePrivateFile(filePath);
   let text: string;
   try {
     text = await readFile(filePath, 'utf-8');
@@ -114,6 +121,7 @@ async function recoverSessionHistoryEntries(filePath: string): Promise<Array<Ses
       `sessions.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
     );
     await rename(filePath, backupPath).catch(() => undefined);
+    await ensurePrivateFile(backupPath);
 
     const firstArrayEnd = findFirstJsonArrayEnd(text);
     if (firstArrayEnd === undefined) {
@@ -131,8 +139,7 @@ async function recoverSessionHistoryEntries(filePath: string): Promise<Array<Ses
       return [];
     }
 
-    await mkdir(path.dirname(filePath), { recursive: true });
-    await writeFile(filePath, `${JSON.stringify(recovered, null, 2)}\n`, 'utf-8');
+    await writePrivateFileAtomically(filePath, `${JSON.stringify(recovered, null, 2)}\n`);
     return recovered as Array<SessionHistoryEntry | LegacySessionHistoryEntry>;
   }
 }
@@ -246,6 +253,8 @@ export function createSessionHistoryStore(
   }
 
   async function listEntries(): Promise<SessionHistoryEntry[]> {
+    await ensurePrivateDirectory(rootDir);
+    await ensurePrivateFile(sessionsFilePath);
     if (!cachedEntries) {
       const migratedEntries = await migrateLegacyEntries(await recoverSessionHistoryEntries(sessionsFilePath));
       // migrateLegacyEntries 内部可能已通过 saveEntries 填充缓存（含清理结果），优先使用。
@@ -389,9 +398,21 @@ export function createSessionHistoryStore(
         }
 
         const output = (await transcriptStore.readTail(sessionId)).content;
-        await mkdir(archiveDir, { recursive: true });
+        await ensurePrivateDirectory(archiveDir);
         const filePath = path.join(archiveDir, safeArchiveFileName(sessionId));
-        await writeFile(filePath, output, 'utf-8');
+        let archiveAlreadyExists = false;
+        try {
+          await ensurePrivateFile(filePath);
+          await readFile(filePath, 'utf-8');
+          archiveAlreadyExists = true;
+        } catch (error) {
+          if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+            throw error;
+          }
+        }
+        if (output || !archiveAlreadyExists) {
+          await writePrivateFileAtomically(filePath, output);
+        }
         await transcriptStore.deleteTranscript(sessionId);
         await updateSession(sessionId, (entry) => ({
           ...entry,

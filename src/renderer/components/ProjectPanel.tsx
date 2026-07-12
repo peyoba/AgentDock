@@ -18,6 +18,14 @@ type ProjectPanelProps = {
   listDirectory?(request: WorkspaceDirectoryRequest): Promise<WorkspaceDirectoryResult>;
 };
 
+const MIN_INFO_HEIGHT = 120;
+const MAX_INFO_HEIGHT = 320;
+const INFO_HEIGHT_KEYBOARD_STEP = 10;
+
+function clampInfoHeight(height: number): number {
+  return Math.min(MAX_INFO_HEIGHT, Math.max(MIN_INFO_HEIGHT, height));
+}
+
 function parentPath(relativePath: string): string {
   if (!relativePath || relativePath === '.') {
     return '.';
@@ -128,7 +136,7 @@ export function ProjectPanel({
 
     const onMouseMove = (moveEvent: MouseEvent): void => {
       const nextHeight = startHeight - (moveEvent.clientY - startY);
-      setInfoHeight(Math.min(320, Math.max(120, nextHeight)));
+      setInfoHeight(clampInfoHeight(nextHeight));
     };
     const stopResize = (): void => {
       window.removeEventListener('mousemove', onMouseMove);
@@ -139,6 +147,24 @@ export function ProjectPanel({
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', stopResize);
     resizeCleanupRef.current = stopResize;
+  };
+
+  const resizeWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    let nextHeight: number | undefined;
+    if (event.key === 'ArrowUp') {
+      nextHeight = infoHeight + INFO_HEIGHT_KEYBOARD_STEP;
+    } else if (event.key === 'ArrowDown') {
+      nextHeight = infoHeight - INFO_HEIGHT_KEYBOARD_STEP;
+    } else if (event.key === 'Home') {
+      nextHeight = MIN_INFO_HEIGHT;
+    } else if (event.key === 'End') {
+      nextHeight = MAX_INFO_HEIGHT;
+    }
+
+    if (nextHeight !== undefined) {
+      event.preventDefault();
+      setInfoHeight(clampInfoHeight(nextHeight));
+    }
   };
 
   return (
@@ -202,8 +228,12 @@ export function ProjectPanel({
           role="separator"
           aria-label="调整项目信息区高度"
           aria-orientation="horizontal"
+          aria-valuemin={MIN_INFO_HEIGHT}
+          aria-valuemax={MAX_INFO_HEIGHT}
+          aria-valuenow={infoHeight}
           tabIndex={0}
           onMouseDown={startResize}
+          onKeyDown={resizeWithKeyboard}
         />
         <ProjectPanelInfoSections
           selectedEntry={selectedEntry}

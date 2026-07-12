@@ -1,3 +1,6 @@
+import { chmod, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { KeychainAdapter } from '../../src/main/adapters/keychainAdapter';
 import {
@@ -25,6 +28,21 @@ function createMemoryFiles() {
   };
 }
 
+async function readPosixMode(targetPath: string): Promise<number> {
+  return (await stat(targetPath)).mode & 0o777;
+}
+
+function deferred(): { promise: Promise<void>; resolve(): void } {
+  let resolvePromise: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {
+    promise,
+    resolve: () => resolvePromise?.(),
+  };
+}
+
 function createMemoryVault(filePath = '/tmp/agentdock-test/secrets.vault.json') {
   const memory = createMemoryFiles();
   const adapter = createEncryptedVaultAdapter({
@@ -39,6 +57,48 @@ function createMemoryVault(filePath = '/tmp/agentdock-test/secrets.vault.json') 
 }
 
 describe('encrypted local secret vault', () => {
+  it('creates private paths and heals legacy permissions without changing vault contents', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-vault-permissions-'));
+    const vaultDirectoryPath = path.join(tempDir, 'private-vault');
+    const vaultFilePath = path.join(vaultDirectoryPath, 'secrets.vault.json');
+    const adapter = createEncryptedVaultAdapter({
+      filePath: vaultFilePath,
+      keyMaterial: 'agentdock-private-storage-test-material',
+      legacyKeyMaterials: [],
+    });
+
+    try {
+      await adapter.writeSecret('AgentDock', 'permission-profile', 'test-vault-secret-value');
+
+      const newDirectoryMode = await readPosixMode(vaultDirectoryPath);
+      const newFileMode = await readPosixMode(vaultFilePath);
+      const encryptedContentsBeforeHealing = await readFile(vaultFilePath, 'utf-8');
+
+      await chmod(vaultDirectoryPath, 0o755);
+      await chmod(vaultFilePath, 0o644);
+      await expect(adapter.readSecret('AgentDock', 'permission-profile')).resolves.toBe(
+        'test-vault-secret-value',
+      );
+
+      expect({
+        newDirectoryMode,
+        newFileMode,
+        healedDirectoryMode: await readPosixMode(vaultDirectoryPath),
+        healedFileMode: await readPosixMode(vaultFilePath),
+        contentsPreserved:
+          (await readFile(vaultFilePath, 'utf-8')) === encryptedContentsBeforeHealing,
+      }).toEqual({
+        newDirectoryMode: 0o700,
+        newFileMode: 0o600,
+        healedDirectoryMode: 0o700,
+        healedFileMode: 0o600,
+        contentsPreserved: true,
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('saves and reads API keys without storing plaintext in the vault file', async () => {
     const { adapter, files, filePath } = createMemoryVault();
     const secret = 'test-local-vault-secret-value';
@@ -176,5 +236,50 @@ describe('encrypted local secret vault', () => {
       'test-new-local-only-secret',
     );
     expect(fallbackCalls).toEqual([]);
+  });
+
+  it('serializes concurrent writes so updates do not overwrite each other', async () => {
+    const memory = createMemoryFiles();
+    const firstWriteStarted = deferred();
+    const allowFirstWrite = deferred();
+    let writeCount = 0;
+    const adapter = createEncryptedVaultAdapter({
+      filePath: '/tmp/agentdock-test/secrets.vault.json',
+      keyMaterial: 'agentdock-test-key-material',
+      ensureDirectory: async () => undefined,
+      readTextFile: memory.readTextFile,
+      writeTextFile: async (filePath, content) => {
+        writeCount += 1;
+        if (writeCount === 1) {
+          firstWriteStarted.resolve();
+          await allowFirstWrite.promise;
+        }
+        await memory.writeTextFile(filePath, content);
+      },
+    });
+
+    const firstWrite = adapter.writeSecret('AgentDock', 'profile-a', 'test-secret-a');
+    await firstWriteStarted.promise;
+    const secondWrite = adapter.writeSecret('AgentDock', 'profile-b', 'test-secret-b');
+    allowFirstWrite.resolve();
+    await Promise.all([firstWrite, secondWrite]);
+
+    await expect(adapter.readSecret('AgentDock', 'profile-a')).resolves.toBe('test-secret-a');
+    await expect(adapter.readSecret('AgentDock', 'profile-b')).resolves.toBe('test-secret-b');
+  });
+
+  it('orders delete operations after an in-flight write', async () => {
+    const { adapter } = createMemoryVault();
+    await adapter.writeSecret('AgentDock', 'profile-a', 'test-secret-a');
+
+    await Promise.all([
+      adapter.writeSecret('AgentDock', 'profile-b', 'test-secret-b'),
+      adapter.deleteSecret('AgentDock', 'profile-a'),
+    ]);
+
+    await expect(adapter.readSecret('AgentDock', 'profile-a')).rejects.toThrow(
+      'API key was not found',
+    );
+    await expect(adapter.readSecret('AgentDock', 'profile-b')).resolves.toBe('test-secret-b');
   });
 });

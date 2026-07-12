@@ -7,10 +7,8 @@ type SessionLibraryProps = {
   workspaces: Workspace[];
   activeSessionId?: string;
   buildInfo?: AppBuildInfo;
-  onNewSession(): void;
   onOpenSession(sessionId: string): void;
   onContinueSession(sessionId: string): void;
-  onCloseView(sessionId: string): void;
   onStopSession(sessionId: string): void;
   onArchiveSession(sessionId: string): void;
   onDeleteSession(sessionId: string): void;
@@ -78,10 +76,8 @@ export function SessionLibrary({
   workspaces,
   activeSessionId,
   buildInfo,
-  onNewSession,
   onOpenSession,
   onContinueSession,
-  onCloseView,
   onStopSession,
   onArchiveSession,
   onDeleteSession,
@@ -150,14 +146,6 @@ export function SessionLibrary({
             </span>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="primary-button session-new-button"
-          title="使用当前 API 配置和工作区启动新会话"
-          onClick={onNewSession}
-        >
-          新会话
-        </button>
       </div>
       <input
         className="session-library-search"
@@ -222,22 +210,19 @@ export function SessionLibrary({
                         <button type="button" onClick={() => menuAction(onOpenSession, session.id)}>
                           打开视图
                         </button>
-                        <button type="button" onClick={() => menuAction(onCloseView, session.id)}>
-                          关闭视图
-                        </button>
                         <button type="button" onClick={() => menuAction(onContinueSession, session.id)}>
-                          继续会话
+                          继续上次对话
                         </button>
                         {session.status === 'running' || session.status === 'starting' ? (
                           <button type="button" onClick={() => menuAction(onStopSession, session.id)}>
-                            停止
+                            停止运行
                           </button>
                         ) : null}
                         <button type="button" onClick={() => menuAction(onArchiveSession, session.id)}>
-                          归档
+                          归档会话
                         </button>
                         <button type="button" onClick={() => menuAction(onDeleteSession, session.id)}>
-                          删除记录
+                          永久删除记录
                         </button>
                       </div>
                     </details>

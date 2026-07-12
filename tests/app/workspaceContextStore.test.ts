@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -8,6 +8,10 @@ import type { AgentSession, Workspace } from '../../src/shared/agentdockTypes';
 let tempDir: string;
 let workspace: Workspace;
 let session: AgentSession;
+
+async function readPosixMode(targetPath: string): Promise<number> {
+  return (await stat(targetPath)).mode & 0o777;
+}
 
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-context-'));
@@ -32,6 +36,62 @@ afterEach(async () => {
 });
 
 describe('workspaceContextStore', () => {
+  it('keeps AgentDock context private without changing workspace or git exclude modes', async () => {
+    const workspaceFilePath = path.join(tempDir, 'project-source.txt');
+    const gitExcludePath = path.join(tempDir, '.git/info/exclude');
+    await writeFile(workspaceFilePath, 'workspace source remains untouched', 'utf-8');
+    await chmod(workspaceFilePath, 0o640);
+    await mkdir(path.dirname(gitExcludePath), { recursive: true });
+    await writeFile(gitExcludePath, '# existing local excludes\n', 'utf-8');
+    await chmod(gitExcludePath, 0o644);
+
+    const store = createWorkspaceContextStore({
+      clock: { now: () => new Date('2026-07-04T00:00:00.000Z') },
+    });
+    const files = await store.startSession({ workspace, session });
+    await store.ensureGitExcluded(workspace);
+
+    const privateDirectoryPaths = [
+      path.join(tempDir, '.agentdock'),
+      files.contextDir,
+      path.join(files.contextDir, 'sessions'),
+    ];
+    const privateFilePaths = [
+      path.join(files.contextDir, 'index.json'),
+      files.sharedContextFile,
+      files.sessionTranscriptFile,
+    ];
+    const newDirectoryModes = await Promise.all(privateDirectoryPaths.map(readPosixMode));
+    const newFileModes = await Promise.all(privateFilePaths.map(readPosixMode));
+    const privateContentsBeforeHealing = await Promise.all(
+      privateFilePaths.map((filePath) => readFile(filePath, 'utf-8')),
+    );
+
+    await Promise.all(privateDirectoryPaths.map((directoryPath) => chmod(directoryPath, 0o755)));
+    await Promise.all(privateFilePaths.map((filePath) => chmod(filePath, 0o644)));
+    await store.startSession({ workspace, session });
+
+    expect({
+      newDirectoryModes,
+      newFileModes,
+      healedDirectoryModes: await Promise.all(privateDirectoryPaths.map(readPosixMode)),
+      healedFileModes: await Promise.all(privateFilePaths.map(readPosixMode)),
+      privateContentsPreserved:
+        JSON.stringify(await Promise.all(privateFilePaths.map((filePath) => readFile(filePath, 'utf-8')))) ===
+        JSON.stringify(privateContentsBeforeHealing),
+      workspaceFileMode: await readPosixMode(workspaceFilePath),
+      gitExcludeMode: await readPosixMode(gitExcludePath),
+    }).toEqual({
+      newDirectoryModes: [0o700, 0o700, 0o700],
+      newFileModes: [0o600, 0o600, 0o600],
+      healedDirectoryModes: [0o700, 0o700, 0o700],
+      healedFileModes: [0o600, 0o600, 0o600],
+      privateContentsPreserved: true,
+      workspaceFileMode: 0o640,
+      gitExcludeMode: 0o644,
+    });
+  });
+
   it('creates shared context, index, and session transcript files for a started session', async () => {
     const store = createWorkspaceContextStore({
       clock: { now: () => new Date('2026-07-04T00:00:00.000Z') },

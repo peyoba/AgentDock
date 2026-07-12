@@ -44,6 +44,20 @@ type TestAgentDockApi = AgentDockApi & {
   getBuildInfo: ReturnType<typeof vi.fn<() => Promise<AppBuildInfo>>>;
 };
 
+function deferred<Value>(): {
+  promise: Promise<Value>;
+  resolve(value: Value): void;
+} {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {
+    promise,
+    resolve: (value) => resolvePromise?.(value),
+  };
+}
+
 function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
   const api: TestAgentDockApi = {
     version: '0.1.0',
@@ -259,6 +273,44 @@ describe('AgentDock shell', () => {
     });
   });
 
+  it('copies readable conversation history for an exited session', async () => {
+    const writeClipboardText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: writeClipboardText },
+    });
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Codex A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'codex',
+          status: 'exited',
+          startedAt: '2026-07-02T00:00:00.000Z',
+          exitCode: 0,
+        },
+      ]),
+      readTerminalBuffer: vi.fn().mockResolvedValue([
+        '>_ OpenAI Codex (v0.144.1)',
+        '› Read the AgentDock restore context file and use it as background memory.',
+        '',
+        '› 用户问题',
+        'Agent 回复',
+      ].join('\n')),
+    });
+
+    render(<App />);
+
+    await screen.findByText('会话已退出 · exit code 0');
+    fireEvent.click(screen.getByRole('button', { name: '复制输出' }));
+
+    await waitFor(() => {
+      expect(writeClipboardText).toHaveBeenCalledWith('› 用户问题\nAgent 回复');
+    });
+  });
+
   it('lets the user dismiss the memory restore banner', async () => {
     installAgentDockApi({
       listSessions: vi.fn().mockResolvedValue([
@@ -341,11 +393,56 @@ describe('AgentDock shell', () => {
     });
   });
 
+  it('does not let the initial session snapshot overwrite a newer session event', async () => {
+    const initialSessions = deferred<AgentSession[]>();
+    let sessionChangedListener: ((session: AgentSession) => void) | undefined;
+    installAgentDockApi({
+      listSessions: vi.fn(() => initialSessions.promise),
+      onSessionChanged: vi.fn((listener: (session: AgentSession) => void) => {
+        sessionChangedListener = listener;
+        return () => undefined;
+      }),
+    });
+
+    render(<App />);
+    await waitFor(() => expect(sessionChangedListener).toBeDefined());
+    act(() => {
+      sessionChangedListener?.({
+        id: 'session-race',
+        title: 'Newest live session',
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude',
+        status: 'running',
+        startedAt: '2026-07-11T00:00:00.000Z',
+      });
+    });
+    await act(async () => {
+      initialSessions.resolve([
+        {
+          id: 'session-race',
+          title: 'Stale stopped session',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude',
+          status: 'stopped',
+          startedAt: '2026-07-10T00:00:00.000Z',
+        },
+      ]);
+      await initialSessions.promise;
+    });
+
+    expect(screen.getByRole('button', { name: /Newest live session/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Stale stopped session/ })).not.toBeInTheDocument();
+  });
+
   it('renders terminal-first launch controls', () => {
     render(<App />);
 
     expect(screen.queryByRole('button', { name: /新建会话/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '启动' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '启动新会话' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: '新会话' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '启动' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '启动终端' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Quick Launch' })).not.toBeInTheDocument();
     expect(screen.queryByText('选择接口、项目目录和命令，一次启动独立终端会话。')).not.toBeInTheDocument();
@@ -412,7 +509,8 @@ describe('AgentDock shell', () => {
 
     const library = await screen.findByRole('navigation', { name: '会话库' });
     expect(library).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: '新会话' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: '启动新会话' })).toHaveLength(1);
+    expect(within(library).queryByRole('button', { name: '新会话' })).not.toBeInTheDocument();
     expect(within(library).getByRole('heading', { name: 'AgentDock', level: 2 })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Claude A · AgentDock/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Codex B · AgentDock/ })).toBeInTheDocument();
@@ -736,8 +834,10 @@ describe('AgentDock shell', () => {
 
     expect(await screen.findByRole('button', { name: /^Claude A · AgentDock$/ })).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Claude A · AgentDock 更多操作'));
-    expect(screen.getByRole('button', { name: '关闭视图' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '删除记录' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '关闭视图' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '停止运行' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '归档会话' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '永久删除记录' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /会话详情/ }));
 
@@ -786,7 +886,7 @@ describe('AgentDock shell', () => {
 });
 
 describe('AgentDock session launch flow', () => {
-  it('starts a new session from the left session library action', async () => {
+  it('starts a new session from the single command bar action', async () => {
     const api = installAgentDockApi();
 
     render(<App />);
@@ -794,8 +894,8 @@ describe('AgentDock session launch flow', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('选择 API 配置')).toHaveValue('profile-a');
     });
-    const newSessionButton = screen.getByRole('button', { name: '新会话' });
-    expect(newSessionButton).toHaveAttribute('title', '使用当前 API 配置和工作区启动新会话');
+    const newSessionButton = screen.getByRole('button', { name: '启动新会话' });
+    expect(screen.queryByRole('button', { name: '新会话' })).not.toBeInTheDocument();
     fireEvent.click(newSessionButton);
 
     await waitFor(() => {
@@ -816,7 +916,7 @@ describe('AgentDock session launch flow', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('选择 API 配置')).toHaveValue('profile-a');
     });
-    fireEvent.click(screen.getByRole('button', { name: '启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -837,7 +937,7 @@ describe('AgentDock session launch flow', () => {
     fireEvent.change(await screen.findByLabelText('Claude 启动模式'), {
       target: { value: 'full' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -874,7 +974,7 @@ describe('AgentDock session launch flow', () => {
     });
 
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: '启动' }));
+    fireEvent.click(await screen.findByRole('button', { name: '启动新会话' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('API key was not found for account "profile-a"');
@@ -925,12 +1025,11 @@ describe('AgentDock session launch flow', () => {
     expect(await screen.findByText('会话已退出 · exit code 0')).toBeInTheDocument();
     expect(screen.getByLabelText('终端输出')).toHaveAttribute('data-read-only', 'true');
 
-    fireEvent.click(screen.getByRole('button', { name: '恢复会话' }));
+    fireEvent.click(screen.getByRole('button', { name: '继续上次对话' }));
     await waitFor(() => {
       expect(api.restartSession).toHaveBeenCalledWith({
         sessionId: 'session-1',
-        command: 'claude --resume c4bf-b857',
-        claudeLaunchMode: 'lite',
+        strategy: 'resume',
       });
     });
     expect(api.launchSession).not.toHaveBeenCalled();
@@ -967,12 +1066,11 @@ describe('AgentDock session launch flow', () => {
     expect(await screen.findByText('会话已中断 · 可重新启动')).toBeInTheDocument();
     expect(screen.getByLabelText('终端输出')).toHaveAttribute('data-read-only', 'true');
 
-    fireEvent.click(screen.getByRole('button', { name: '重新启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '按原配置重新开始' }));
     await waitFor(() => {
       expect(api.restartSession).toHaveBeenCalledWith({
         sessionId: 'session-1',
-        command: 'claude --dangerously-skip-permissions',
-        claudeLaunchMode: 'lite',
+        strategy: 'fresh',
       });
     });
     expect(api.launchSession).not.toHaveBeenCalled();
@@ -1016,12 +1114,11 @@ describe('AgentDock session launch flow', () => {
     render(<App />);
 
     expect(await screen.findByText('异常退出 · exit code 1')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '重新启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '按原配置重新开始' }));
     await waitFor(() => {
       expect(api.restartSession).toHaveBeenCalledWith({
         sessionId: 'session-1',
-        command: 'claude --dangerously-skip-permissions',
-        claudeLaunchMode: 'lite',
+        strategy: 'fresh',
       });
     });
     expect(api.launchSession).not.toHaveBeenCalled();
@@ -1055,7 +1152,7 @@ describe('AgentDock session launch flow', () => {
     render(<App />);
 
     expect(await screen.findByText('会话已退出 · exit code 0')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '重新启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '按原配置重新开始' }));
 
     expect(await screen.findByText('正在重新启动会话...')).toBeInTheDocument();
 
@@ -1103,7 +1200,7 @@ describe('AgentDock session launch flow', () => {
     render(<App />);
 
     expect(await screen.findByText('会话已中断 · 可重新启动')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '重新启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '继续上次对话' }));
 
     expect(await screen.findByText('正在恢复记忆')).toBeInTheDocument();
 
@@ -1162,7 +1259,7 @@ describe('AgentDock session launch flow', () => {
     render(<App />);
 
     expect(await screen.findByText('会话已中断 · 可重新启动')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '重新启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '继续上次对话' }));
 
     expect(await screen.findByText('记忆已恢复：已加载最近会话背景。')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('\u001b');
@@ -1200,13 +1297,13 @@ describe('AgentDock session launch flow', () => {
     render(<App />);
 
     expect(await screen.findByText('会话已中断 · 可重新启动')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '重新启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '继续上次对话' }));
 
     expect(await screen.findByText('未找到可恢复记忆')).toBeInTheDocument();
     expect(screen.queryByText(/Read the AgentDock restore context file/)).not.toBeInTheDocument();
   });
 
-  it('closes an exited session from the action bar', async () => {
+  it('keeps an exited session available without exposing a close-view action', async () => {
     const api = installAgentDockApi({
       listSessions: vi.fn().mockResolvedValue([
         {
@@ -1236,10 +1333,8 @@ describe('AgentDock session launch flow', () => {
 
     expect(await screen.findByText('会话已退出 · exit code 0')).toBeInTheDocument();
     const exitStatus = screen.getByRole('status', { name: '会话退出状态' });
-    fireEvent.click(within(exitStatus).getByRole('button', { name: '关闭视图' }));
-    await waitFor(() => {
-      expect(api.closeSessionView).toHaveBeenCalledWith({ sessionId: 'session-1', viewId: 'main-window' });
-    });
+    expect(within(exitStatus).queryByRole('button', { name: '关闭视图' })).not.toBeInTheDocument();
+    expect(api.closeSessionView).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /^Claude A · AgentDock$/ })).toBeInTheDocument();
   });
 
@@ -1519,7 +1614,7 @@ describe('AgentDock session launch flow', () => {
 
     fireEvent.change(await screen.findByLabelText('选择 API 配置'), { target: { value: 'codex-b' } });
     fireEvent.change(screen.getByLabelText('选择工作区'), { target: { value: 'workspace-b' } });
-    fireEvent.click(screen.getByRole('button', { name: '启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -1559,7 +1654,7 @@ describe('AgentDock session launch flow', () => {
 
     expect(screen.queryByLabelText('选择启动命令')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -1597,7 +1692,7 @@ describe('AgentDock session launch flow', () => {
     expect(screen.getByLabelText('选择工作区')).toHaveValue('workspace-docs');
     expect(screen.getByLabelText('选择工作区')).toHaveTextContent('Docs');
 
-    fireEvent.click(screen.getByRole('button', { name: '启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -2247,7 +2342,7 @@ describe('AgentDock session launch flow', () => {
     expect(document.body).not.toHaveTextContent(secret);
   });
 
-  it('can close a running session view through IPC while keeping the record in the library', async () => {
+  it('keeps a running session visible without exposing a close-view action', async () => {
     const api = installAgentDockApi({
       listSessions: vi.fn().mockResolvedValue([
         {
@@ -2276,16 +2371,13 @@ describe('AgentDock session launch flow', () => {
 
     expect(await screen.findByRole('button', { name: /^Claude A · AgentDock$/ })).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Claude A · AgentDock 更多操作'));
-    fireEvent.click(screen.getByRole('button', { name: '关闭视图' }));
-
-    await waitFor(() => {
-      expect(api.closeSessionView).toHaveBeenCalledWith({ sessionId: 'session-1', viewId: 'main-window' });
-    });
+    expect(screen.queryByRole('button', { name: '关闭视图' })).not.toBeInTheDocument();
+    expect(api.closeSessionView).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: /^Claude A · AgentDock$/ })).toBeInTheDocument();
-    expect(screen.getByLabelText('终端输出')).toHaveAttribute('data-session-id', '');
+    expect(screen.getByLabelText('终端输出')).toHaveAttribute('data-session-id', 'session-1');
   });
 
-  it('does not reopen a terminal view from session change events after the user closes the view', async () => {
+  it('keeps the current terminal visible when its session receives a change event', async () => {
     let sessionChangedListener: ((session: AgentSession) => void) | undefined;
     const closedSession: AgentSession = {
       id: 'session-1',
@@ -2312,17 +2404,14 @@ describe('AgentDock session launch flow', () => {
 
     expect(await screen.findByRole('button', { name: /^Claude A · AgentDock$/ })).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Claude A · AgentDock 更多操作'));
-    fireEvent.click(screen.getByRole('button', { name: '关闭视图' }));
-
-    await waitFor(() => {
-      expect(api.closeSessionView).toHaveBeenCalledWith({ sessionId: 'session-1', viewId: 'main-window' });
-    });
+    expect(screen.queryByRole('button', { name: '关闭视图' })).not.toBeInTheDocument();
+    expect(api.closeSessionView).not.toHaveBeenCalled();
     await act(async () => {
       sessionChangedListener?.(closedSession);
     });
 
     expect(screen.getByRole('button', { name: /^Claude A · AgentDock$/ })).toBeInTheDocument();
-    expect(screen.getByLabelText('终端输出')).toHaveAttribute('data-session-id', '');
+    expect(screen.getByLabelText('终端输出')).toHaveAttribute('data-session-id', 'session-1');
   });
 
   it('can delete a profile after confirmation', async () => {
@@ -2475,7 +2564,7 @@ describe('AgentDock session launch flow', () => {
     expect(checkbox).toBeChecked();
 
     fireEvent.click(await screen.findByRole('button', { name: '返回终端工作台' }));
-    fireEvent.click(screen.getByRole('button', { name: '启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -2701,7 +2790,7 @@ describe('AgentDock session launch flow', () => {
     expect(checkbox).not.toBeChecked();
 
     fireEvent.click(await screen.findByRole('button', { name: '返回终端工作台' }));
-    fireEvent.click(screen.getByRole('button', { name: '启动' }));
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -2898,6 +2987,174 @@ describe('AgentDock session launch flow', () => {
     expect(screen.queryByLabelText('ANTHROPIC_BETAS')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('HTTPS_PROXY')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('HTTP_PROXY')).not.toBeInTheDocument();
+  });
+
+  it.each(['stopped', 'exited'] as const)(
+    'offers explicit resume and fresh restart actions for a %s session',
+    async (sessionStatus) => {
+      const stoppedSession: AgentSession = {
+        id: 'session-1',
+        title: 'Claude A · AgentDock',
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude',
+        status: sessionStatus,
+        startedAt: '2026-07-02T00:00:00.000Z',
+      };
+      const api = installAgentDockApi({
+        listSessions: vi.fn().mockResolvedValue([stoppedSession]),
+        restartSession: vi.fn().mockResolvedValue(stoppedSession),
+      });
+
+      render(<App />);
+
+      await screen.findByRole('heading', { name: 'Claude A · AgentDock' });
+      const resumeButton = screen.getByRole('button', { name: '继续上次对话' });
+      const freshRestartButton = screen.getByRole('button', { name: '按原配置重新开始' });
+      expect(screen.queryByText('关闭视图')).not.toBeInTheDocument();
+
+      fireEvent.click(resumeButton);
+      await waitFor(() => {
+        expect(api.restartSession).toHaveBeenCalledWith({
+          sessionId: 'session-1',
+          strategy: 'resume',
+        });
+      });
+
+      fireEvent.click(freshRestartButton);
+      await waitFor(() => {
+        expect(api.restartSession).toHaveBeenCalledWith({
+          sessionId: 'session-1',
+          strategy: 'fresh',
+        });
+      });
+    },
+  );
+
+  it('removes the close-view operation from the user-visible session menu', async () => {
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Claude A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude',
+          status: 'running',
+          startedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    await screen.findByRole('heading', { name: 'Claude A · AgentDock' });
+    fireEvent.click(screen.getByLabelText('更多会话操作'));
+
+    expect(screen.queryByText('关闭视图')).not.toBeInTheDocument();
+  });
+
+  it('resizes and resets the session library with pointer and keyboard controls', async () => {
+    render(<App />);
+
+    await screen.findByRole('navigation', { name: '会话库' });
+    const separator = screen.getByRole('separator', { name: '调整会话库宽度' });
+    const defaultWidth = Number(separator.getAttribute('aria-valuenow'));
+    expect(Number.isFinite(defaultWidth)).toBe(true);
+
+    fireEvent.mouseDown(separator, { clientX: 240 });
+    fireEvent.mouseMove(document, { clientX: 320 });
+    fireEvent.mouseUp(document);
+    const expandedWidth = Number(separator.getAttribute('aria-valuenow'));
+    expect(expandedWidth).toBeGreaterThan(defaultWidth);
+
+    fireEvent.mouseDown(separator, { clientX: 320 });
+    fireEvent.mouseMove(document, { clientX: 200 });
+    fireEvent.mouseUp(document);
+    expect(Number(separator.getAttribute('aria-valuenow'))).toBeLessThan(expandedWidth);
+
+    fireEvent.keyDown(separator, { key: 'End' });
+    expect(separator).toHaveAttribute('aria-valuenow', separator.getAttribute('aria-valuemax'));
+    fireEvent.keyDown(separator, { key: 'ArrowLeft' });
+    expect(Number(separator.getAttribute('aria-valuenow'))).toBeLessThan(
+      Number(separator.getAttribute('aria-valuemax')),
+    );
+    fireEvent.keyDown(separator, { key: 'Home' });
+    expect(separator).toHaveAttribute('aria-valuenow', separator.getAttribute('aria-valuemin'));
+    fireEvent.keyDown(separator, { key: 'ArrowRight' });
+    expect(Number(separator.getAttribute('aria-valuenow'))).toBeGreaterThan(
+      Number(separator.getAttribute('aria-valuemin')),
+    );
+
+    fireEvent.doubleClick(separator);
+    expect(separator).toHaveAttribute('aria-valuenow', String(defaultWidth));
+  });
+
+  it('resizes and resets the project panel in both directions', () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: '展开项目面板' }));
+
+    const separator = screen.getByRole('separator', { name: '调整项目面板宽度' });
+    const defaultWidth = Number(separator.getAttribute('aria-valuenow'));
+    expect(Number.isFinite(defaultWidth)).toBe(true);
+
+    fireEvent.mouseDown(separator, { clientX: 1000 });
+    fireEvent.mouseMove(document, { clientX: 900 });
+    fireEvent.mouseUp(document);
+    const expandedWidth = Number(separator.getAttribute('aria-valuenow'));
+    expect(expandedWidth).toBeGreaterThan(defaultWidth);
+
+    fireEvent.mouseDown(separator, { clientX: 900 });
+    fireEvent.mouseMove(document, { clientX: 1050 });
+    fireEvent.mouseUp(document);
+    expect(Number(separator.getAttribute('aria-valuenow'))).toBeLessThan(expandedWidth);
+
+    fireEvent.keyDown(separator, { key: 'End' });
+    expect(separator).toHaveAttribute('aria-valuenow', separator.getAttribute('aria-valuemax'));
+    fireEvent.keyDown(separator, { key: 'ArrowRight' });
+    expect(Number(separator.getAttribute('aria-valuenow'))).toBeLessThan(
+      Number(separator.getAttribute('aria-valuemax')),
+    );
+    fireEvent.keyDown(separator, { key: 'Home' });
+    expect(separator).toHaveAttribute('aria-valuenow', separator.getAttribute('aria-valuemin'));
+    fireEvent.keyDown(separator, { key: 'ArrowLeft' });
+    expect(Number(separator.getAttribute('aria-valuenow'))).toBeGreaterThan(
+      Number(separator.getAttribute('aria-valuemin')),
+    );
+
+    fireEvent.doubleClick(separator);
+    expect(separator).toHaveAttribute('aria-valuenow', String(defaultWidth));
+  });
+
+  it('keeps session details and the project panel mutually exclusive', async () => {
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Claude A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'claude',
+          status: 'running',
+          startedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    await screen.findByRole('heading', { name: 'Claude A · AgentDock' });
+    const sessionDetailsButton = screen.getByRole('button', { name: /会话详情/ });
+    fireEvent.click(screen.getByRole('button', { name: '展开项目面板' }));
+    expect(screen.getByRole('complementary', { name: '项目面板' })).toHaveClass('open');
+
+    fireEvent.click(sessionDetailsButton);
+    expect(sessionDetailsButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('complementary', { name: '项目面板' })).toHaveClass('collapsed');
+
+    fireEvent.click(screen.getByRole('button', { name: '展开项目面板' }));
+    expect(sessionDetailsButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('complementary', { name: '项目面板' })).toHaveClass('open');
   });
 
 });

@@ -1,6 +1,12 @@
-import { access, appendFile, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentSession, Workspace } from '../shared/agentdockTypes.js';
+import {
+  appendPrivateFile,
+  ensurePrivateDirectory,
+  ensurePrivateFile,
+  writePrivateFileAtomically,
+} from './privateFileSystem.js';
 import { redactSecrets } from './secretRedaction.js';
 
 const RECENT_OUTPUT_LIMIT = 40_000;
@@ -126,7 +132,8 @@ export function createWorkspaceContextStore(
   }): Promise<WorkspaceContextFiles> {
     const files = contextFiles(input.workspace, input.session.id);
     await enqueue(input.workspace.path, async () => {
-      await mkdir(path.join(input.workspace.path, ...TRANSCRIPT_DIR_PARTS), { recursive: true });
+      await ensureWorkspaceContextDirectories(input.workspace.path);
+      await ensurePrivateDirectory(path.join(input.workspace.path, ...TRANSCRIPT_DIR_PARTS));
       await ensureGitExcluded(input.workspace);
 
       const index = await readIndex(input.workspace, clock.now().toISOString());
@@ -159,7 +166,10 @@ export function createWorkspaceContextStore(
         sessions,
       });
 
-      await writeFile(files.sessionTranscriptFile, transcriptHeader(input.session), 'utf-8');
+      await writePrivateFileAtomically(
+        files.sessionTranscriptFile,
+        transcriptHeader(input.session),
+      );
       await rebuildSharedContext(input.workspace);
     });
     return files;
@@ -172,8 +182,9 @@ export function createWorkspaceContextStore(
   }): Promise<void> {
     const files = contextFiles(input.workspace, input.sessionId);
     await enqueue(input.workspace.path, async () => {
-      await mkdir(path.dirname(files.sessionTranscriptFile), { recursive: true });
-      await appendFile(files.sessionTranscriptFile, redactSecrets(input.data), 'utf-8');
+      await ensureWorkspaceContextDirectories(input.workspace.path);
+      await ensurePrivateDirectory(path.dirname(files.sessionTranscriptFile));
+      await appendPrivateFile(files.sessionTranscriptFile, redactSecrets(input.data));
       const fileStat = await stat(files.sessionTranscriptFile);
       if (fileStat.size > MAX_SESSION_TRANSCRIPT_BYTES) {
         await rollFileToTail(files.sessionTranscriptFile, SESSION_TRANSCRIPT_KEEP_BYTES);
@@ -184,6 +195,8 @@ export function createWorkspaceContextStore(
 
   async function readSharedContext(workspace: Workspace): Promise<{ filePath: string; content: string }> {
     const sharedContextFile = path.join(workspace.path, ...CONTEXT_DIR_PARTS, 'shared-context.md');
+    await ensureWorkspaceContextDirectories(workspace.path);
+    await ensurePrivateFile(sharedContextFile);
     return {
       filePath: sharedContextFile,
       content: await readFile(sharedContextFile, 'utf-8'),
@@ -223,8 +236,11 @@ export function createWorkspaceContextStore(
     await writeIndex(workspace, index);
 
     const sharedContextFile = path.join(workspace.path, ...CONTEXT_DIR_PARTS, 'shared-context.md');
-    await mkdir(path.dirname(sharedContextFile), { recursive: true });
-    await writeFile(sharedContextFile, await sharedContextMarkdown(workspace, index), 'utf-8');
+    await ensureWorkspaceContextDirectories(workspace.path);
+    await writePrivateFileAtomically(
+      sharedContextFile,
+      await sharedContextMarkdown(workspace, index),
+    );
   }
 
   async function sharedContextMarkdown(workspace: Workspace, index: ContextIndex): Promise<string> {
@@ -240,6 +256,7 @@ export function createWorkspaceContextStore(
             `${safeContextFileName(session.sessionId)}.md`,
           );
           try {
+            await ensurePrivateFile(summaryPath);
             return {
               sessionId: session.sessionId,
               content: await readFile(summaryPath, 'utf-8'),
@@ -370,6 +387,8 @@ async function readIndex(workspace: Workspace, updatedAt: string): Promise<Conte
     sessions: [],
   };
   try {
+    await ensureWorkspaceContextDirectories(workspace.path);
+    await ensurePrivateFile(indexPath);
     return JSON.parse(await readFile(indexPath, 'utf-8')) as ContextIndex;
   } catch (error) {
     if (isNodeError(error) && error.code === 'ENOENT') {
@@ -386,10 +405,15 @@ async function readIndex(workspace: Workspace, updatedAt: string): Promise<Conte
 
 async function writeIndex(workspace: Workspace, index: ContextIndex): Promise<void> {
   const indexPath = path.join(workspace.path, ...CONTEXT_DIR_PARTS, 'index.json');
-  await mkdir(path.dirname(indexPath), { recursive: true });
-  const tempPath = `${indexPath}.tmp`;
-  await writeFile(tempPath, `${JSON.stringify(index, null, 2)}\n`, 'utf-8');
-  await rename(tempPath, indexPath);
+  await ensureWorkspaceContextDirectories(workspace.path);
+  await writePrivateFileAtomically(indexPath, `${JSON.stringify(index, null, 2)}\n`);
+}
+
+async function ensureWorkspaceContextDirectories(workspacePath: string): Promise<void> {
+  const agentDockDirectory = path.join(workspacePath, '.agentdock');
+  const contextDirectory = path.join(agentDockDirectory, 'context');
+  await ensurePrivateDirectory(agentDockDirectory);
+  await ensurePrivateDirectory(contextDirectory);
 }
 
 function indexSession(session: AgentSession): ContextIndexSession {
@@ -433,6 +457,7 @@ function utf8SafeStart(buffer: Buffer): Buffer {
 }
 
 async function readFileTail(filePath: string, maxBytes: number): Promise<string> {
+  await ensurePrivateFile(filePath);
   const handle = await open(filePath, 'r');
   try {
     const fileStat = await handle.stat();
@@ -447,7 +472,5 @@ async function readFileTail(filePath: string, maxBytes: number): Promise<string>
 
 async function rollFileToTail(filePath: string, keepBytes: number): Promise<void> {
   const kept = await readFileTail(filePath, keepBytes);
-  const rollPath = `${filePath}.roll`;
-  await writeFile(rollPath, kept, 'utf-8');
-  await rename(rollPath, filePath);
+  await writePrivateFileAtomically(filePath, kept);
 }

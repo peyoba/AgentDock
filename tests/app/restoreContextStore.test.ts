@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -7,7 +7,12 @@ import {
   createRestoreContextStore,
   summarizeRestoreMemory,
 } from '../../src/main/restoreContextStore';
+import { registerKnownSecret } from '../../src/main/secretRedaction';
 import type { AgentSession } from '../../src/shared/agentdockTypes';
+
+async function readPosixMode(targetPath: string): Promise<number> {
+  return (await stat(targetPath)).mode & 0o777;
+}
 
 const session: AgentSession = {
   id: 'session-w1-12',
@@ -20,6 +25,56 @@ const session: AgentSession = {
 };
 
 describe('restoreContextStore', () => {
+  it('creates private restore paths and heals legacy permissions without changing contents', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restore-permissions-'));
+    const workspacePath = path.join(tempDir, 'workspace');
+    const store = createRestoreContextStore();
+
+    try {
+      const result = await store.writeRestoreContext({
+        workspacePath,
+        session,
+        summaryMarkdown: '# AgentDock Session Summary\n\n## Current Goal\nVerify private restore storage.',
+        transcriptTail: 'permission contract transcript tail',
+      });
+      const contextFilePath = result.contextFile as string;
+      const privateDirectoryPaths = [
+        path.join(workspacePath, '.agentdock'),
+        path.join(workspacePath, '.agentdock/context'),
+        path.join(workspacePath, '.agentdock/context/restores'),
+      ];
+      const newDirectoryModes = await Promise.all(privateDirectoryPaths.map(readPosixMode));
+      const newFileMode = await readPosixMode(contextFilePath);
+      const contentsBeforeHealing = await readFile(contextFilePath, 'utf-8');
+
+      await Promise.all(privateDirectoryPaths.map((directoryPath) => chmod(directoryPath, 0o755)));
+      await chmod(contextFilePath, 0o644);
+      const rewrittenResult = await store.writeRestoreContext({
+        workspacePath,
+        session,
+        summaryMarkdown: '# AgentDock Session Summary\n\n## Current Goal\nVerify private restore storage.',
+        transcriptTail: 'permission contract transcript tail',
+      });
+
+      expect(rewrittenResult.contextFile).toBe(contextFilePath);
+      expect({
+        newDirectoryModes,
+        newFileMode,
+        healedDirectoryModes: await Promise.all(privateDirectoryPaths.map(readPosixMode)),
+        healedFileMode: await readPosixMode(contextFilePath),
+        contentsPreserved: (await readFile(contextFilePath, 'utf-8')) === contentsBeforeHealing,
+      }).toEqual({
+        newDirectoryModes: [0o700, 0o700, 0o700],
+        newFileMode: 0o600,
+        healedDirectoryModes: [0o700, 0o700, 0o700],
+        healedFileMode: 0o600,
+        contentsPreserved: true,
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('writes a redacted restore context file and returns a short instruction', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restore-context-store-'));
     const workspacePath = path.join(tempDir, 'workspace');
@@ -60,6 +115,27 @@ describe('restoreContextStore', () => {
       expect(content).toContain('[REDACTED]');
       expect(result.instruction).not.toContain('用户确认采用分层记忆恢复');
       expect(result.instruction).not.toContain('OPENAI_API_KEY');
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('redacts registered provider secrets with arbitrary formats', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restore-known-secret-'));
+    const providerSecret = 'provider.private/credential:Zx91-restore';
+    registerKnownSecret(providerSecret);
+
+    try {
+      const store = createRestoreContextStore();
+      const result = await store.writeRestoreContext({
+        workspacePath: tempDir,
+        session,
+        transcriptTail: `Authentication succeeded with token ${providerSecret}`,
+      });
+
+      const content = await readFile(result.contextFile as string, 'utf-8');
+      expect(content).not.toContain(providerSecret);
+      expect(content).toContain('[REDACTED]');
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

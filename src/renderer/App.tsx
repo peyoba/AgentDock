@@ -11,7 +11,7 @@ import { SessionLibrary } from './components/SessionLibrary';
 import { TerminalPane } from './components/TerminalPane';
 import { defaultApiProfiles } from '../shared/defaultApiProfiles';
 import { sessionStatusLabel } from '../shared/sessionStatusLabels';
-import { terminalOutputToPlainText } from '../shared/terminalText';
+import { readableSessionHistory, terminalOutputToPlainText } from '../shared/terminalText';
 import type {
   AgentSession,
   AppBuildInfo,
@@ -75,6 +75,14 @@ const fallbackBuildInfo: AppBuildInfo = {
   commitShort: 'unknown',
   dirty: false,
 };
+
+const SESSION_LIBRARY_DEFAULT_WIDTH = 260;
+const SESSION_LIBRARY_MIN_WIDTH = 220;
+const SESSION_LIBRARY_MAX_WIDTH = 420;
+const PROJECT_PANEL_DEFAULT_WIDTH = 360;
+const PROJECT_PANEL_MIN_WIDTH = 280;
+const PROJECT_PANEL_MAX_WIDTH = 520;
+const PANEL_KEYBOARD_RESIZE_STEP = 10;
 
 function defaultCommandFor(profile?: ApiProfile): string {
   if (profile?.toolType === 'codex') {
@@ -184,21 +192,24 @@ function claudeLaunchModeForSession(
 }
 
 function isRecoverableSession(session: AgentSession | undefined): session is AgentSession {
-  return session?.status === 'exited' || session?.status === 'interrupted' || session?.status === 'failed';
+  return (
+    session?.status === 'stopped' ||
+    session?.status === 'exited' ||
+    session?.status === 'interrupted' ||
+    session?.status === 'failed'
+  );
 }
 
 function SessionRecoveryBar({
   session,
   onResume,
-  onRestart,
+  onFreshRestart,
   onCopyOutput,
-  onClose,
 }: {
   session: AgentSession;
-  onResume?(command: string): void;
-  onRestart(): void;
+  onResume(): void;
+  onFreshRestart(): void;
   onCopyOutput(): void;
-  onClose(): void;
 }): React.JSX.Element {
   const isErrorExit = session.status === 'exited' && session.exitCode !== 0;
 
@@ -210,19 +221,14 @@ function SessionRecoveryBar({
     >
       <span>{inactiveSessionLabel(session)}</span>
       <div className="session-exit-actions">
-        {session.resumeCommand ? (
-          <button type="button" onClick={() => onResume?.(session.resumeCommand as string)}>
-            恢复会话
-          </button>
-        ) : null}
-        <button type="button" onClick={onRestart}>
-          重新启动
+        <button type="button" onClick={onResume}>
+          继续上次对话
+        </button>
+        <button type="button" onClick={onFreshRestart}>
+          按原配置重新开始
         </button>
         <button type="button" onClick={onCopyOutput}>
           复制输出
-        </button>
-        <button type="button" onClick={onClose}>
-          关闭视图
         </button>
       </div>
     </div>
@@ -307,10 +313,27 @@ function SessionMemoryRestoreBar({
 
 export default function App(): React.JSX.Element {
   const api = typeof window === 'undefined' ? undefined : window.agentDock;
+  const rendererProtocol = typeof window === 'undefined' ? '' : window.location.protocol;
+  const isPackagedRenderer = rendererProtocol === 'file:';
+  if (!api && isPackagedRenderer) {
+    return (
+      <main className="app-shell">
+        <section role="alert" className="launch-error">
+          AgentDock 主进程连接失败，请重新启动应用。若问题持续，请重新安装当前版本。
+        </section>
+      </main>
+    );
+  }
+
   const [activePage, setActivePage] = React.useState<ActivePage>('workbench');
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [projectPanelOpen, setProjectPanelOpen] = React.useState(false);
-  const [projectPanelWidth, setProjectPanelWidth] = React.useState(360);
+  const [sessionLibraryWidth, setSessionLibraryWidth] = React.useState(
+    SESSION_LIBRARY_DEFAULT_WIDTH,
+  );
+  const [projectPanelWidth, setProjectPanelWidth] = React.useState(
+    PROJECT_PANEL_DEFAULT_WIDTH,
+  );
   const [profiles, setProfiles] = React.useState<ApiProfile[]>(api ? [] : fallbackProfiles);
   const [workspaces, setWorkspaces] = React.useState<Workspace[]>(api ? [] : fallbackWorkspaces);
   const [sessions, setSessions] = React.useState<AgentSession[]>(api ? [] : fallbackSessions);
@@ -332,14 +355,17 @@ export default function App(): React.JSX.Element {
   const [activeSessionId, setActiveSessionId] = React.useState<string | undefined>(
     api ? undefined : fallbackSessions[0]?.id,
   );
-  const [launching, setLaunching] = React.useState(false);
+  const [pendingLaunchCount, setPendingLaunchCount] = React.useState(0);
+  const launching = pendingLaunchCount > 0;
   const [launchError, setLaunchError] = React.useState<string | null>(null);
   const [actionStatus, setActionStatus] = React.useState<string | null>(null);
   const [contextPressureBySessionId, setContextPressureBySessionId] = React.useState<
     Record<string, SessionContextPressureResult>
   >({});
   const [summaryHandoffPrompt, setSummaryHandoffPrompt] = React.useState<string | undefined>();
-  const [pendingMemoryRestoreSessionId, setPendingMemoryRestoreSessionId] = React.useState<string | undefined>();
+  const [pendingMemoryRestoreSessionIds, setPendingMemoryRestoreSessionIds] = React.useState<
+    ReadonlySet<string>
+  >(() => new Set<string>());
   const [sessionMenuOpen, setSessionMenuOpen] = React.useState(false);
   const [dismissedRestoreSessionIds, setDismissedRestoreSessionIds] = React.useState<ReadonlySet<string>>(
     () => new Set<string>(),
@@ -381,10 +407,18 @@ export default function App(): React.JSX.Element {
         }
         setProfiles(nextProfiles);
         setWorkspaces(nextWorkspaces);
-        setSessions(nextSessions);
+        // 初始化请求可能晚于实时 session 事件返回；当前状态中的事件版本优先。
+        setSessions((current) => {
+          const mergedSessions = current.reduce(
+            (mergedSessions, currentSession) => upsertSession(mergedSessions, currentSession),
+            nextSessions,
+          );
+          sessionsRef.current = mergedSessions;
+          return mergedSessions;
+        });
         setSelectedProfileId((current) => current ?? nextProfiles[0]?.id);
         setSelectedWorkspaceId((current) => current ?? nextWorkspaces[0]?.id);
-        setActiveSessionId((current) => current ?? nextSessions[0]?.id);
+        setActiveSessionId((current) => current ?? sessionsRef.current[0]?.id);
       })
       .catch((error: unknown) => {
         if (!cancelled) {
@@ -438,7 +472,11 @@ export default function App(): React.JSX.Element {
     }
 
     return api.onSessionChanged((session) => {
-      setSessions((current) => upsertSession(current, session));
+      setSessions((current) => {
+        const nextSessions = upsertSession(current, session);
+        sessionsRef.current = nextSessions;
+        return nextSessions;
+      });
     });
   }, [api]);
 
@@ -454,7 +492,9 @@ export default function App(): React.JSX.Element {
     activeSession,
     activeSessionProfile,
   );
-  const visibleActionStatus = pendingMemoryRestoreSessionId ? '正在重新启动会话...' : actionStatus;
+  const visibleActionStatus = pendingMemoryRestoreSessionIds.size > 0
+    ? '正在重新启动会话...'
+    : actionStatus;
   // 需求约定：同一工作区目录被多个运行中的会话共享时给轻量提示（不是错误）。
   const sharedWorkspaceSessionCount = activeSession
     ? sessions.filter(
@@ -551,7 +591,7 @@ export default function App(): React.JSX.Element {
       return session;
     }
 
-    setLaunching(true);
+    setPendingLaunchCount((current) => current + 1);
     setLaunchError(null);
     setActionStatus(null);
     try {
@@ -563,7 +603,7 @@ export default function App(): React.JSX.Element {
       setLaunchError(safeLaunchError(error));
       return undefined;
     } finally {
-      setLaunching(false);
+      setPendingLaunchCount((current) => Math.max(0, current - 1));
     }
   };
 
@@ -575,7 +615,7 @@ export default function App(): React.JSX.Element {
       return undefined;
     }
 
-    setLaunching(true);
+    setPendingLaunchCount((current) => current + 1);
     setLaunchError(null);
     setActionStatus(null);
     try {
@@ -602,36 +642,29 @@ export default function App(): React.JSX.Element {
       setLaunchError(safeLaunchError(error));
       return undefined;
     } finally {
-      setLaunching(false);
+      setPendingLaunchCount((current) => Math.max(0, current - 1));
     }
   };
 
   const restartSessionInPlace = async (
     sourceSession: AgentSession,
-    command?: string,
+    strategy: RestartSessionRequest['strategy'],
   ): Promise<AgentSession | undefined> => {
     if (!api) {
       return undefined;
     }
 
-    setLaunching(true);
+    setPendingLaunchCount((current) => current + 1);
     setLaunchError(null);
-    setPendingMemoryRestoreSessionId(sourceSession.id);
+    if (strategy === 'resume') {
+      setPendingMemoryRestoreSessionIds((current) => new Set(current).add(sourceSession.id));
+    }
     setActionStatus('正在重新启动会话...');
     try {
-      const sourceProfile = profiles.find((profile) => profile.id === sourceSession.profileId);
       const restartRequest: RestartSessionRequest = {
         sessionId: sourceSession.id,
-        command,
+        strategy,
       };
-      const sourceLaunchMode = claudeLaunchModeForSession(
-        sourceSession,
-        sourceProfile,
-        claudeLaunchMode,
-      );
-      if (sourceLaunchMode) {
-        restartRequest.claudeLaunchMode = sourceLaunchMode;
-      }
 
       const session = await api.restartSession(restartRequest);
       setSessions((current) => upsertSession(current, session));
@@ -642,8 +675,12 @@ export default function App(): React.JSX.Element {
       setLaunchError(safeLaunchError(error));
       return undefined;
     } finally {
-      setPendingMemoryRestoreSessionId(undefined);
-      setLaunching(false);
+      setPendingMemoryRestoreSessionIds((current) => {
+        const nextSessionIds = new Set(current);
+        nextSessionIds.delete(sourceSession.id);
+        return nextSessionIds;
+      });
+      setPendingLaunchCount((current) => Math.max(0, current - 1));
     }
   };
 
@@ -654,7 +691,9 @@ export default function App(): React.JSX.Element {
 
     try {
       const output = await api.readTerminalBuffer({ sessionId });
-      await navigator.clipboard?.writeText(output);
+      const session = sessionsRef.current.find((candidate) => candidate.id === sessionId);
+      const copiedOutput = isLiveSession(session) ? output : readableSessionHistory(output);
+      await navigator.clipboard?.writeText(copiedOutput);
       setActionStatus('输出已复制');
     } catch (error) {
       setLaunchError(safeLaunchError(error));
@@ -765,7 +804,7 @@ export default function App(): React.JSX.Element {
       return;
     }
 
-    await restartSessionInPlace(session, session.resumeCommand ?? session.command);
+    await restartSessionInPlace(session, 'resume');
   };
 
   const archiveSession = async (sessionId: string): Promise<void> => {
@@ -942,8 +981,53 @@ export default function App(): React.JSX.Element {
   }, [api]);
 
   // 拖拽期间组件卸载时兜底移除 window 监听器。
+  const sessionLibraryResizeCleanupRef = React.useRef<(() => void) | null>(null);
   const projectPanelResizeCleanupRef = React.useRef<(() => void) | null>(null);
-  React.useEffect(() => () => projectPanelResizeCleanupRef.current?.(), []);
+  React.useEffect(() => () => {
+    sessionLibraryResizeCleanupRef.current?.();
+    projectPanelResizeCleanupRef.current?.();
+  }, []);
+
+  const startSessionLibraryResize = (event: React.MouseEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sessionLibraryWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent): void => {
+      const nextWidth = startWidth + moveEvent.clientX - startX;
+      setSessionLibraryWidth(
+        Math.min(SESSION_LIBRARY_MAX_WIDTH, Math.max(SESSION_LIBRARY_MIN_WIDTH, nextWidth)),
+      );
+    };
+    const stopResize = (): void => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', stopResize);
+      sessionLibraryResizeCleanupRef.current = null;
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', stopResize);
+    sessionLibraryResizeCleanupRef.current = stopResize;
+  };
+
+  const resizeSessionLibraryFromKeyboard = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+  ): void => {
+    const requestedWidth = {
+      ArrowLeft: sessionLibraryWidth - PANEL_KEYBOARD_RESIZE_STEP,
+      ArrowRight: sessionLibraryWidth + PANEL_KEYBOARD_RESIZE_STEP,
+      Home: SESSION_LIBRARY_MIN_WIDTH,
+      End: SESSION_LIBRARY_MAX_WIDTH,
+    }[event.key];
+    if (requestedWidth === undefined) {
+      return;
+    }
+
+    event.preventDefault();
+    setSessionLibraryWidth(
+      Math.min(SESSION_LIBRARY_MAX_WIDTH, Math.max(SESSION_LIBRARY_MIN_WIDTH, requestedWidth)),
+    );
+  };
 
   const startProjectPanelResize = (event: React.MouseEvent<HTMLDivElement>): void => {
     event.preventDefault();
@@ -952,7 +1036,9 @@ export default function App(): React.JSX.Element {
 
     const onMouseMove = (moveEvent: MouseEvent): void => {
       const nextWidth = startWidth - (moveEvent.clientX - startX);
-      setProjectPanelWidth(Math.min(520, Math.max(280, nextWidth)));
+      setProjectPanelWidth(
+        Math.min(PROJECT_PANEL_MAX_WIDTH, Math.max(PROJECT_PANEL_MIN_WIDTH, nextWidth)),
+      );
     };
     const stopResize = (): void => {
       window.removeEventListener('mousemove', onMouseMove);
@@ -965,6 +1051,25 @@ export default function App(): React.JSX.Element {
     projectPanelResizeCleanupRef.current = stopResize;
   };
 
+  const resizeProjectPanelFromKeyboard = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+  ): void => {
+    const requestedWidth = {
+      ArrowLeft: projectPanelWidth + PANEL_KEYBOARD_RESIZE_STEP,
+      ArrowRight: projectPanelWidth - PANEL_KEYBOARD_RESIZE_STEP,
+      Home: PROJECT_PANEL_MIN_WIDTH,
+      End: PROJECT_PANEL_MAX_WIDTH,
+    }[event.key];
+    if (requestedWidth === undefined) {
+      return;
+    }
+
+    event.preventDefault();
+    setProjectPanelWidth(
+      Math.min(PROJECT_PANEL_MAX_WIDTH, Math.max(PROJECT_PANEL_MIN_WIDTH, requestedWidth)),
+    );
+  };
+
   return (
     <main className="app-shell">
       <AppHeader
@@ -974,7 +1079,10 @@ export default function App(): React.JSX.Element {
       {activePage === 'workbench' ? (
         <section
           className={projectPanelOpen ? 'workbench-layout project-open' : 'workbench-layout'}
-          style={{ '--project-panel-width': `${projectPanelWidth}px` } as React.CSSProperties}
+          style={{
+            '--session-library-width': `${sessionLibraryWidth}px`,
+            '--project-panel-width': `${projectPanelWidth}px`,
+          } as React.CSSProperties}
         >
           <SessionLibrary
             sessions={sessions}
@@ -982,13 +1090,24 @@ export default function App(): React.JSX.Element {
             workspaces={workspaces}
             activeSessionId={activeSessionId}
             buildInfo={buildInfo}
-            onNewSession={() => void launchSession()}
             onOpenSession={openSessionView}
             onContinueSession={(sessionId) => void continueSession(sessionId)}
-            onCloseView={(sessionId) => void closeSessionView(sessionId)}
             onStopSession={(sessionId) => void stopSession(sessionId)}
             onArchiveSession={(sessionId) => void archiveSession(sessionId)}
             onDeleteSession={(sessionId) => void deleteSession(sessionId)}
+          />
+          <div
+            className="session-library-resizer"
+            role="separator"
+            aria-label="调整会话库宽度"
+            aria-orientation="vertical"
+            aria-valuemin={SESSION_LIBRARY_MIN_WIDTH}
+            aria-valuemax={SESSION_LIBRARY_MAX_WIDTH}
+            aria-valuenow={sessionLibraryWidth}
+            tabIndex={0}
+            onMouseDown={startSessionLibraryResize}
+            onKeyDown={resizeSessionLibraryFromKeyboard}
+            onDoubleClick={() => setSessionLibraryWidth(SESSION_LIBRARY_DEFAULT_WIDTH)}
           />
           <div className="workbench-main">
             <CommandBar
@@ -1054,7 +1173,15 @@ export default function App(): React.JSX.Element {
                     <button
                       type="button"
                       className="details-toggle"
-                      onClick={() => setDetailsOpen((open) => !open)}
+                      aria-expanded={detailsOpen}
+                      onClick={() => {
+                        setDetailsOpen((open) => {
+                          if (!open) {
+                            setProjectPanelOpen(false);
+                          }
+                          return !open;
+                        });
+                      }}
                     >
                       会话详情 {detailsOpen ? '‹' : '›'}
                     </button>
@@ -1087,15 +1214,6 @@ export default function App(): React.JSX.Element {
                             type="button"
                             onClick={() => {
                               setSessionMenuOpen(false);
-                              void closeSessionView(activeSession.id);
-                            }}
-                          >
-                            关闭视图
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSessionMenuOpen(false);
                               void archiveSession(activeSession.id);
                             }}
                           >
@@ -1115,7 +1233,7 @@ export default function App(): React.JSX.Element {
                     ) : null}
                   </div>
                 </header>
-                {pendingMemoryRestoreSessionId === activeSessionId ? (
+                {activeSessionId && pendingMemoryRestoreSessionIds.has(activeSessionId) ? (
                   <div className="session-memory-restore" role="status" aria-label="记忆恢复状态">
                     <span>正在恢复记忆</span>
                   </div>
@@ -1137,10 +1255,15 @@ export default function App(): React.JSX.Element {
                 {isRecoverableSession(activeSession) ? (
                   <SessionRecoveryBar
                     session={activeSession}
-                    onResume={(command) => void restartSessionInPlace(activeSession, command)}
-                    onRestart={() => void restartSessionInPlace(activeSession, activeSession.command)}
+                    onResume={() => void restartSessionInPlace(
+                      activeSession,
+                      'resume',
+                    )}
+                    onFreshRestart={() => void restartSessionInPlace(
+                      activeSession,
+                      'fresh',
+                    )}
                     onCopyOutput={() => void copySessionOutput(activeSession.id)}
-                    onClose={() => void closeSessionView(activeSession.id)}
                   />
                 ) : null}
                 {activeSession && activeSessionSupportsSummary && contextPressureBySessionId[activeSession.id] ? (
@@ -1170,8 +1293,13 @@ export default function App(): React.JSX.Element {
               role="separator"
               aria-label="调整项目面板宽度"
               aria-orientation="vertical"
+              aria-valuemin={PROJECT_PANEL_MIN_WIDTH}
+              aria-valuemax={PROJECT_PANEL_MAX_WIDTH}
+              aria-valuenow={projectPanelWidth}
               tabIndex={0}
               onMouseDown={startProjectPanelResize}
+              onKeyDown={resizeProjectPanelFromKeyboard}
+              onDoubleClick={() => setProjectPanelWidth(PROJECT_PANEL_DEFAULT_WIDTH)}
             />
           ) : null}
           <aside
@@ -1192,7 +1320,10 @@ export default function App(): React.JSX.Element {
                 className="project-panel-rail"
                 aria-label="展开项目面板"
                 title="展开项目面板"
-                onClick={() => setProjectPanelOpen(true)}
+                onClick={() => {
+                  setDetailsOpen(false);
+                  setProjectPanelOpen(true);
+                }}
               >
                 项目
               </button>

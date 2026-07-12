@@ -3,6 +3,43 @@ import { createSessionService } from '../../src/main/sessionService';
 import type { KeychainAdapter } from '../../src/main/adapters/keychainAdapter';
 import type { PtyAdapter } from '../../src/main/adapters/ptyAdapter';
 import type { WorkspaceContextStore } from '../../src/main/workspaceContextStore';
+import type { SessionHistoryStore } from '../../src/main/stores/sessionHistoryStore';
+
+function deferred<Value>(): {
+  promise: Promise<Value>;
+  resolve(value: Value): void;
+} {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {
+    promise,
+    resolve: (value) => resolvePromise?.(value),
+  };
+}
+
+function createHistoryStore(
+  appendOutput: SessionHistoryStore['appendOutput'],
+): SessionHistoryStore {
+  return {
+    async listSessions() {
+      return [];
+    },
+    async saveSession() {},
+    async closeView() {},
+    async archiveSession() {},
+    async deleteRecord() {},
+    appendOutput,
+    async readBuffer() {
+      return '';
+    },
+    async deleteSession() {},
+    async archiveBuffer() {
+      return { filePath: '/tmp/archive.txt' };
+    },
+  };
+}
 
 function createTerminalRuntime() {
   const writes: string[] = [];
@@ -93,6 +130,65 @@ async function launchTestSession(service: ReturnType<typeof createSessionService
 }
 
 describe('sessionService terminal controls', () => {
+  it('retries an output batch after a transient history write failure', async () => {
+    const runtime = createTerminalRuntime();
+    const persistedBatches: string[] = [];
+    let appendAttempt = 0;
+    const historyStore = createHistoryStore(async (_sessionId, data) => {
+      appendAttempt += 1;
+      if (appendAttempt === 1) {
+        throw new Error('temporary disk failure');
+      }
+      persistedBatches.push(data);
+      return { limitReached: false };
+    });
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      historyStore,
+    });
+    await launchTestSession(service);
+
+    runtime.emit('first-output');
+    await Promise.resolve();
+    await Promise.resolve();
+    runtime.emit('second-output');
+    await service.dispose();
+
+    expect(persistedBatches.join('')).toBe('first-outputsecond-output');
+  });
+
+  it('waits for an in-flight history write before disposing the service', async () => {
+    const runtime = createTerminalRuntime();
+    const appendStarted = deferred<void>();
+    const allowAppend = deferred<{ limitReached: boolean }>();
+    const historyStore = createHistoryStore(async () => {
+      appendStarted.resolve();
+      return allowAppend.promise;
+    });
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      historyStore,
+    });
+    await launchTestSession(service);
+    runtime.emit('pending-output');
+    await appendStarted.promise;
+
+    let disposeFinished = false;
+    const disposePromise = service.dispose().then(() => {
+      disposeFinished = true;
+    });
+    await Promise.resolve();
+    expect(disposeFinished).toBe(false);
+
+    allowAppend.resolve({ limitReached: false });
+    await disposePromise;
+    expect(disposeFinished).toBe(true);
+  });
+
   it('routes terminal input, resize, output, and kill through the stored PTY session', async () => {
     const runtime = createTerminalRuntime();
     const contextOutput: Array<{ workspacePath: string; sessionId: string; data: string }> = [];
@@ -493,5 +589,55 @@ describe('sessionService process exit handling', () => {
 
     const session = await launchTestSession(service);
     expect(session.id).toBe('session-w7-1');
+  });
+});
+
+describe('sessionService canonical safe persistence stream', () => {
+  it('fans the same redacted cross-chunk output to history and workspace', async () => {
+    const runtime = createTerminalRuntime();
+    const historyOutput: string[] = [];
+    const workspaceOutput: string[] = [];
+    const historyStore = createHistoryStore(async (_sessionId, data) => {
+      historyOutput.push(data);
+      return { limitReached: false };
+    });
+    const workspaceContext: WorkspaceContextStore = {
+      async startSession() {
+        return {
+          contextDir: '/Users/example/Desktop/web/AgentDock/.agentdock/context',
+          sharedContextFile:
+            '/Users/example/Desktop/web/AgentDock/.agentdock/context/shared-context.md',
+          sessionTranscriptFile:
+            '/Users/example/Desktop/web/AgentDock/.agentdock/context/sessions/session-1.md',
+        };
+      },
+      async appendOutput({ data }) {
+        workspaceOutput.push(data);
+      },
+      async readSharedContext() {
+        return { filePath: '', content: '' };
+      },
+      async ensureGitExcluded() {},
+    };
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      historyStore,
+      workspaceContext,
+    });
+    await launchTestSession(service);
+
+    runtime.emit('before fake-secret-\u001b[3');
+    runtime.emit('1mfor-terminal\u001b[0m-control after');
+    await service.dispose();
+
+    const completeHistoryOutput = historyOutput.join('');
+    const completeWorkspaceOutput = workspaceOutput.join('');
+    expect(historyOutput).toEqual(workspaceOutput);
+    expect(completeHistoryOutput).toBe('before [REDACTED] after');
+    expect(completeWorkspaceOutput).toBe(completeHistoryOutput);
+    expect(completeHistoryOutput).not.toContain('fake-secret-for-terminal-control');
+    expect(completeHistoryOutput).not.toContain('\u001b');
   });
 });

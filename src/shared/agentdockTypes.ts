@@ -115,8 +115,11 @@ export type LaunchRequest = {
   claudeLaunchMode?: ClaudeLaunchMode;
 };
 
+export type RestartSessionStrategy = 'resume' | 'fresh';
+
 export type RestartSessionRequest = {
   sessionId: string;
+  strategy: RestartSessionStrategy;
   command?: string;
   claudeLaunchMode?: ClaudeLaunchMode;
 };

@@ -22,6 +22,7 @@
 | 2026-07-05 | macOS 打包使用本机自签名证书 `AgentDock Codesign`（脚本自动检测），不再 ad-hoc | ad-hoc 每次打包 cdhash 变化，TCC 反复弹桌面/文稿权限窗；稳定签名让授权持续有效 | 打包脚本、真机权限体验 |
 | 2026-07-05 | vault 密钥材料升级 v2：仅由固定字面量+用户名+home 目录组成，不再混入 hostname 和 vault 目录字符串；读取旧记录时自动用 legacy 材料解密并重加密回写（自愈） | hostname 随网络漂移（`设备名.local` ↔ 纯 IP）导致已存 Key 解不开（真机故障复盘：9 条记录分属两个历史 hostname）；vault 定位是本地混淆不追求防本机攻击者，稳定性优先 | 密钥存储、Session 启动可靠性 |
 | 2026-07-10 | 当前 macOS 本地打包继续使用 `@electron/packager` 的时间戳目录方案，构建信息的 dirty 状态覆盖整个 Git 工作区 | 现有路线已能稳定打出本机 arm64 包；发布候选必须能识别测试、文档、配置和未跟踪文件造成的不可复现状态 | 打包脚本、发布基线、构建追溯 |
+| 2026-07-11 | Claude compat proxy 仅允许作为 loopback、单 Session、Profile 显式开启的协议兼容适配器，不扩展自动路由、fallback、请求正文日志或 Gateway Dashboard | 明确区分当前必要的 Anthropic 协议改写与已拒绝的通用 API gateway，防止后续产品边界漂移 | compat proxy、Profile 配置、后续功能评审 |
 
 ## 已拒绝/避免方向
 

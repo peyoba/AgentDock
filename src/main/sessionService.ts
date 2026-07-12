@@ -6,6 +6,7 @@ import type {
   ClaudeLaunchMode,
   CloseSessionViewRequest,
   RuntimeOwner,
+  RestartSessionStrategy,
   SessionContextPressureRequest,
   SessionContextPressureResult,
   SessionHistoryArchiveRequest,
@@ -32,12 +33,24 @@ import {
 } from './claudeCompatProxy.js';
 import { estimateContextPressure } from './contextBudgetEstimator.js';
 import {
+  ensurePrivateDirectory as ensurePrivateDirectoryOnDisk,
+  writePrivateFileAtomically as writePrivateFileAtomicallyOnDisk,
+} from './privateFileSystem.js';
+import {
   createRestoreContextStore,
   type RestoreContextResult,
 } from './restoreContextStore.js';
 import { createSessionSummaryStore } from './sessionSummaryStore.js';
-import { sanitizePersistedTerminalOutput } from './terminalOutputSanitizer.js';
-import { redactSecrets, registerKnownSecret } from './secretRedaction.js';
+import {
+  createStreamingPersistenceSanitizer,
+  type StreamingPersistenceSanitizer,
+} from './streamingPersistenceSanitizer.js';
+import {
+  containsSensitiveCommandValue,
+  redactCommandSecrets,
+  redactSecrets,
+  registerKnownSecret,
+} from './secretRedaction.js';
 import type { SessionHistoryStore } from './stores/sessionHistoryStore.js';
 import {
   buildClaudeOptionalEnvironment,
@@ -63,6 +76,7 @@ type RestartSessionInput = {
   sessionId: string;
   profile: ApiProfile;
   workspace: Workspace;
+  strategy: RestartSessionStrategy;
   command?: string;
   claudeLaunchMode?: ClaudeLaunchMode;
 };
@@ -91,6 +105,8 @@ type CreateSessionServiceOptions = {
   homeDir?: string;
   ensureDirectory?: (directoryPath: string) => void | Promise<void>;
   writeTextFile?: (filePath: string, content: string) => void | Promise<void>;
+  ensurePrivateDirectory?: (directoryPath: string) => void | Promise<void>;
+  writePrivateTextFile?: (filePath: string, content: string) => void | Promise<void>;
   workspaceExists?: (workspacePath: string) => boolean;
   workspaceContext?: WorkspaceContextStore;
   historyStore?: SessionHistoryStore;
@@ -177,6 +193,26 @@ function defaultEnsureDirectory(directoryPath: string): void {
 
 function defaultWriteTextFile(filePath: string, content: string): void {
   fs.writeFileSync(filePath, content, 'utf-8');
+}
+
+function isPathInsideDirectory(candidatePath: string, directoryPath: string): boolean {
+  const relativePath = path.relative(path.resolve(directoryPath), path.resolve(candidatePath));
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+function isAgentDockManagedCodexHome({
+  codexHome,
+  appDataPath,
+  homeDir,
+}: {
+  codexHome: string;
+  appDataPath: string;
+  homeDir: string;
+}): boolean {
+  return [
+    path.join(appDataPath, 'codex-profiles'),
+    path.join(homeDir, '.agentdock', 'codex-profiles'),
+  ].some((managedRoot) => isPathInsideDirectory(codexHome, managedRoot));
 }
 
 function tomlString(value: string): string {
@@ -326,6 +362,8 @@ function normalizeOptions(
       homeDir,
       ensureDirectory: defaultEnsureDirectory,
       writeTextFile: defaultWriteTextFile,
+      ensurePrivateDirectory: ensurePrivateDirectoryOnDisk,
+      writePrivateTextFile: writePrivateFileAtomicallyOnDisk,
       workspaceExists: undefined,
       workspaceContext: undefined,
       historyStore: undefined,
@@ -350,6 +388,10 @@ function normalizeOptions(
     homeDir,
     ensureDirectory: options.ensureDirectory ?? defaultEnsureDirectory,
     writeTextFile: options.writeTextFile ?? defaultWriteTextFile,
+    ensurePrivateDirectory:
+      options.ensurePrivateDirectory ?? options.ensureDirectory ?? ensurePrivateDirectoryOnDisk,
+    writePrivateTextFile:
+      options.writePrivateTextFile ?? options.writeTextFile ?? writePrivateFileAtomicallyOnDisk,
     workspaceExists: options.workspaceExists,
     workspaceContext: options.workspaceContext,
     historyStore: options.historyStore,
@@ -437,6 +479,12 @@ function isLocalShellCommand(command: string): boolean {
   return shellName === 'zsh' || shellName === 'bash';
 }
 
+function assertSessionCommandHasNoSensitiveValues(command: string): void {
+  if (containsSensitiveCommandValue(command)) {
+    throw new Error('会话命令不得包含敏感凭证；请通过 API 配置保存密钥');
+  }
+}
+
 function isMacosProtectedUserFolderPath(workspacePath: string): boolean {
   return /^\/Users\/[^/]+\/(Desktop|Documents|Downloads)(\/|$)/.test(
     path.normalize(workspacePath),
@@ -464,6 +512,8 @@ export function createSessionService(
     homeDir,
     ensureDirectory,
     writeTextFile,
+    ensurePrivateDirectory,
+    writePrivateTextFile,
     workspaceExists,
     workspaceContext,
     historyStore,
@@ -481,8 +531,13 @@ export function createSessionService(
   const terminalBuffers = new Map<string, string>();
   const claudeCompatProxies = new Map<string, ClaudeCompatProxyInstance>();
   const workspacesBySessionId = new Map<string, Workspace>();
+  const persistenceSanitizers = new Map<string, StreamingPersistenceSanitizer>();
   const pendingHistoryOutput = new Map<string, string>();
   const historyOutputFlushes = new Map<string, Promise<void>>();
+  const pendingWorkspaceOutput = new Map<string, string>();
+  const workspaceOutputFlushes = new Map<string, Promise<void>>();
+  const sessionLifecycleFinalizations = new Map<string, Promise<void>>();
+  const metadataSavePromises = new Set<Promise<void>>();
   const restoreContextStore = createRestoreContextStore();
   const sessionSummaryStore = createSessionSummaryStore();
   const terminalOutputListeners = new Set<TerminalOutputListener>();
@@ -511,6 +566,11 @@ export function createSessionService(
       const persistedSessions = await historyStore?.listSessions() ?? [];
       for (const persistedSession of persistedSessions) {
         const session = { ...persistedSession };
+        const redactedCommand = redactCommandSecrets(session.command);
+        if (redactedCommand !== session.command) {
+          session.command = redactedCommand;
+          await saveSessionMetadata(session);
+        }
         if (session.status === 'running' || session.status === 'starting') {
           const activeOwner = runtimeOwnerRegistry.get(session.id);
           if (activeOwner) {
@@ -519,7 +579,7 @@ export function createSessionService(
           } else {
             session.status = 'interrupted';
             delete session.runtimeOwner;
-            await historyStore?.saveSession(session);
+            await saveSessionMetadata(session);
           }
         }
         sessions.push(session);
@@ -544,8 +604,24 @@ export function createSessionService(
     }
   };
 
-  const persistSession = (session: AgentSession): void => {
-    void historyStore?.saveSession(cloneSession(session)).catch(() => undefined);
+  const saveSessionMetadata = (session: AgentSession): Promise<void> => {
+    if (!historyStore) {
+      return Promise.resolve();
+    }
+
+    const savePromise = historyStore.saveSession(cloneSession(session));
+    metadataSavePromises.add(savePromise);
+    void savePromise.then(
+      () => metadataSavePromises.delete(savePromise),
+      () => metadataSavePromises.delete(savePromise),
+    );
+    return savePromise;
+  };
+
+  const waitForMetadataSaves = async (): Promise<void> => {
+    while (metadataSavePromises.size > 0) {
+      await Promise.allSettled([...metadataSavePromises]);
+    }
   };
 
   const flushHistoryOutput = async (sessionId: string): Promise<void> => {
@@ -559,17 +635,27 @@ export function createSessionService(
 
       pendingHistoryOutput.set(sessionId, '');
       try {
-        // 在累积后的整段输出上脱敏，降低密钥被 PTY 分块切断后逃逸匹配的概率。
-        const result = await historyStore?.appendOutput(sessionId, redactSecrets(data));
+        const result = await historyStore?.appendOutput(sessionId, data);
         const session = findSession(sessionId);
         if (result?.limitReached && session && !session.historyLimitReached) {
           session.historyLimitReached = true;
           publishSessionChanged(session);
         }
       } catch {
-        // Terminal replay remains available from the in-memory buffer; persistence catches up later.
+        // 保留失败批次，下一次输出到来时再重试；不要在磁盘持续故障时热循环。
+        pendingHistoryOutput.set(
+          sessionId,
+          `${data}${pendingHistoryOutput.get(sessionId) ?? ''}`,
+        );
+        historyOutputFlushes.delete(sessionId);
+        console.error('[session-history] 终端历史写入失败，已保留待后续重试');
+        return;
       }
     }
+  };
+
+  const waitForHistoryOutputFlush = async (sessionId: string): Promise<void> => {
+    await historyOutputFlushes.get(sessionId);
   };
 
   const queueHistoryOutput = (sessionId: string, data: string): void => {
@@ -582,19 +668,76 @@ export function createSessionService(
       return;
     }
 
-    const persistedOutput = sanitizePersistedTerminalOutput(data);
-    if (!persistedOutput) {
+    if (!data) {
       return;
     }
 
     pendingHistoryOutput.set(
       sessionId,
-      `${pendingHistoryOutput.get(sessionId) ?? ''}${persistedOutput}`,
+      `${pendingHistoryOutput.get(sessionId) ?? ''}${data}`,
     );
     if (!historyOutputFlushes.has(sessionId)) {
       const flush = flushHistoryOutput(sessionId);
       historyOutputFlushes.set(sessionId, flush);
     }
+  };
+
+  const flushWorkspaceOutput = async (
+    sessionId: string,
+    workspace: Workspace,
+  ): Promise<void> => {
+    while (true) {
+      const data = pendingWorkspaceOutput.get(sessionId);
+      if (!data) {
+        pendingWorkspaceOutput.delete(sessionId);
+        workspaceOutputFlushes.delete(sessionId);
+        return;
+      }
+
+      pendingWorkspaceOutput.set(sessionId, '');
+      try {
+        await workspaceContext?.appendOutput({ workspace, sessionId, data });
+      } catch {
+        pendingWorkspaceOutput.set(
+          sessionId,
+          `${data}${pendingWorkspaceOutput.get(sessionId) ?? ''}`,
+        );
+        workspaceOutputFlushes.delete(sessionId);
+        console.error('[workspace-context] 终端上下文写入失败，已保留安全文本待后续重试');
+        return;
+      }
+    }
+  };
+
+  const queueWorkspaceOutput = (
+    sessionId: string,
+    workspace: Workspace,
+    data: string,
+  ): void => {
+    if (!workspaceContext || !data) {
+      return;
+    }
+
+    pendingWorkspaceOutput.set(
+      sessionId,
+      `${pendingWorkspaceOutput.get(sessionId) ?? ''}${data}`,
+    );
+    if (!workspaceOutputFlushes.has(sessionId)) {
+      const flush = flushWorkspaceOutput(sessionId, workspace);
+      workspaceOutputFlushes.set(sessionId, flush);
+    }
+  };
+
+  const queueCanonicalPersistenceOutput = (
+    sessionId: string,
+    workspace: Workspace,
+    data: string,
+  ): void => {
+    if (!data) {
+      return;
+    }
+    queueHistoryOutput(sessionId, data);
+    queueWorkspaceOutput(sessionId, workspace, data);
   };
 
   const publishTerminalOutput = (event: TerminalOutputEvent): void => {
@@ -607,8 +750,35 @@ export function createSessionService(
     for (const listener of terminalOutputListeners) {
       listener(event);
     }
+  };
 
-    queueHistoryOutput(event.sessionId, event.data);
+  const endPersistenceStream = async (
+    sessionId: string,
+    workspace: Workspace,
+  ): Promise<void> => {
+    const sanitizer = persistenceSanitizers.get(sessionId);
+    if (sanitizer) {
+      persistenceSanitizers.delete(sessionId);
+      queueCanonicalPersistenceOutput(sessionId, workspace, sanitizer.end());
+    }
+    await Promise.all([
+      historyOutputFlushes.get(sessionId),
+      workspaceOutputFlushes.get(sessionId),
+    ]);
+  };
+
+  const flushPersistenceStream = async (
+    sessionId: string,
+    workspace: Workspace,
+  ): Promise<void> => {
+    const sanitizer = persistenceSanitizers.get(sessionId);
+    if (sanitizer) {
+      queueCanonicalPersistenceOutput(sessionId, workspace, sanitizer.flush());
+    }
+    await Promise.all([
+      historyOutputFlushes.get(sessionId),
+      workspaceOutputFlushes.get(sessionId),
+    ]);
   };
 
   const ensureWorkspaceAvailable = (workspace: Workspace): void => {
@@ -636,6 +806,7 @@ export function createSessionService(
     claudeLaunchMode?: ClaudeLaunchMode;
     initialPrompt?: string;
   }): Promise<AgentSession> => {
+    assertSessionCommandHasNoSensitiveValues(command);
     ensureWorkspaceAvailable(workspace);
     if (ptySessions.has(session.id)) {
       throw new Error('会话仍在运行，无法重启');
@@ -669,7 +840,6 @@ export function createSessionService(
     delete session.exitSignal;
     delete session.resumeCommand;
     delete session.memoryRestore;
-    persistSession(session);
 
     try {
       const contextFiles = await workspaceContext?.startSession({ workspace, session });
@@ -677,6 +847,10 @@ export function createSessionService(
         ? undefined
         : await keychain.readSecret(profile.keychainService, profile.keychainAccount);
       registerKnownSecret(secret ?? undefined);
+      const persistenceSanitizer = createStreamingPersistenceSanitizer({
+        knownSecrets: secret ? [secret] : [],
+      });
+      persistenceSanitizers.set(session.id, persistenceSanitizer);
       const compatProxy =
         !isLocalShellCommand(command) &&
         profile.toolType === 'claude' &&
@@ -706,12 +880,24 @@ export function createSessionService(
       let spawnCommand = command;
 
       if (env.CODEX_HOME) {
-        await ensureDirectory(env.CODEX_HOME);
+        const agentDockManagesCodexHome = isAgentDockManagedCodexHome({
+          codexHome: env.CODEX_HOME,
+          appDataPath,
+          homeDir,
+        });
+        if (agentDockManagesCodexHome) {
+          await ensurePrivateDirectory(env.CODEX_HOME);
+        } else {
+          await ensureDirectory(env.CODEX_HOME);
+        }
         if (profile.toolType === 'codex') {
-          await writeTextFile(
-            path.join(env.CODEX_HOME, 'config.toml'),
-            buildCodexConfig(profile, workspace),
-          );
+          const codexConfigPath = path.join(env.CODEX_HOME, 'config.toml');
+          const codexConfig = buildCodexConfig(profile, workspace);
+          if (agentDockManagesCodexHome) {
+            await writePrivateTextFile(codexConfigPath, codexConfig);
+          } else {
+            await writeTextFile(codexConfigPath, codexConfig);
+          }
         }
       }
 
@@ -720,16 +906,16 @@ export function createSessionService(
         if (settings) {
           const settingsDirectory = path.join(appDataPath, 'claude-settings');
           const settingsPath = path.join(settingsDirectory, `${profile.id}.json`);
-          await ensureDirectory(settingsDirectory);
-          await writeTextFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+          await ensurePrivateDirectory(settingsDirectory);
+          await writePrivateTextFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
           spawnCommand = appendClaudeSettingsCommand(command, settingsPath);
         }
 
         if (effectiveClaudeLaunchMode === 'lite') {
           const mcpConfigDirectory = path.join(appDataPath, 'claude-mcp');
           const mcpConfigPath = path.join(mcpConfigDirectory, 'empty.json');
-          await ensureDirectory(mcpConfigDirectory);
-          await writeTextFile(mcpConfigPath, buildEmptyClaudeMcpConfig());
+          await ensurePrivateDirectory(mcpConfigDirectory);
+          await writePrivateTextFile(mcpConfigPath, buildEmptyClaudeMcpConfig());
           spawnCommand = appendClaudeSettingSourcesCommand(spawnCommand);
           spawnCommand = appendClaudeMcpConfigCommand(spawnCommand, mcpConfigPath);
         }
@@ -749,14 +935,11 @@ export function createSessionService(
       ptySessions.set(session.id, ptySession);
       const unsubscribeData = ptySession.onData((data) => {
         publishTerminalOutput({ sessionId: session.id, data });
-        const persistedOutput = sanitizePersistedTerminalOutput(data);
-        if (persistedOutput) {
-          void workspaceContext?.appendOutput({
-            workspace,
-            sessionId: session.id,
-            data: persistedOutput,
-          }).catch(() => undefined);
-        }
+        queueCanonicalPersistenceOutput(
+          session.id,
+          workspace,
+          persistenceSanitizer.push(data),
+        );
       });
       const unsubscribeExit = ptySession.onExit?.((event) => {
         // killTerminal/dispose 已经清理过的会话不再处理（kill 也会触发 onExit）
@@ -766,7 +949,6 @@ export function createSessionService(
         ptyUnsubscribers.get(session.id)?.();
         ptyUnsubscribers.delete(session.id);
         ptySessions.delete(session.id);
-        void closeClaudeCompatProxy(session.id);
         session.status = 'exited';
         runtimeOwnerRegistry.release(session.id, runtimeOwnerId);
         delete session.runtimeOwner;
@@ -776,11 +958,31 @@ export function createSessionService(
         session.resumeCommand = extractClaudeResumeCommand(
           terminalBuffers.get(session.id) ?? '',
         );
-        persistSession(session);
         publishSessionChanged(session);
+        const exitNotice =
+          `\r\n\u001b[2m[AgentDock] 进程已退出（exit code ${event.exitCode}），会话已结束，可关闭此标签页。\u001b[0m\r\n`;
         publishTerminalOutput({
           sessionId: session.id,
-          data: `\r\n\u001b[2m[AgentDock] 进程已退出（exit code ${event.exitCode}），会话已结束，可关闭此标签页。\u001b[0m\r\n`,
+          data: exitNotice,
+        });
+        queueCanonicalPersistenceOutput(
+          session.id,
+          workspace,
+          persistenceSanitizer.push(exitNotice),
+        );
+        const finalization = Promise.all([
+          endPersistenceStream(session.id, workspace),
+          closeClaudeCompatProxy(session.id),
+        ]).then(async () => {
+          await saveSessionMetadata(session);
+        }).finally(() => {
+          if (sessionLifecycleFinalizations.get(session.id) === finalization) {
+            sessionLifecycleFinalizations.delete(session.id);
+          }
+        });
+        sessionLifecycleFinalizations.set(session.id, finalization);
+        void finalization.catch(() => {
+          console.error('[session-lifecycle] 会话退出状态持久化失败');
         });
       });
       ptyUnsubscribers.set(session.id, () => {
@@ -789,18 +991,20 @@ export function createSessionService(
       });
       session.status = 'running';
       session.runtimeOwner = owner;
-      persistSession(session);
+      await saveSessionMetadata(session);
       return cloneSession(session);
     } catch (error) {
+      persistenceSanitizers.get(session.id)?.end();
+      persistenceSanitizers.delete(session.id);
       runtimeOwnerRegistry.release(session.id, runtimeOwnerId);
       await closeClaudeCompatProxy(session.id);
       delete session.runtimeOwner;
       session.status = 'failed';
-      persistSession(session);
+      await saveSessionMetadata(session);
       if (isSecretReadError(error)) {
         throw error;
       }
-      throw new Error(`终端命令启动失败: "${command}"`);
+      throw new Error('终端命令启动失败');
     }
   };
 
@@ -835,23 +1039,30 @@ export function createSessionService(
       return undefined;
     }
 
-    const transcriptTail = terminalBuffers.get(session.id) ?? await historyStore?.readBuffer(session.id) ?? '';
-    const latestSummary = await sessionSummaryStore.readLatestSummary({
-      workspacePath: workspace.path,
-      sessionId: session.id,
-    });
-    const summaryMarkdown = latestSummary?.handoffMarkdown ?? latestSummary?.summaryMarkdown;
+    try {
+      const transcriptTail =
+        terminalBuffers.get(session.id) ?? await historyStore?.readBuffer(session.id) ?? '';
+      const latestSummary = await sessionSummaryStore.readLatestSummary({
+        workspacePath: workspace.path,
+        sessionId: session.id,
+      });
+      const summaryMarkdown = latestSummary?.handoffMarkdown ?? latestSummary?.summaryMarkdown;
 
-    return restoreContextStore.writeRestoreContext({
-      workspacePath: workspace.path,
-      session,
-      summaryMarkdown,
-      transcriptTail,
-    }).catch((error: unknown) => ({
-      status: 'failed' as const,
-      summary: '记忆恢复失败',
-      error: error instanceof Error ? error.message : '未知错误',
-    }));
+      return await restoreContextStore.writeRestoreContext({
+        workspacePath: workspace.path,
+        session,
+        summaryMarkdown,
+        transcriptTail,
+      });
+    } catch (error) {
+      // Context recovery is best-effort. A missing or inaccessible context path
+      // must not prevent the user from restarting the underlying CLI session.
+      return {
+        status: 'failed',
+        summary: '记忆恢复失败',
+        error: error instanceof Error ? error.message : '未知错误',
+      };
+    }
   }
 
   return {
@@ -862,6 +1073,7 @@ export function createSessionService(
       claudeLaunchMode,
     }: LaunchSessionInput): Promise<AgentSession> {
       await loadHistory();
+      assertSessionCommandHasNoSensitiveValues(command);
       ensureWorkspaceAvailable(workspace);
       const session: AgentSession = {
         id: nextSessionId(),
@@ -881,6 +1093,7 @@ export function createSessionService(
       sessionId,
       profile,
       workspace,
+      strategy,
       command,
       claudeLaunchMode,
     }: RestartSessionInput): Promise<AgentSession> {
@@ -890,7 +1103,21 @@ export function createSessionService(
         throw new Error('未找到指定的终端会话');
       }
 
-      const nextCommand = command ?? session.command;
+      const nextCommand = command ?? (
+        strategy === 'resume' ? session.resumeCommand : undefined
+      ) ?? session.command;
+      assertSessionCommandHasNoSensitiveValues(nextCommand);
+      if (strategy === 'fresh') {
+        await startSessionPty({
+          session,
+          profile,
+          workspace,
+          command: nextCommand,
+          claudeLaunchMode,
+        });
+        return cloneSession(session);
+      }
+
       const nativeResume = nativeResumeCommandForSession(session, profile);
       if (nativeResume) {
         await startSessionPty({
@@ -905,7 +1132,7 @@ export function createSessionService(
           status: 'loaded',
           summary: nativeResume.summary,
         };
-        persistSession(session);
+        await saveSessionMetadata(session);
         publishSessionChanged(session);
         return cloneSession(session);
       }
@@ -935,7 +1162,7 @@ export function createSessionService(
           contextFile: memoryRestore.contextFile,
           error: memoryRestore.error,
         };
-        persistSession(session);
+        await saveSessionMetadata(session);
         publishSessionChanged(session);
       }
       return cloneSession(session);
@@ -965,17 +1192,23 @@ export function createSessionService(
       // and transcript stay available for later resume or deletion.
       const ptySession = ptySessions.get(sessionId);
       if (ptySession) {
-        ptySession.kill();
         ptyUnsubscribers.get(sessionId)?.();
         ptyUnsubscribers.delete(sessionId);
         ptySessions.delete(sessionId);
+        ptySession.kill();
       }
       await closeClaudeCompatProxy(sessionId);
+      const workspace = workspacesBySessionId.get(sessionId);
+      if (workspace) {
+        await endPersistenceStream(sessionId, workspace);
+      }
+      await waitForHistoryOutputFlush(sessionId);
       pendingHistoryOutput.delete(sessionId);
+      pendingWorkspaceOutput.delete(sessionId);
       session.status = 'stopped';
       runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
       delete session.runtimeOwner;
-      await historyStore?.saveSession(session);
+      await saveSessionMetadata(session);
       publishSessionChanged(session);
       return cloneSession(session);
     },
@@ -1015,17 +1248,25 @@ export function createSessionService(
 
       const ptySession = ptySessions.get(sessionId);
       if (ptySession) {
-        ptySession.kill();
         ptyUnsubscribers.get(sessionId)?.();
         ptyUnsubscribers.delete(sessionId);
         ptySessions.delete(sessionId);
+        ptySession.kill();
       }
       await closeClaudeCompatProxy(sessionId);
+      const workspace = workspacesBySessionId.get(sessionId);
+      if (workspace) {
+        await endPersistenceStream(sessionId, workspace);
+      }
+      await waitForHistoryOutputFlush(sessionId);
       runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
       sessions.splice(sessionIndex, 1);
       terminalBuffers.delete(sessionId);
       pendingHistoryOutput.delete(sessionId);
       historyOutputFlushes.delete(sessionId);
+      pendingWorkspaceOutput.delete(sessionId);
+      workspaceOutputFlushes.delete(sessionId);
+      persistenceSanitizers.delete(sessionId);
       workspacesBySessionId.delete(sessionId);
       await historyStore?.deleteRecord(sessionId);
     },
@@ -1052,6 +1293,12 @@ export function createSessionService(
         throw new Error('会话历史存储不可用');
       }
 
+      const workspace = workspacesBySessionId.get(sessionId);
+      if (workspace) {
+        await flushPersistenceStream(sessionId, workspace);
+      } else {
+        await waitForHistoryOutputFlush(sessionId);
+      }
       const archive = await historyStore.archiveBuffer(sessionId);
       session.historyLimitReached = false;
       session.historyArchivePath = archive.filePath;
@@ -1098,6 +1345,8 @@ export function createSessionService(
         throw new Error('总结器尚不可用，请稍后配置真实 CLI runner');
       }
 
+      await flushPersistenceStream(sessionId, workspace);
+
       return summaryJob({
         session: cloneSession(session),
         workspace: { ...workspace },
@@ -1121,17 +1370,30 @@ export function createSessionService(
 
     async dispose(): Promise<void> {
       for (const [sessionId, ptySession] of ptySessions.entries()) {
-        ptySession.kill();
         ptyUnsubscribers.get(sessionId)?.();
+        ptyUnsubscribers.delete(sessionId);
+        ptySessions.delete(sessionId);
+        ptySession.kill();
+        const workspace = workspacesBySessionId.get(sessionId);
+        if (workspace) {
+          await endPersistenceStream(sessionId, workspace);
+        }
         const session = findSession(sessionId);
         if (session) {
           session.status = historyStore ? 'interrupted' : 'stopped';
           runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
           await closeClaudeCompatProxy(sessionId);
           delete session.runtimeOwner;
-          await historyStore?.saveSession(session);
+          await saveSessionMetadata(session);
         }
       }
+
+      await Promise.allSettled([
+        ...historyOutputFlushes.values(),
+        ...workspaceOutputFlushes.values(),
+        ...sessionLifecycleFinalizations.values(),
+      ]);
+      await waitForMetadataSaves();
 
       ptySessions.clear();
       ptyUnsubscribers.clear();
@@ -1143,6 +1405,11 @@ export function createSessionService(
       terminalBuffers.clear();
       pendingHistoryOutput.clear();
       historyOutputFlushes.clear();
+      pendingWorkspaceOutput.clear();
+      workspaceOutputFlushes.clear();
+      sessionLifecycleFinalizations.clear();
+      metadataSavePromises.clear();
+      persistenceSanitizers.clear();
       terminalOutputListeners.clear();
       sessionChangedListeners.clear();
       await workspaceContext?.flush?.();

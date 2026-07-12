@@ -369,12 +369,14 @@ describe('sessionService', () => {
       runtime.dataHandlers.get(session.id)?.('previous terminal output');
       runtime.exitHandlers.get(session.id)?.({ exitCode: 0 });
 
-      const restartedSession = await service.restart({
+      const resumeRestartRequest = {
         sessionId: session.id,
         profile,
         workspace,
         command: 'claude --resume c4bf-b857',
-      });
+        strategy: 'resume' as const,
+      };
+      const restartedSession = await service.restart(resumeRestartRequest);
 
       expect(restartedSession).toMatchObject({
         id: 'session-1',
@@ -1764,6 +1766,74 @@ describe('sessionService', () => {
     expect(runtime.spawnRequests.at(-1)?.command).toBe(
       "claude --resume c4bf-b857 --setting-sources project,local --mcp-config '/tmp/agentdock-test-data/claude-mcp/empty.json' --strict-mcp-config",
     );
+  });
+
+  it('starts fresh without native resume or AgentDock restore context', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-fresh-restart-'));
+    const runtime = createFakeRuntime();
+    const historyStore = createSessionHistoryStore(tempDir);
+    try {
+      await historyStore.saveSession({
+        id: 'session-fresh',
+        title: 'Claude A · AgentDock',
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'claude',
+        status: 'exited',
+        startedAt: '2026-07-01T00:00:00.000Z',
+        nativeResume: {
+          tool: 'claude',
+          status: 'verified',
+          sessionId: '123e4567-e89b-12d3-a456-426614174000',
+          checkedAt: '2026-07-07T00:00:00.000Z',
+        },
+      });
+      await historyStore.appendOutput(
+        'session-fresh',
+        'previous output that must not be restored into a fresh process',
+      );
+      const service = createSessionService({
+        clock: { now: () => new Date('2026-07-01T00:01:00.000Z') },
+        keychain: runtime.keychain,
+        pty: runtime.pty,
+        appDataPath: tempDir,
+        historyStore,
+      });
+      const profile = {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude' as const,
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      };
+      const workspace = {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: tempDir,
+      };
+
+      await service.list();
+      const freshRestartRequest = {
+        sessionId: 'session-fresh',
+        profile,
+        workspace,
+        command: 'claude',
+        strategy: 'fresh' as const,
+      };
+      const restartedSession = await service.restart(freshRestartRequest);
+
+      expect(runtime.spawnRequests.at(-1)?.command).toBe('claude');
+      expect(runtime.spawnRequests.at(-1)?.command).not.toContain('--resume');
+      expect(runtime.spawnRequests.at(-1)?.command).not.toContain('--append-system-prompt');
+      expect(restartedSession.memoryRestore?.method).not.toBe('native');
+      expect(restartedSession.memoryRestore?.method).not.toBe('agentdock');
+      await expect(
+        readFile(path.join(tempDir, '.agentdock/context/restores/session-fresh.md'), 'utf-8'),
+      ).rejects.toThrow();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
   });
 
   it('launches Claude full mode without strict MCP isolation', async () => {

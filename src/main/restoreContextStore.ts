@@ -1,8 +1,11 @@
-import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentSession, MemoryRestoreState } from '../shared/agentdockTypes.js';
 import { terminalOutputToPlainText } from '../shared/terminalText.js';
-import { redactSummarySecrets } from './sessionSummaryStore.js';
+import {
+  ensurePrivateDirectory,
+  writePrivateFileAtomically,
+} from './privateFileSystem.js';
+import { redactCommandSecrets, redactSecrets } from './secretRedaction.js';
 
 export type RestoreContextInput = {
   workspacePath: string;
@@ -29,7 +32,7 @@ function safeRestoreFileName(sessionId: string): string {
 }
 
 function normalizeReadableText(value: string | undefined): string {
-  return redactSummarySecrets(terminalOutputToPlainText(value ?? '').trim())
+  return redactSecrets(terminalOutputToPlainText(value ?? '').trim())
     .split('\n')
     .filter((line) => !hasSecretAssignment(line))
     .join('\n')
@@ -41,9 +44,7 @@ function hasSecretAssignment(line: string): boolean {
 }
 
 function sanitizeRestoreCommand(command: string): string {
-  return redactSummarySecrets(command)
-    .replace(/\b[A-Z_]*(?:API_KEY|AUTH_TOKEN|TOKEN|SECRET)\b\s*=\s*\S+/g, '[REDACTED]')
-    .trim();
+  return redactCommandSecrets(command).trim();
 }
 
 function isIgnoredMemoryLine(line: string): boolean {
@@ -158,8 +159,12 @@ export function createRestoreContextStore(): RestoreContextStore {
         '',
       ].join('\n');
 
-      await mkdir(path.dirname(contextFile), { recursive: true });
-      await writeFile(contextFile, content, 'utf-8');
+      const agentDockDirectory = path.join(workspacePath, '.agentdock');
+      const contextDirectory = path.join(agentDockDirectory, 'context');
+      await ensurePrivateDirectory(agentDockDirectory);
+      await ensurePrivateDirectory(contextDirectory);
+      await ensurePrivateDirectory(path.dirname(contextFile));
+      await writePrivateFileAtomically(contextFile, content);
 
       return {
         status: 'loaded',

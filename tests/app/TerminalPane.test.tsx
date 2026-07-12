@@ -276,6 +276,27 @@ describe('TerminalPane xterm binding', () => {
     });
   });
 
+  it('hides CLI startup and restore plumbing from exited session history', async () => {
+    agentDock.readTerminalBuffer = vi.fn().mockResolvedValue([
+      '⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.',
+      '>_ OpenAI Codex (v0.144.1)',
+      'model: test-model /model to change',
+      '› Read the AgentDock restore context file and use it as background memory.',
+      "Reply with one short memory-restored sentence, then wait for the user's next instruction.",
+      '/tmp/.agentdock/context/restores/session-w1-22.md',
+      '',
+      '› 请保留这条用户消息。',
+      '这是 Agent 的实际回复。',
+    ].join('\n'));
+
+    render(<TerminalPane sessionId="session-1" readOnly />);
+    const terminal = FakeTerminal.instances[0];
+
+    await vi.waitFor(() => {
+      expectTerminalWriteData(terminal, '› 请保留这条用户消息。\n这是 Agent 的实际回复。');
+    });
+  });
+
   it('keeps raw terminal control sequences for live agent output', async () => {
     render(<TerminalPane sessionId="session-1" />);
     const terminal = FakeTerminal.instances[0];

@@ -1,5 +1,10 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  ensurePrivateDirectory,
+  ensurePrivateFile,
+  writePrivateFileAtomically,
+} from './privateFileSystem.js';
 
 const CONTEXT_DIR_PARTS = ['.agentdock', 'context'];
 const SUMMARY_DIR_PARTS = [...CONTEXT_DIR_PARTS, 'summaries'];
@@ -111,10 +116,11 @@ export function createSessionSummaryStore(): SessionSummaryStore {
 
       const summaryFile = summaryPath(workspacePath, sessionId);
       const handoffFile = handoffPath(workspacePath, sessionId);
-      await mkdir(path.dirname(summaryFile), { recursive: true });
-      await mkdir(path.dirname(handoffFile), { recursive: true });
-      await writeFile(summaryFile, ensureTrailingNewline(summaryMarkdown), 'utf-8');
-      await writeFile(handoffFile, ensureTrailingNewline(handoffMarkdown), 'utf-8');
+      await ensureWorkspaceContextDirectories(workspacePath);
+      await ensurePrivateDirectory(path.dirname(summaryFile));
+      await ensurePrivateDirectory(path.dirname(handoffFile));
+      await writePrivateFileAtomically(summaryFile, ensureTrailingNewline(summaryMarkdown));
+      await writePrivateFileAtomically(handoffFile, ensureTrailingNewline(handoffMarkdown));
       return { summaryFile, handoffFile };
     },
 
@@ -125,6 +131,11 @@ export function createSessionSummaryStore(): SessionSummaryStore {
       const summaryFile = summaryPath(workspacePath, sessionId);
       const handoffFile = handoffPath(workspacePath, sessionId);
       try {
+        await ensureWorkspaceContextDirectories(workspacePath);
+        await ensurePrivateDirectory(path.dirname(summaryFile));
+        await ensurePrivateDirectory(path.dirname(handoffFile));
+        await ensurePrivateFile(summaryFile);
+        await ensurePrivateFile(handoffFile);
         const [summaryMarkdown, handoffMarkdown] = await Promise.all([
           readFile(summaryFile, 'utf-8'),
           readFile(handoffFile, 'utf-8'),
@@ -138,6 +149,13 @@ export function createSessionSummaryStore(): SessionSummaryStore {
       }
     },
   };
+}
+
+async function ensureWorkspaceContextDirectories(workspacePath: string): Promise<void> {
+  const agentDockDirectory = path.join(workspacePath, '.agentdock');
+  const contextDirectory = path.join(agentDockDirectory, 'context');
+  await ensurePrivateDirectory(agentDockDirectory);
+  await ensurePrivateDirectory(contextDirectory);
 }
 
 function safeSessionFileName(sessionId: string): string {

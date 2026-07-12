@@ -1,5 +1,11 @@
-import { mkdir, open, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { open, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  appendPrivateFile,
+  ensurePrivateDirectory,
+  ensurePrivateFile,
+  writePrivateFileAtomically,
+} from '../privateFileSystem.js';
 
 export const SESSION_TRANSCRIPT_TAIL_BYTES = 20_000_000;
 
@@ -44,6 +50,8 @@ async function readLastBytes(
   filePath: string,
   maxBytes: number,
 ): Promise<{ buffer: Buffer; fileSize: number } | undefined> {
+  await ensurePrivateDirectory(path.dirname(filePath));
+  await ensurePrivateFile(filePath);
   let handle;
   try {
     handle = await open(filePath, 'r');
@@ -83,6 +91,8 @@ export function createSessionTranscriptStore(
       return cached;
     }
     try {
+      await ensurePrivateDirectory(transcriptDir);
+      await ensurePrivateFile(transcriptPath(sessionId));
       const fileStat = await stat(transcriptPath(sessionId));
       sizeCache.set(sessionId, fileStat.size);
       return fileStat.size;
@@ -121,9 +131,7 @@ export function createSessionTranscriptStore(
       return 0;
     }
     const kept = utf8SafeStart(tail.buffer);
-    const rollPath = `${filePath}.roll`;
-    await writeFile(rollPath, kept);
-    await rename(rollPath, filePath);
+    await writePrivateFileAtomically(filePath, kept.toString('utf-8'));
     return kept.length;
   }
 
@@ -131,9 +139,9 @@ export function createSessionTranscriptStore(
     appendOutput(sessionId: string, data: string): Promise<TranscriptAppendResult> {
       return enqueueAppend(sessionId, async () => {
         try {
-          await mkdir(transcriptDir, { recursive: true });
+          await ensurePrivateDirectory(transcriptDir);
           const sizeBefore = await currentSize(sessionId);
-          await writeFile(transcriptPath(sessionId), data, { encoding: 'utf-8', flag: 'a' });
+          await appendPrivateFile(transcriptPath(sessionId), data);
           let byteSize = sizeBefore + Buffer.byteLength(data, 'utf-8');
           sizeCache.set(sessionId, byteSize);
 

@@ -23,25 +23,35 @@ export function SessionDetailsDrawer({
   const [contextFilePath, setContextFilePath] = React.useState('');
   const [contextContent, setContextContent] = React.useState('');
   const [contextError, setContextError] = React.useState('');
+  const contextRequestVersionRef = React.useRef(0);
 
   React.useEffect(() => {
+    contextRequestVersionRef.current += 1;
     setAdvancedOpen(false);
     setContextFilePath('');
     setContextContent('');
     setContextError('');
-  }, [session?.id]);
+  }, [open, session?.id, workspace?.id]);
 
   const readWorkspaceContext = async (): Promise<void> => {
     if (!workspace || !onReadWorkspaceContext) {
       return;
     }
 
+    const requestVersion = contextRequestVersionRef.current + 1;
+    contextRequestVersionRef.current = requestVersion;
     setContextError('');
     try {
       const context = await onReadWorkspaceContext(workspace.id);
+      if (contextRequestVersionRef.current !== requestVersion) {
+        return;
+      }
       setContextFilePath(context.filePath);
       setContextContent(context.content);
     } catch (error) {
+      if (contextRequestVersionRef.current !== requestVersion) {
+        return;
+      }
       setContextError(error instanceof Error ? error.message : '无法读取共享上下文');
     }
   };
@@ -51,10 +61,15 @@ export function SessionDetailsDrawer({
       return;
     }
 
+    const requestVersion = contextRequestVersionRef.current + 1;
+    contextRequestVersionRef.current = requestVersion;
     setContextError('');
     try {
       await onOpenWorkspaceContextFolder(workspace.id);
     } catch (error) {
+      if (contextRequestVersionRef.current !== requestVersion) {
+        return;
+      }
       setContextError(error instanceof Error ? error.message : '无法打开上下文文件夹');
     }
   };

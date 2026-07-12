@@ -25,3 +25,25 @@ export function redactSecrets(value: string): string {
   }
   return result;
 }
+
+const SENSITIVE_COMMAND_ENV_PATTERN =
+  /\b[A-Za-z_][A-Za-z0-9_]*(?:API_KEY|AUTH_TOKEN|TOKEN|SECRET|PASSWORD)[A-Za-z0-9_]*\s*=\s*(?:"[^"]*"|'[^']*'|\S+)/gi;
+const SENSITIVE_COMMAND_OPTION_PATTERN =
+  /--(api[-_]?key|auth[-_]?token|token|secret|password)(?:\s+|=)(?:"[^"]*"|'[^']*'|\S+)/gi;
+const SENSITIVE_AUTHORIZATION_PATTERN =
+  /authorization\s*:\s*bearer\s+(?:"[^"]*"|'[^']*'|\S+)/gi;
+
+export function containsSensitiveCommandValue(command: string): boolean {
+  return (
+    new RegExp(SENSITIVE_COMMAND_ENV_PATTERN.source, 'i').test(command) ||
+    new RegExp(SENSITIVE_COMMAND_OPTION_PATTERN.source, 'i').test(command) ||
+    new RegExp(SENSITIVE_AUTHORIZATION_PATTERN.source, 'i').test(command)
+  );
+}
+
+export function redactCommandSecrets(command: string): string {
+  return redactSecrets(command)
+    .replace(SENSITIVE_COMMAND_ENV_PATTERN, '[REDACTED]')
+    .replace(SENSITIVE_COMMAND_OPTION_PATTERN, '--$1 [REDACTED]')
+    .replace(SENSITIVE_AUTHORIZATION_PATTERN, 'Authorization: Bearer [REDACTED]');
+}

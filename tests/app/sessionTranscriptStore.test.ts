@@ -1,10 +1,14 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createSessionTranscriptStore } from '../../src/main/stores/sessionTranscriptStore';
 
 let tempDir: string;
+
+async function readPosixMode(targetPath: string): Promise<number> {
+  return (await stat(targetPath)).mode & 0o777;
+}
 
 beforeEach(async () => {
   tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-transcript-'));
@@ -15,6 +19,38 @@ afterEach(async () => {
 });
 
 describe('sessionTranscriptStore', () => {
+  it('creates private paths and heals legacy permissions without changing transcript contents', async () => {
+    const store = createSessionTranscriptStore(tempDir);
+    const transcriptDirectoryPath = path.join(tempDir, 'session-transcripts');
+    const transcriptFilePath = path.join(transcriptDirectoryPath, 'session-1.log');
+
+    await store.appendOutput('session-1', 'permission-contract-output');
+
+    const newDirectoryMode = await readPosixMode(transcriptDirectoryPath);
+    const newFileMode = await readPosixMode(transcriptFilePath);
+    const contentsBeforeHealing = await readFile(transcriptFilePath, 'utf-8');
+
+    await chmod(transcriptDirectoryPath, 0o755);
+    await chmod(transcriptFilePath, 0o644);
+    const tail = await store.readTail('session-1');
+
+    expect({
+      newDirectoryMode,
+      newFileMode,
+      healedDirectoryMode: await readPosixMode(transcriptDirectoryPath),
+      healedFileMode: await readPosixMode(transcriptFilePath),
+      contentsPreserved: (await readFile(transcriptFilePath, 'utf-8')) === contentsBeforeHealing,
+      tailContent: tail.content,
+    }).toEqual({
+      newDirectoryMode: 0o700,
+      newFileMode: 0o600,
+      healedDirectoryMode: 0o700,
+      healedFileMode: 0o600,
+      contentsPreserved: true,
+      tailContent: 'permission-contract-output',
+    });
+  });
+
   it('appends output and reads a bounded UTF-8 tail', async () => {
     const store = createSessionTranscriptStore(tempDir, { tailBytes: 12 });
 

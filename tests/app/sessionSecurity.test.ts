@@ -187,7 +187,11 @@ describe('sessionService security boundary', () => {
       const fakeOpenAiKey = ['sk', 'test-session-security-redaction-token'].join('-');
 
       const session = await service.launch({ profile, workspace, command: 'claude' });
-      dataHandlers.get(session.id)?.(`Current task relies on short memory restore.\nOPENAI_API_KEY=${fakeOpenAiKey}`);
+      dataHandlers.get(session.id)?.([
+        'Current task relies on short memory restore.',
+        `OPENAI_API_KEY=${fakeOpenAiKey}`,
+        `Provider authentication marker: ${secret}`,
+      ].join('\n'));
       await historyStore.readBuffer(session.id);
       exitHandlers.get(session.id)?.({ exitCode: 0 });
 
@@ -225,6 +229,7 @@ describe('sessionService security boundary', () => {
       expect(restoreContext).toContain('Current task relies on short memory restore.');
       expect(restoreContext).not.toContain('OPENAI_API_KEY');
       expect(restoreContext).not.toContain(fakeOpenAiKey);
+      expect(restoreContext).not.toContain(secret);
     } finally {
       await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     }

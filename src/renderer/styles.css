@@ -240,13 +240,13 @@ p {
 }
 
 .workbench-layout {
-  --session-library-width: clamp(220px, 20vw, 300px);
-  --project-panel-width: 320px;
+  --session-library-width: 260px;
+  --project-panel-width: 360px;
   flex: 1;
   min-height: 0;
   position: relative;
   display: grid;
-  grid-template-columns: var(--session-library-width) minmax(0, 1fr) 32px;
+  grid-template-columns: var(--session-library-width) 6px minmax(0, 1fr) 32px;
   gap: 8px;
   padding: 8px;
   box-sizing: border-box;
@@ -256,8 +256,9 @@ p {
 .workbench-layout.project-open {
   grid-template-columns:
     var(--session-library-width)
-    minmax(0, 1fr)
     6px
+    minmax(0, 1fr)
+    10px
     minmax(260px, var(--project-panel-width));
 }
 
@@ -291,6 +292,7 @@ p {
   flex-direction: column;
 }
 
+.session-library-resizer,
 .project-panel-resizer {
   min-width: 6px;
   cursor: col-resize;
@@ -298,6 +300,8 @@ p {
   background: transparent;
 }
 
+.session-library-resizer:hover,
+.session-library-resizer:focus-visible,
 .project-panel-resizer:hover,
 .project-panel-resizer:focus-visible {
   background: #dbe3d6;

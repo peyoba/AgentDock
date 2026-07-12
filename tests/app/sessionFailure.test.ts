@@ -102,7 +102,7 @@ describe('sessionService launch failure safety', () => {
 
     await expect(
       service.launch({ profile, workspace: { ...workspace, path: '/tmp' }, command: 'claude' }),
-    ).rejects.toThrow('终端命令启动失败: "claude"');
+    ).rejects.toThrow('终端命令启动失败');
 
     const sessions = await service.list();
     expect(sessions).toEqual([
@@ -120,6 +120,33 @@ describe('sessionService launch failure safety', () => {
     await expect(
       service.writeTerminal({ sessionId: 'session-1', input: 'help\n' }),
     ).rejects.toThrow('未找到指定的终端会话');
+  });
+
+  it.each([
+    'claude --api-key provider-private-value',
+    'claude --token=provider-private-value',
+    'OPENAI_API_KEY=provider-private-value claude',
+  ])('rejects sensitive command values before storing session metadata: %s', async (command) => {
+    const spawn = vi.fn();
+    const service = createSessionService({
+      keychain: {
+        async readSecret() {
+          return 'vault-secret-not-used';
+        },
+        async writeSecret() {},
+        async deleteSecret() {},
+      },
+      pty: { spawn } as unknown as PtyAdapter,
+      appDataPath: '/tmp/agentdock-test-data',
+      workspaceExists: () => true,
+    });
+
+    await expect(
+      service.launch({ profile, workspace: { ...workspace, path: '/tmp' }, command }),
+    ).rejects.toThrow('会话命令不得包含敏感凭证');
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(await service.list()).toEqual([]);
   });
 
   it('rethrows missing local API key errors so the UI can tell users to save a key', async () => {
