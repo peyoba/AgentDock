@@ -10,6 +10,7 @@ coverage/
 *.log
 .agentdock-local/
 .agentdock/
+.agent-workflow/
 .claude/
 .pytest_cache/
 __pycache__/
