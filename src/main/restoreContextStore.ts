@@ -25,6 +25,8 @@ export type RestoreContextStore = {
 
 const RESTORE_DIR_PARTS = ['.agentdock', 'context', 'restores'];
 const MAX_SUMMARY_SENTENCE_CHARS = 160;
+const MAX_CONTEXT_TRANSCRIPT_CHARS = 20_000;
+const MAX_EMBEDDED_MEMORY_CHARS = 8_000;
 const RESTORED_BACKGROUND_SUMMARY = '记忆已恢复：已加载最近会话背景，等待你的下一步指令。';
 
 function safeRestoreFileName(sessionId: string): string {
@@ -74,6 +76,25 @@ function compactSentencePart(value: string): string {
     .trim();
 }
 
+function boundedTail(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `[Earlier transcript omitted]\n${value.slice(-maxChars)}`;
+}
+
+function boundedMemory(value: string): string {
+  if (value.length <= MAX_EMBEDDED_MEMORY_CHARS) {
+    return value;
+  }
+  const retainedSideLength = Math.floor(MAX_EMBEDDED_MEMORY_CHARS / 2);
+  return [
+    value.slice(0, retainedSideLength),
+    '[Middle of restored memory omitted]',
+    value.slice(-retainedSideLength),
+  ].join('\n');
+}
+
 export function summarizeRestoreMemory({
   summaryMarkdown,
   transcriptTail,
@@ -99,6 +120,7 @@ export function summarizeRestoreMemory({
 }
 
 export function buildRestoreInstruction(contextFile: string, restoredMemory: string): string {
+  const embeddedMemory = boundedMemory(restoredMemory);
   return [
     'Use the AgentDock restored memory below as background memory.',
     'The restored memory is embedded below. Do not claim that you cannot access the file.',
@@ -107,7 +129,7 @@ export function buildRestoreInstruction(contextFile: string, restoredMemory: str
     `Source file: ${contextFile}`,
     '',
     '<agentdock-restored-memory>',
-    restoredMemory,
+    embeddedMemory,
     '</agentdock-restored-memory>',
   ].join('\n') + '\r';
 }
@@ -128,6 +150,10 @@ export function createRestoreContextStore(): RestoreContextStore {
     }: RestoreContextInput): Promise<RestoreContextResult> {
       const safeSummary = normalizeReadableText(summaryMarkdown);
       const safeTranscriptTail = normalizeReadableText(transcriptTail);
+      const contextTranscriptTail = boundedTail(
+        safeTranscriptTail,
+        MAX_CONTEXT_TRANSCRIPT_CHARS,
+      );
       const safeCommand = sanitizeRestoreCommand(session.command);
       const summary = summarizeRestoreMemory({
         summaryMarkdown: safeSummary,
@@ -156,7 +182,7 @@ export function createRestoreContextStore(): RestoreContextStore {
         safeSummary || 'No long-term summary is available for this session.',
         '',
         '## Recent Transcript Tail',
-        safeTranscriptTail || 'No recent transcript tail is available for this session.',
+        contextTranscriptTail || 'No recent transcript tail is available for this session.',
         '',
         '## Restore Behavior',
         "Reply with one short memory-restored sentence, then wait for the user's next instruction.",
@@ -175,7 +201,13 @@ export function createRestoreContextStore(): RestoreContextStore {
         status: 'loaded',
         summary,
         contextFile,
-        instruction: buildRestoreInstruction(contextFile, content),
+        instruction: buildRestoreInstruction(
+          contextFile,
+          [
+            safeSummary ? `## Long-Term Summary\n${safeSummary}` : '',
+            contextTranscriptTail ? `## Recent Transcript Tail\n${contextTranscriptTail}` : '',
+          ].filter(Boolean).join('\n\n'),
+        ),
       };
     },
   };

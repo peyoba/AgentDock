@@ -721,7 +721,7 @@ describe('sessionService', () => {
     expect(changedSessions).toContain('exited:0:claude --resume c4bf-b857');
   });
 
-  it('restarts an exited session with the same session id and preserved buffer', async () => {
+  it('uses previous output for recovery without replaying the old buffer into the restarted terminal', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restart-same-id-'));
     const runtime = createFakeRuntime();
     try {
@@ -801,9 +801,9 @@ describe('sessionService', () => {
           contextFile: path.join(tempDir, '.agentdock/context/restores/session-1.md'),
         },
       });
-      await expect(service.readTerminalBuffer({ sessionId: session.id })).resolves.toContain(
-        'previous terminal output',
-      );
+      const restartedBuffer = await service.readTerminalBuffer({ sessionId: session.id });
+      expect(restartedBuffer).not.toContain('previous terminal output');
+      expect(restartedBuffer).toContain('Claude Code v-test');
     } finally {
       await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     }
@@ -877,7 +877,7 @@ describe('sessionService', () => {
     }
   });
 
-  it('preserves persisted history when restarting an exited session in place', async () => {
+  it('preserves persisted history without replaying it into a restarted terminal', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restart-history-'));
     const runtime = createFakeRuntime();
     const historyStore = createSessionHistoryStore(tempDir, {
@@ -925,9 +925,7 @@ describe('sessionService', () => {
       await expect(historyStore.readBuffer(session.id)).resolves.toContain(
         'previous terminal output',
       );
-      await expect(service.readTerminalBuffer({ sessionId: session.id })).resolves.toContain(
-        'previous terminal output',
-      );
+      await expect(service.readTerminalBuffer({ sessionId: session.id })).resolves.toBe('');
     } finally {
       await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     }

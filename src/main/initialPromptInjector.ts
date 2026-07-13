@@ -11,7 +11,20 @@ type InitialPromptInjector = {
 
 const MAX_STARTUP_OUTPUT_LENGTH = 32 * 1024;
 const DEFAULT_READINESS_TIMEOUT_MS = 60_000;
-const codexUpdatePromptPattern = /\bUpdate available\b[\s\S]*?\b2\.\s*Skip\b/i;
+
+function hasCodexUpdateHeading(rawStartupOutput: string): boolean {
+  return rawStartupOutput.includes('Update available');
+}
+
+function hasCompleteCodexUpdatePrompt(rawStartupOutput: string): boolean {
+  return (
+    hasCodexUpdateHeading(rawStartupOutput) &&
+    rawStartupOutput.includes('Update now') &&
+    rawStartupOutput.includes('2.') &&
+    rawStartupOutput.includes('Skip') &&
+    rawStartupOutput.includes('Press enter to continue')
+  );
+}
 
 function isReady(
   tool: InitialPromptTool,
@@ -37,6 +50,7 @@ export function createInitialPromptInjector({
   timeoutMs?: number;
 }): InitialPromptInjector {
   const initialPrompt = prompt.trim();
+  let rawStartupOutput = '';
   let startupOutput = '';
   let bannerSeen = false;
   let codexUpdatePromptSkipped = false;
@@ -89,26 +103,28 @@ export function createInitialPromptInjector({
         return;
       }
 
-      startupOutput = terminalOutputToPlainText(
-        `${startupOutput}${data}`.slice(-MAX_STARTUP_OUTPUT_LENGTH),
-      );
+      rawStartupOutput = `${rawStartupOutput}${data}`.slice(-MAX_STARTUP_OUTPUT_LENGTH);
+      startupOutput = terminalOutputToPlainText(rawStartupOutput);
       bannerSeen = bannerSeen || (
         tool === 'codex'
           ? startupOutput.includes('>_ OpenAI Codex')
           : startupOutput.includes('Claude Code')
       );
 
-      if (tool === 'codex' && codexUpdatePromptPattern.test(startupOutput)) {
-        if (!codexUpdatePromptSkipped) {
-          codexUpdatePromptSkipped = true;
-          try {
-            write('2\r');
-          } catch {
-            rejectOnce(new Error('Codex update prompt skip failed'));
-            return;
+      if (tool === 'codex' && hasCodexUpdateHeading(rawStartupOutput)) {
+        if (hasCompleteCodexUpdatePrompt(rawStartupOutput)) {
+          if (!codexUpdatePromptSkipped) {
+            codexUpdatePromptSkipped = true;
+            try {
+              write('\u001b[B\r');
+            } catch {
+              rejectOnce(new Error('Codex update prompt skip failed'));
+              return;
+            }
           }
+          rawStartupOutput = '';
+          startupOutput = '';
         }
-        startupOutput = '';
         return;
       }
 

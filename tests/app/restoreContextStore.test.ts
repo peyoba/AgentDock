@@ -182,4 +182,28 @@ describe('restoreContextStore', () => {
     expect(instruction).toContain('记忆已恢复：正在修复恢复链路。');
     expect(instruction).toContain('Do not claim that you cannot access the file.');
   });
+
+  it('bounds restored transcript content before writing and injecting it', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restore-bounded-'));
+    const earliestMarker = 'EARLIEST-TRANSCRIPT-MUST-BE-OMITTED';
+    const latestMarker = 'LATEST-TRANSCRIPT-MUST-BE-KEPT';
+    try {
+      const store = createRestoreContextStore();
+      const result = await store.writeRestoreContext({
+        workspacePath: tempDir,
+        session,
+        transcriptTail: `${earliestMarker}\n${'重复终端刷新内容\n'.repeat(8_000)}${latestMarker}`,
+      });
+
+      const content = await readFile(result.contextFile as string, 'utf-8');
+      expect(content.length).toBeLessThan(25_000);
+      expect(content).not.toContain(earliestMarker);
+      expect(content).toContain(latestMarker);
+      expect(result.instruction?.length).toBeLessThan(10_000);
+      expect(result.instruction).not.toContain(earliestMarker);
+      expect(result.instruction).toContain(latestMarker);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });

@@ -943,6 +943,7 @@ export function createSessionService(
     initialPrompt,
     sessionCommand,
     resumeCommand,
+    resetTerminalBuffer = false,
   }: {
     session: AgentSession;
     profile: ApiProfile;
@@ -953,6 +954,7 @@ export function createSessionService(
     initialPrompt?: string;
     sessionCommand?: string;
     resumeCommand?: string;
+    resetTerminalBuffer?: boolean;
   }): Promise<{ session: AgentSession; initialPromptError?: string }> => {
     assertSessionCommandHasNoSensitiveValues(command);
     ensureWorkspaceAvailable(workspace);
@@ -1127,6 +1129,10 @@ export function createSessionService(
           spawnCommand = appendClaudeSettingSourcesCommand(spawnCommand);
           spawnCommand = appendClaudeMcpConfigCommand(spawnCommand, mcpConfigPath);
         }
+      }
+
+      if (resetTerminalBuffer) {
+        terminalBuffers.set(session.id, '');
       }
 
       const ptySession = await pty.spawn({
@@ -1399,6 +1405,7 @@ export function createSessionService(
           command: nextCommand,
           claudeLaunchMode,
           codexLaunchMode: restartCodexLaunchMode,
+          resetTerminalBuffer: true,
         });
         return started.session;
       }
@@ -1415,6 +1422,7 @@ export function createSessionService(
           codexLaunchMode: restartCodexLaunchMode,
           sessionCommand: baseCommand,
           resumeCommand: nativeResume.command,
+          resetTerminalBuffer: true,
         });
         session.memoryRestore = {
           method: 'native',
@@ -1445,6 +1453,7 @@ export function createSessionService(
         initialPrompt,
         sessionCommand: session.command,
         resumeCommand: nextCommand !== session.command ? nextCommand : undefined,
+        resetTerminalBuffer: true,
       });
       if (!findSession(session.id)) {
         return cloneSession(session);
