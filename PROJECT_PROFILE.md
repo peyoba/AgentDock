@@ -56,7 +56,7 @@
 | `ANTHROPIC_BASE_URL` | Claude 会话 endpoint；由 AgentDock 注入 PTY | 否 | Profile 配置 |
 | `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` | Claude API Key；由 AgentDock 从本机加密 vault 注入 PTY | 是 | 本机加密 `secrets.vault.json` |
 | `OPENAI_BASE_URL` | Codex/OpenAI 会话 endpoint；由 AgentDock 按 Profile 注入 PTY | 否 | Profile 配置 |
-| `CODEX_HOME` | Codex 每 Profile 独立配置目录 | 否 | AgentDock 生成 |
+| `CODEX_HOME` | 原生模式使用每 Profile 独立目录；NewAPI 兼容模式使用每 Session 临时运行目录 | 否 | AgentDock 生成 |
 | `OPENAI_API_KEY` | Codex/OpenAI API Key；由 AgentDock 从本机加密 vault 注入 PTY | 是 | 本机加密 `secrets.vault.json` |
 
 ## 6. 本地环境文件
@@ -74,9 +74,9 @@
 - 类型检查：`npm run typecheck`
 - 构建验证：`npm run build`
 - MVP UI 验证：`npm run dev` 手动打开 Electron 窗口
-- 持续真实验证：实际启动 Claude/Codex PTY 会话，确认 endpoint/API key/CODEX_HOME 隔离
+- 持续真实验证：实际启动 Claude/Codex PTY 会话，确认 endpoint/API key/CODEX_HOME 隔离；Codex 兼容模式还必须验证真实工具闭环、并发 Session 和生命周期清理
 - 允许 mock：Profile/Workspace metadata、secret adapter 测试替身
-- 必须真实验证：node-pty 启动、键盘输入、Ctrl+C、中文输入、Codex 独立 CODEX_HOME、本机加密 vault 读写
+- 必须真实验证：node-pty 启动、键盘输入、Ctrl+C、中文输入、Codex 原生 Profile `CODEX_HOME`、兼容模式单 Session 运行目录、本机加密 vault 读写，以及恢复正文不进入进程 argv
 
 ## 8. 部署信息
 
@@ -94,7 +94,11 @@
 - API 配置界面按当前支持范围分类：Claude / Codex / 全部，参考 CC Switch；Gemini / OpenCode 在启动环境完成前保持隐藏。
 - API Profile 与 Workspace 必须解耦。
 - Claude 每个会话通过独立 PTY 环境变量隔离 endpoint/key。
-- Codex 每个会话必须隔离 endpoint/key；每个 Profile 使用独立 `CODEX_HOME`。
+- Codex 每个会话必须隔离 endpoint/key；原生模式按 Profile 隔离 `CODEX_HOME`，兼容模式按 Session 隔离临时运行目录。
+- Codex 提供“原生 Codex · Responses”和“完整工具 · NewAPI 兼容”两种显式模式；旧 Profile/Session 缺少模式时固定走原生路径，不得自动改变历史网络行为。
+- NewAPI 兼容层仅限 loopback、单 Session 生命周期和 `model` 字段精确重写；不得改写 tools/input/instructions、解析 SSE 工具事件、记录请求正文，或扩展成自动路由/fallback/API gateway。
+- NewAPI 兼容模式必须使用单 Session 临时运行时 `CODEX_HOME`，不得让同一 Profile 的并发 Session 共享并覆盖运行配置；Profile 独立目录仍保留给原生模式和持久配置。
+- Claude/Codex 恢复正文不得进入 CLI argv、Session command、日志或错误；只能在 TUI 就绪后通过 PTY 注入一次，超时或提前退出必须显式失败。
 - Renderer / preload / IPC 默认不得返回完整 secret，也不得返回完整环境变量对象；仅当用户明确点击查看某个已保存 Profile 的 API Key 时，专用 IPC 可按需返回该单个 secret，且不得广播、记录日志或持久化到前端状态。
 - API Key 不得明文写入代码、文档、测试 fixture、日志或前端状态持久化；只进入本机加密 vault，配置中只保存脱敏状态和引用信息。
 - 不做全局 provider 切换，不修改正在运行的其他终端会话。
@@ -109,3 +113,10 @@
 3. 读取 `DECISIONS.md`。
 4. 读取 `.agent-workflow/state.md`。
 5. 根据任务风险分级；涉及密钥存储、PTY、外部 CLI、环境变量、构建发布的任务至少 L3。
+
+## 11. Codex NewAPI 兼容能力的验证与回滚边界
+
+- 自动化可以证明模式白名单、单字段重写、SSE 顺序、请求大小边界、生命周期清理、metadata/IPC 隔离和恢复 argv 合同，但不能代替真实上游与 node-pty 验收。
+- 2026-07-13 已使用用户本机已保存 Profile 验证实际命令工具闭环、真实 node-pty、进程 argv、运行时 Key 隔离和临时目录清理；新建兼容会话可真实执行 `pwd` 与 `uname -a`。双 Session 与完整 fresh/resume/interrupted 真机矩阵仍应在 clean 发布候选前补跑。
+- 上游不支持、适配器失败或工具调用未发生时，不得自动换模型、协议或 provider；应保留真实失败状态。
+- 功能回滚优先在启动栏或 Codex Profile 中选择“原生 Codex · Responses”并重新启动 Session；发布回滚仍使用 Git tag / GitHub Release。原生模式是否具备相同工具能力由其上游实际支持决定。

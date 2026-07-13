@@ -164,6 +164,7 @@ function createNewProfileDraft({
     claudeSonnetModel: toolType === 'claude' ? ANYROUTER_CLAUDE_SONNET_MODEL : undefined,
     claudeOpusModel: toolType === 'claude' ? ANYROUTER_CLAUDE_OPUS_MODEL : undefined,
     claudeDefaultLaunchMode: toolType === 'claude' ? 'default' : undefined,
+    codexDefaultLaunchMode: toolType === 'codex' ? 'native-responses' : undefined,
     claudeCclineStatusLineEnabled: toolType === 'claude' ? true : undefined,
     keychainService: selectedProfile?.keychainService || 'AgentDock',
     keychainAccount: id,
@@ -289,6 +290,10 @@ export function ApiConfigPanel({
         codexHome:
           toolType === 'codex'
             ? current.codexHome || `~/.agentdock/codex-profiles/${current.id}`
+            : undefined,
+        codexDefaultLaunchMode:
+          toolType === 'codex'
+            ? current.codexDefaultLaunchMode ?? 'native-responses'
             : undefined,
       };
     });
@@ -494,6 +499,10 @@ export function ApiConfigPanel({
         keychainService: draft.keychainService.trim(),
         keychainAccount: draft.keychainAccount.trim(),
         codexHome: draft.codexHome?.trim() || undefined,
+        codexDefaultLaunchMode:
+          draft.toolType === 'codex'
+            ? draft.codexDefaultLaunchMode ?? 'native-responses'
+            : undefined,
         claudeCodeRetryWatchdog:
           draft.toolType === 'claude' ? draft.claudeCodeRetryWatchdog : undefined,
         claudeCodeMaxRetries:
@@ -765,6 +774,24 @@ export function ApiConfigPanel({
                   </div>
                 ) : null}
               </div>
+              {draft.toolType === 'codex' ? (
+                <label className="wide-field">
+                  <span>默认运行模式</span>
+                  <select
+                    aria-label="Codex 默认运行模式"
+                    value={draft.codexDefaultLaunchMode ?? 'native-responses'}
+                    onChange={(event) =>
+                      updateDraft(
+                        'codexDefaultLaunchMode',
+                        event.target.value as ApiProfile['codexDefaultLaunchMode'],
+                      )
+                    }
+                  >
+                    <option value="newapi-tool-compatible">完整工具 · NewAPI 兼容</option>
+                    <option value="native-responses">原生 Codex · Responses</option>
+                  </select>
+                </label>
+              ) : null}
               {draft.toolType === 'claude' ? (
                 <fieldset className="model-mapping-panel wide-field">
                   <legend>模型映射</legend>

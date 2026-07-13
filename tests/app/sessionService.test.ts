@@ -53,24 +53,408 @@ function createFakeRuntime() {
   return { keychain, pty, spawnRequests, writes, dataHandlers, exitHandlers };
 }
 
-function shellQuoteForTest(value: string): string {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
+async function createPendingClaudeRestore(tempDir: string) {
+  const runtime = createFakeRuntime();
+  const historyStore = createSessionHistoryStore(tempDir);
+  const service = createSessionService({
+    clock: { now: () => new Date('2026-07-12T00:00:00.000Z') },
+    keychain: runtime.keychain,
+    pty: runtime.pty,
+    appDataPath: tempDir,
+    historyStore,
+  });
+  const profile = {
+    id: 'profile-a',
+    name: 'Claude A',
+    toolType: 'claude' as const,
+    baseUrl: 'https://example.invalid/v1',
+    keychainService: 'AgentDock',
+    keychainAccount: 'profile-a',
+  };
+  const workspace = {
+    id: 'workspace-a',
+    name: 'AgentDock',
+    path: tempDir,
+  };
+  const session = await service.launch({ profile, workspace, command: 'claude' });
+  runtime.dataHandlers.get(session.id)?.('test pending restore context');
+  await historyStore.readBuffer(session.id);
+  runtime.exitHandlers.get(session.id)?.({ exitCode: 0 });
+  const restartPromise = service.restart({
+    sessionId: session.id,
+    profile,
+    workspace,
+    command: 'claude --resume c4bf-b857',
+  });
+  await vi.waitFor(() => expect(runtime.spawnRequests).toHaveLength(2));
 
-function restorePromptForTest(contextFile: string): string {
-  return [
-    'Read the AgentDock restore context file and use it as background memory.',
-    "Reply with one short memory-restored sentence, then wait for the user's next instruction.",
-    'Do not continue previous tasks unless the user explicitly asks.',
-    contextFile,
-  ].join(' ');
-}
-
-function claudeRestoreCommandForTest(command: string, contextFile: string): string {
-  return `${command} --append-system-prompt ${shellQuoteForTest(restorePromptForTest(contextFile))}`;
+  return { historyStore, restartPromise, runtime, service, session };
 }
 
 describe('sessionService', () => {
+  it('cancels a pending restore on kill without writing or reporting loaded memory', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-cancel-restore-kill-'));
+    const fixture = await createPendingClaudeRestore(tempDir);
+    try {
+      await fixture.service.killTerminal({ sessionId: fixture.session.id });
+      fixture.runtime.dataHandlers.get(fixture.session.id)?.('╭─── Claude Code v-test\n❯ ');
+      const restarted = await fixture.restartPromise;
+
+      expect(fixture.runtime.writes).toEqual([]);
+      expect(restarted.memoryRestore?.status).not.toBe('loaded');
+      await expect(fixture.service.list()).resolves.toEqual([
+        expect.objectContaining({
+          id: fixture.session.id,
+          status: 'stopped',
+          memoryRestore: expect.not.objectContaining({ status: 'loaded' }),
+        }),
+      ]);
+    } finally {
+      await fixture.service.dispose();
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  });
+
+  it('cancels a pending restore on delete without racing metadata back into existence', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-cancel-restore-delete-'));
+    const fixture = await createPendingClaudeRestore(tempDir);
+    try {
+      await fixture.service.deleteSessionRecord({ sessionId: fixture.session.id });
+      fixture.runtime.dataHandlers.get(fixture.session.id)?.('╭─── Claude Code v-test\n❯ ');
+      await fixture.restartPromise.catch(() => undefined);
+
+      expect(fixture.runtime.writes).toEqual([]);
+      await vi.waitFor(async () => {
+        await expect(fixture.service.list()).resolves.toEqual([]);
+        await expect(fixture.historyStore.listSessions()).resolves.toEqual([]);
+      });
+    } finally {
+      await fixture.service.dispose();
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  });
+
+  it('cancels a pending restore on dispose without later writing or reporting loaded memory', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-cancel-restore-dispose-'));
+    const fixture = await createPendingClaudeRestore(tempDir);
+    try {
+      await fixture.service.dispose();
+      fixture.runtime.dataHandlers.get(fixture.session.id)?.('╭─── Claude Code v-test\n❯ ');
+      const restarted = await fixture.restartPromise.catch(() => undefined);
+
+      expect(fixture.runtime.writes).toEqual([]);
+      expect(restarted?.memoryRestore?.status).not.toBe('loaded');
+      expect((await fixture.service.list()).every(
+        (session) => session.memoryRestore?.status !== 'loaded',
+      )).toBe(true);
+    } finally {
+      await fixture.service.dispose();
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  });
+
+  it('handles an early injector rejection while session metadata persistence is still pending', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-early-injector-rejection-'));
+    const runtime = createFakeRuntime();
+    const backingHistoryStore = createSessionHistoryStore(tempDir);
+    let deferNextSave = false;
+    let markDeferredSaveStarted: (() => void) | undefined;
+    let releaseDeferredSave: (() => void) | undefined;
+    const deferredSaveStarted = new Promise<void>((resolve) => {
+      markDeferredSaveStarted = resolve;
+    });
+    const deferredSave = new Promise<void>((resolve) => {
+      releaseDeferredSave = resolve;
+    });
+    const historyStore: SessionHistoryStore = {
+      ...backingHistoryStore,
+      async saveSession(session) {
+        if (deferNextSave) {
+          deferNextSave = false;
+          markDeferredSaveStarted?.();
+          await deferredSave;
+        }
+        await backingHistoryStore.saveSession(session);
+      },
+    };
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: tempDir,
+      historyStore,
+    });
+    const originalUnhandledListeners = process.listeners('unhandledRejection');
+    const unhandledRejections: unknown[] = [];
+    const captureUnhandledRejection = (reason: unknown) => {
+      unhandledRejections.push(reason);
+    };
+    let restartPromise: ReturnType<typeof service.restart> | undefined;
+    let restarted: Awaited<ReturnType<typeof service.restart>> | undefined;
+    let unhandledWhileMetadataPending: unknown[] = [];
+    let unhandledListenersReplaced = false;
+    try {
+      const profile = {
+        id: 'profile-a',
+        name: 'Claude A',
+        toolType: 'claude' as const,
+        baseUrl: 'https://example.invalid/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+      };
+      const workspace = { id: 'workspace-a', name: 'AgentDock', path: tempDir };
+      const session = await service.launch({ profile, workspace, command: 'claude' });
+      runtime.dataHandlers.get(session.id)?.('test early injector rejection context');
+      await backingHistoryStore.readBuffer(session.id);
+      runtime.exitHandlers.get(session.id)?.({ exitCode: 0 });
+      await vi.waitFor(async () => {
+        await expect(backingHistoryStore.listSessions()).resolves.toEqual([
+          expect.objectContaining({ id: session.id, status: 'exited' }),
+        ]);
+      });
+
+      process.removeAllListeners('unhandledRejection');
+      process.on('unhandledRejection', captureUnhandledRejection);
+      unhandledListenersReplaced = true;
+      deferNextSave = true;
+      restartPromise = service.restart({
+        sessionId: session.id,
+        profile,
+        workspace,
+        command: 'claude --resume c4bf-b857',
+      });
+      await deferredSaveStarted;
+      runtime.exitHandlers.get(session.id)?.({ exitCode: 1 });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      unhandledWhileMetadataPending = [...unhandledRejections];
+
+      releaseDeferredSave?.();
+      restarted = await restartPromise;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    } finally {
+      releaseDeferredSave?.();
+      await restartPromise?.catch(() => undefined);
+      if (unhandledListenersReplaced) {
+        process.removeAllListeners('unhandledRejection');
+        for (const listener of originalUnhandledListeners) {
+          process.on('unhandledRejection', listener);
+        }
+      }
+      await service.dispose();
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+
+    expect(unhandledWhileMetadataPending).toEqual([]);
+    expect(restarted?.memoryRestore).toMatchObject({ status: 'failed' });
+  });
+
+  it('launches compatible Codex with a per-session loopback secret and keeps the real model in metadata', async () => {
+    const runtime = createFakeRuntime();
+    const startProxy = vi.fn(async () => ({
+      baseUrl: 'http://127.0.0.1:43101/v1',
+      localApiKey: 'test-local-session-token',
+      internalModel: 'agentdock-tool-runtime-session-1',
+      close: vi.fn().mockResolvedValue(undefined),
+    }));
+    const writtenConfigs: Array<{ filePath: string; content: string }> = [];
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-12T00:00:00.000Z') },
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      startCodexToolCompatibilityProxy: startProxy,
+      ensureDirectory() {},
+      writeTextFile(filePath, content) {
+        writtenConfigs.push({ filePath, content });
+      },
+    });
+    const outputEvents: string[] = [];
+    service.onTerminalOutput((event) => outputEvents.push(event.data));
+
+    const session = await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Codex Compatible',
+        toolType: 'codex',
+        baseUrl: 'https://upstream.example.invalid/v1',
+        defaultModel: 'gpt-5.6-sol',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+        codexHome: '/tmp/agentdock-codex-compatible',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/tmp/agentdock-workspace',
+      },
+      command: 'codex --no-alt-screen',
+      codexLaunchMode: 'newapi-tool-compatible',
+    });
+
+    expect(startProxy).toHaveBeenCalledWith(expect.objectContaining({
+      upstreamBaseUrl: 'https://upstream.example.invalid/v1',
+      upstreamApiKey: 'local-development-secret',
+      upstreamModel: 'gpt-5.6-sol',
+      profileId: 'profile-a',
+      sessionId: 'session-1',
+    }));
+    const sharedCodexHome = '/tmp/agentdock-codex-compatible';
+    const compatibilityRuntimeRoot = '/tmp/agentdock-test-data/codex-session-runtimes';
+    const compatibilityCodexHome = runtime.spawnRequests[0].env.CODEX_HOME;
+    expect(runtime.spawnRequests[0].env).toMatchObject({
+      OPENAI_BASE_URL: 'http://127.0.0.1:43101/v1',
+      OPENAI_API_KEY: 'test-local-session-token',
+    });
+    expect(compatibilityCodexHome).not.toBe(sharedCodexHome);
+    expect(path.relative(compatibilityRuntimeRoot, compatibilityCodexHome)).not.toMatch(/^\.\.(?:\/|$)/);
+    expect(path.relative(compatibilityRuntimeRoot, compatibilityCodexHome)).toContain('session-1');
+    expect(runtime.spawnRequests[0].command).toBe(
+      'codex -c model_provider=agentdock -c model=agentdock-tool-runtime-session-1 --no-alt-screen',
+    );
+    expect(JSON.stringify(runtime.spawnRequests[0].env)).not.toContain('local-development-secret');
+    expect(writtenConfigs.map((entry) => entry.content).join('\n')).toContain('agentdock-tool-runtime-session-1');
+    expect(writtenConfigs.map((entry) => entry.content).join('\n')).not.toContain('local-development-secret');
+    expect(session).toMatchObject({
+      codexLaunchMode: 'newapi-tool-compatible',
+      profileId: 'profile-a',
+    });
+    expect(JSON.stringify(session)).not.toContain('agentdock-tool-runtime-session-1');
+    expect(JSON.stringify(session)).not.toContain('test-local-session-token');
+
+    runtime.dataHandlers.get(session.id)?.('model: agentdock-tool-runtime-session-1');
+    expect(outputEvents.join('')).toContain('model: gpt-5.6-sol');
+    expect(outputEvents.join('')).not.toContain('agentdock-tool-runtime-session-1');
+  });
+
+  it('redacts an internal Codex model alias split across PTY chunks and flushes ordinary tail text on exit', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-split-model-alias-'));
+    const runtime = createFakeRuntime();
+    const historyStore = createSessionHistoryStore(tempDir);
+    const internalModel = 'agentdock-tool-runtime-session-1';
+    const aliasSplitIndex = 18;
+    const aliasFirstHalf = internalModel.slice(0, aliasSplitIndex);
+    const aliasSecondHalf = internalModel.slice(aliasSplitIndex);
+    const tailText = 'ordinary-tail-after-model';
+    let service: ReturnType<typeof createSessionService> | undefined;
+    try {
+      service = createSessionService({
+        keychain: runtime.keychain,
+        pty: runtime.pty,
+        appDataPath: tempDir,
+        historyStore,
+        startCodexToolCompatibilityProxy: vi.fn().mockResolvedValue({
+          baseUrl: 'http://127.0.0.1:43101/v1',
+          localApiKey: 'test-local-session-token',
+          internalModel,
+          close: vi.fn().mockResolvedValue(undefined),
+        }),
+        ensureDirectory() {},
+        writeTextFile() {},
+      });
+      const outputEvents: string[] = [];
+      service.onTerminalOutput((event) => outputEvents.push(event.data));
+      const session = await service.launch({
+        profile: {
+          id: 'profile-a',
+          name: 'Codex Compatible',
+          toolType: 'codex',
+          baseUrl: 'https://upstream.example.invalid/v1',
+          defaultModel: 'gpt-5.6-sol',
+          keychainService: 'AgentDock',
+          keychainAccount: 'profile-a',
+          codexHome: path.join(tempDir, 'codex-home'),
+        },
+        workspace: {
+          id: 'workspace-a',
+          name: 'AgentDock',
+          path: tempDir,
+        },
+        command: 'codex --no-alt-screen',
+        codexLaunchMode: 'newapi-tool-compatible',
+      });
+
+      runtime.dataHandlers.get(session.id)?.(`model before ${aliasFirstHalf}`);
+      runtime.dataHandlers.get(session.id)?.(`${aliasSecondHalf} model after `);
+      runtime.dataHandlers.get(session.id)?.(tailText);
+      runtime.exitHandlers.get(session.id)?.({ exitCode: 0 });
+
+      await vi.waitFor(async () => {
+        const persisted = await historyStore.readBuffer(session.id);
+        expect(persisted).toContain(tailText);
+      });
+      const rendererOutput = outputEvents.join('');
+      const terminalBuffer = await service.readTerminalBuffer({ sessionId: session.id });
+      const persistedOutput = await historyStore.readBuffer(session.id);
+
+      for (const visibleOutput of [rendererOutput, terminalBuffer, persistedOutput]) {
+        expect(visibleOutput).toContain('model before gpt-5.6-sol model after');
+        expect(visibleOutput).toContain(tailText);
+        expect(visibleOutput).not.toContain(internalModel);
+        expect(visibleOutput).not.toContain(aliasFirstHalf);
+        expect(visibleOutput).not.toContain(aliasSecondHalf);
+      }
+      expect(outputEvents).not.toContainEqual(expect.stringContaining(aliasFirstHalf));
+      expect(outputEvents).not.toContainEqual(expect.stringContaining(aliasSecondHalf));
+    } finally {
+      await service?.dispose();
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  });
+
+  it('keeps compatible Codex proxy lifecycle isolated across two sessions', async () => {
+    const runtime = createFakeRuntime();
+    const closes = [vi.fn().mockResolvedValue(undefined), vi.fn().mockResolvedValue(undefined)];
+    let proxyIndex = 0;
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      startCodexToolCompatibilityProxy: vi.fn(async ({ sessionId }) => {
+        const index = proxyIndex++;
+        return {
+          baseUrl: `http://127.0.0.1:${43101 + index}/v1`,
+          localApiKey: `test-local-token-${index}`,
+          internalModel: `agentdock-tool-runtime-${sessionId}`,
+          close: closes[index],
+        };
+      }),
+      ensureDirectory() {},
+      writeTextFile() {},
+    });
+    const profile = {
+      id: 'profile-a',
+      name: 'Codex Compatible',
+      toolType: 'codex' as const,
+      baseUrl: 'https://upstream.example.invalid/v1',
+      defaultModel: 'gpt-5.6-sol',
+      keychainService: 'AgentDock',
+      keychainAccount: 'profile-a',
+      codexHome: '/tmp/agentdock-codex-compatible',
+    };
+    const workspace = { id: 'workspace-a', name: 'AgentDock', path: '/tmp/agentdock-workspace' };
+
+    const first = await service.launch({
+      profile,
+      workspace,
+      command: 'codex --no-alt-screen',
+      codexLaunchMode: 'newapi-tool-compatible',
+    });
+    await service.launch({
+      profile,
+      workspace,
+      command: 'codex --no-alt-screen',
+      codexLaunchMode: 'newapi-tool-compatible',
+    });
+
+    expect(runtime.spawnRequests[0].env.OPENAI_BASE_URL).not.toBe(runtime.spawnRequests[1].env.OPENAI_BASE_URL);
+    expect(runtime.spawnRequests[0].env.OPENAI_API_KEY).not.toBe(runtime.spawnRequests[1].env.OPENAI_API_KEY);
+    await service.killTerminal({ sessionId: first.id });
+    expect(closes[0]).toHaveBeenCalledTimes(1);
+    expect(closes[1]).not.toHaveBeenCalled();
+
+    await service.dispose();
+    expect(closes[1]).toHaveBeenCalledTimes(1);
+  });
+
   it('launches a session through injected keychain and PTY adapters', async () => {
     const runtime = createFakeRuntime();
     const service = createSessionService({
@@ -376,14 +760,39 @@ describe('sessionService', () => {
         command: 'claude --resume c4bf-b857',
         strategy: 'resume' as const,
       };
-      const restartedSession = await service.restart(resumeRestartRequest);
+      const restartPromise = service.restart(resumeRestartRequest);
+      await vi.waitFor(() => expect(runtime.spawnRequests).toHaveLength(2));
+      const restartSpawn = runtime.spawnRequests.at(-1);
+      expect(restartSpawn).toEqual({
+        sessionId: 'session-1',
+        command: 'claude --resume c4bf-b857',
+        cwd: tempDir,
+        env: {
+          ANTHROPIC_BASE_URL: 'https://example.invalid/v1',
+          ANTHROPIC_AUTH_TOKEN: 'local-development-secret',
+        },
+      });
+      expect(restartSpawn?.command).not.toContain('--append-system-prompt');
+      expect(restartSpawn?.command).not.toContain('<agentdock-restored-memory>');
+      expect(runtime.writes).toEqual([]);
+
+      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
+      const restartedSession = await restartPromise;
+      expect(runtime.writes).toHaveLength(1);
+      expect(runtime.writes[0]).toMatchObject({ sessionId: 'session-1' });
+      expect(runtime.writes[0].input).toContain('<agentdock-restored-memory>');
+      expect(runtime.writes[0].input).toContain('previous terminal output');
+      expect(runtime.writes[0].input).toMatch(/\r$/);
+      runtime.dataHandlers.get(session.id)?.('❯ ');
+      expect(runtime.writes).toHaveLength(1);
 
       expect(restartedSession).toMatchObject({
         id: 'session-1',
         title: 'Claude A · AgentDock',
         profileId: 'profile-a',
         workspaceId: 'workspace-a',
-        command: 'claude --resume c4bf-b857',
+        command: 'claude',
+        resumeCommand: 'claude --resume c4bf-b857',
         status: 'running',
         startedAt: '2026-07-01T00:00:00.000Z',
         memoryRestore: {
@@ -392,19 +801,6 @@ describe('sessionService', () => {
           contextFile: path.join(tempDir, '.agentdock/context/restores/session-1.md'),
         },
       });
-      expect(runtime.spawnRequests.at(-1)).toEqual({
-        sessionId: 'session-1',
-        command: claudeRestoreCommandForTest(
-          'claude --resume c4bf-b857',
-          path.join(tempDir, '.agentdock/context/restores/session-1.md'),
-        ),
-        cwd: tempDir,
-        env: {
-          ANTHROPIC_BASE_URL: 'https://example.invalid/v1',
-          ANTHROPIC_AUTH_TOKEN: 'local-development-secret',
-        },
-      });
-      expect(runtime.writes.some((write) => write.input.includes('Read the AgentDock restore context file'))).toBe(false);
       await expect(service.readTerminalBuffer({ sessionId: session.id })).resolves.toContain(
         'previous terminal output',
       );
@@ -537,7 +933,7 @@ describe('sessionService', () => {
     }
   });
 
-  it('passes a redacted restore prompt as the initial CLI prompt when restarting an agent session', async () => {
+  it('injects a redacted Claude restore prompt only after readiness', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restore-context-'));
     const runtime = createFakeRuntime();
     const historyStore = createSessionHistoryStore(tempDir);
@@ -569,7 +965,7 @@ describe('sessionService', () => {
       await historyStore.readBuffer(session.id);
       runtime.exitHandlers.get(session.id)?.({ exitCode: 0 });
 
-      const restarted = await service.restart({
+      const restartPromise = service.restart({
         sessionId: session.id,
         profile,
         workspace,
@@ -577,12 +973,17 @@ describe('sessionService', () => {
       });
 
       const restoreContextFile = path.join(tempDir, '.agentdock/context/restores/session-1.md');
+      await vi.waitFor(() => expect(runtime.spawnRequests).toHaveLength(2));
       const restartSpawn = runtime.spawnRequests.at(-1);
-      expect(restartSpawn?.command).toBe(
-        claudeRestoreCommandForTest('claude --resume c4bf-b857', restoreContextFile),
-      );
-      expect(runtime.writes.some((write) => write.input.includes('Read the AgentDock restore context file'))).toBe(false);
+      expect(restartSpawn?.command).toBe('claude --resume c4bf-b857');
+      expect(restartSpawn?.command).not.toContain('--append-system-prompt');
       expect(restartSpawn?.command).not.toContain('recent output');
+      expect(runtime.writes).toEqual([]);
+      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
+      const restarted = await restartPromise;
+      expect(runtime.writes).toHaveLength(1);
+      expect(runtime.writes[0].input).toContain('recent output');
+      expect(runtime.writes[0].input).not.toContain(fakeOpenAiKey);
       expect(restarted.memoryRestore?.summary).toBe('记忆已恢复：已加载最近会话背景，等待你的下一步指令。');
       await expect(readFile(restoreContextFile, 'utf-8'))
         .resolves.toContain('recent output');
@@ -594,7 +995,7 @@ describe('sessionService', () => {
     }
   });
 
-  it('passes a readable restore prompt as the initial CLI prompt when the previous agent used TUI redraw output', async () => {
+  it('injects a readable Claude restore prompt after sanitizing prior TUI redraw output', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restore-tui-context-'));
     const runtime = createFakeRuntime();
     const historyStore = createSessionHistoryStore(tempDir);
@@ -632,7 +1033,7 @@ describe('sessionService', () => {
       await historyStore.readBuffer(session.id);
       runtime.exitHandlers.get(session.id)?.({ exitCode: 0 });
 
-      const restarted = await service.restart({
+      const restartPromise = service.restart({
         sessionId: session.id,
         profile,
         workspace,
@@ -640,12 +1041,16 @@ describe('sessionService', () => {
       });
 
       const restoreContextFile = path.join(tempDir, '.agentdock/context/restores/session-1.md');
+      await vi.waitFor(() => expect(runtime.spawnRequests).toHaveLength(2));
       const restartSpawn = runtime.spawnRequests.at(-1);
-      expect(restartSpawn?.command).toBe(
-        claudeRestoreCommandForTest('claude --resume c4bf-b857', restoreContextFile),
-      );
-      expect(runtime.writes.some((write) => write.input.includes('Read the AgentDock restore context file'))).toBe(false);
+      expect(restartSpawn?.command).toBe('claude --resume c4bf-b857');
       expect(restartSpawn?.command).not.toContain('用户确认：重启前的最近对话必须传给新 Agent。');
+      expect(runtime.writes).toEqual([]);
+      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
+      const restarted = await restartPromise;
+      expect(runtime.writes).toHaveLength(1);
+      expect(runtime.writes[0].input).toContain('用户确认：重启前的最近对话必须传给新 Agent。');
+      expect(runtime.writes[0].input).not.toContain('\u001b');
       expect(restarted.memoryRestore?.summary).toBe('记忆已恢复：已加载最近会话背景，等待你的下一步指令。');
       const restoreContext = await readFile(restoreContextFile, 'utf-8');
       expect(restoreContext).toContain('用户确认：重启前的最近对话必须传给新 Agent。');
@@ -661,7 +1066,7 @@ describe('sessionService', () => {
     }
   });
 
-  it('writes a restore context file and passes only the short read instruction as the initial CLI prompt', async () => {
+  it('keeps the full Claude restore context out of argv and writes it once after readiness', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restore-file-restart-'));
     const runtime = createFakeRuntime();
     const historyStore = createSessionHistoryStore(tempDir);
@@ -692,7 +1097,7 @@ describe('sessionService', () => {
       await historyStore.readBuffer(session.id);
       runtime.exitHandlers.get(session.id)?.({ exitCode: 0 });
 
-      const restarted = await service.restart({
+      const restartPromise = service.restart({
         sessionId: session.id,
         profile,
         workspace,
@@ -700,12 +1105,15 @@ describe('sessionService', () => {
       });
 
       const restoreContextFile = path.join(tempDir, '.agentdock/context/restores/session-1.md');
+      await vi.waitFor(() => expect(runtime.spawnRequests).toHaveLength(2));
       const restartSpawn = runtime.spawnRequests.at(-1);
-      expect(restartSpawn?.command).toBe(
-        claudeRestoreCommandForTest('claude --resume c4bf-b857', restoreContextFile),
-      );
-      expect(runtime.writes.some((write) => write.input.includes('Read the AgentDock restore context file'))).toBe(false);
+      expect(restartSpawn?.command).toBe('claude --resume c4bf-b857');
       expect(restartSpawn?.command).not.toContain('用户确认：恢复摘要只显示一句话');
+      expect(runtime.writes).toEqual([]);
+      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
+      const restarted = await restartPromise;
+      expect(runtime.writes).toHaveLength(1);
+      expect(runtime.writes[0].input).toContain('用户确认：恢复摘要只显示一句话');
       expect(restarted.memoryRestore).toMatchObject({
         status: 'loaded',
         summary: '记忆已恢复：已加载最近会话背景，等待你的下一步指令。',
@@ -718,7 +1126,7 @@ describe('sessionService', () => {
     }
   });
 
-  it('passes the restore instruction as an initial prompt for Codex restarts without writing stdin', async () => {
+  it('keeps Codex restore memory out of argv and writes it once after the TUI is ready', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-codex-restore-'));
     const runtime = createFakeRuntime();
     const historyStore = createSessionHistoryStore(tempDir);
@@ -751,7 +1159,7 @@ describe('sessionService', () => {
       await historyStore.readBuffer(session.id);
       runtime.exitHandlers.get(session.id)?.({ exitCode: 0 });
 
-      await service.restart({
+      const restartPromise = service.restart({
         sessionId: session.id,
         profile,
         workspace,
@@ -759,10 +1167,23 @@ describe('sessionService', () => {
       });
 
       const restoreContextFile = path.join(tempDir, '.agentdock/context/restores/session-1.md');
-      expect(runtime.spawnRequests.at(-1)?.command).toBe(
-        `codex ${shellQuoteForTest(restorePromptForTest(restoreContextFile))}`,
-      );
-      expect(runtime.writes.some((write) => write.input.includes('Read the AgentDock restore context file'))).toBe(false);
+      await vi.waitFor(() => expect(runtime.spawnRequests).toHaveLength(2));
+      const restartSpawn = runtime.spawnRequests.at(-1);
+      expect(restartSpawn?.command).toBe('codex');
+      expect(restartSpawn?.command).not.toContain('<agentdock-restored-memory>');
+      expect(restartSpawn?.command).not.toContain('用户确认：Codex 恢复不能写入输入框。');
+      expect(runtime.writes).toEqual([]);
+
+      runtime.dataHandlers.get(session.id)?.('╭─ >_ OpenAI Codex\n› ');
+      await restartPromise;
+      expect(runtime.writes).toHaveLength(1);
+      expect(runtime.writes[0].input).toContain('<agentdock-restored-memory>');
+      expect(runtime.writes[0].input).toContain('用户确认：Codex 恢复不能写入输入框。');
+      expect(runtime.writes[0].input).toMatch(/\r$/);
+      runtime.dataHandlers.get(session.id)?.('› ');
+      expect(runtime.writes).toHaveLength(1);
+      await expect(readFile(restoreContextFile, 'utf-8'))
+        .resolves.toContain('用户确认：Codex 恢复不能写入输入框。');
     } finally {
       await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     }

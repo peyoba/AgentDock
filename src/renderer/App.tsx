@@ -4,7 +4,7 @@ import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 import { ApiConfigPanel, type ApiConfigFilter } from './components/ApiConfigPanel';
 import { AppHeader } from './components/AppHeader';
-import { CommandBar } from './components/CommandBar';
+import { CommandBar, type LaunchModeSelection } from './components/CommandBar';
 import { ProjectPanel } from './components/ProjectPanel';
 import { SessionDetailsDrawer } from './components/SessionDetailsDrawer';
 import { SessionLibrary } from './components/SessionLibrary';
@@ -15,8 +15,10 @@ import { readableSessionHistory, terminalOutputToPlainText } from '../shared/ter
 import type {
   AgentSession,
   AppBuildInfo,
+  AppUpdateCheckResult,
   ApiProfile,
   ClaudeLaunchMode,
+  CodexLaunchMode,
   LaunchRequest,
   RestartSessionRequest,
   SessionContextPressureResult,
@@ -100,6 +102,28 @@ function defaultCommandFor(profile?: ApiProfile): string {
   return profile?.toolType ?? 'claude --dangerously-skip-permissions';
 }
 
+function defaultLaunchModeFor(profile: ApiProfile | undefined): LaunchModeSelection {
+  return profile?.toolType === 'codex'
+    ? profile.codexDefaultLaunchMode ?? 'native-responses'
+    : 'lite';
+}
+
+function launchModeMatchesProfile(
+  launchMode: LaunchModeSelection,
+  profile: ApiProfile | undefined,
+): boolean {
+  if (launchMode === 'local-shell') {
+    return profile?.toolType === 'claude' || profile?.toolType === 'codex';
+  }
+  if (profile?.toolType === 'claude') {
+    return launchMode === 'lite' || launchMode === 'full';
+  }
+  if (profile?.toolType === 'codex') {
+    return launchMode === 'native-responses' || launchMode === 'newapi-tool-compatible';
+  }
+  return false;
+}
+
 function safeLaunchError(error: unknown): string {
   if (!(error instanceof Error)) {
     return '启动失败，请检查配置。';
@@ -179,16 +203,17 @@ function isSummarySupportedAgentSession(
   );
 }
 
-function claudeLaunchModeForSession(
+function addSessionLaunchMode(
+  request: LaunchRequest | RestartSessionRequest,
   session: AgentSession,
   profile: ApiProfile | undefined,
-  fallbackLaunchMode: ClaudeLaunchMode,
-): ClaudeLaunchMode | undefined {
-  if (profile?.toolType !== 'claude' || commandExecutableName(session.command) !== 'claude') {
-    return undefined;
+): void {
+  const executable = commandExecutableName(session.command);
+  if (profile?.toolType === 'claude' && executable === 'claude' && session.claudeLaunchMode) {
+    request.claudeLaunchMode = session.claudeLaunchMode;
+  } else if (profile?.toolType === 'codex' && executable === 'codex' && session.codexLaunchMode) {
+    request.codexLaunchMode = session.codexLaunchMode;
   }
-
-  return session.claudeLaunchMode ?? fallbackLaunchMode;
 }
 
 function isRecoverableSession(session: AgentSession | undefined): session is AgentSession {
@@ -335,6 +360,8 @@ export default function App(): React.JSX.Element {
     PROJECT_PANEL_DEFAULT_WIDTH,
   );
   const [profiles, setProfiles] = React.useState<ApiProfile[]>(api ? [] : fallbackProfiles);
+  const profilesRef = React.useRef(profiles);
+  profilesRef.current = profiles;
   const [workspaces, setWorkspaces] = React.useState<Workspace[]>(api ? [] : fallbackWorkspaces);
   const [sessions, setSessions] = React.useState<AgentSession[]>(api ? [] : fallbackSessions);
   const sessionsRef = React.useRef(sessions);
@@ -344,13 +371,20 @@ export default function App(): React.JSX.Element {
   const [buildInfo, setBuildInfo] = React.useState<AppBuildInfo | undefined>(
     api ? undefined : fallbackBuildInfo,
   );
+  const [updateResult, setUpdateResult] = React.useState<AppUpdateCheckResult | undefined>();
+  const [checkingForUpdates, setCheckingForUpdates] = React.useState(false);
+  const updateCheckInFlightRef = React.useRef(false);
   const [selectedProfileId, setSelectedProfileId] = React.useState<string | undefined>(
     api ? undefined : fallbackProfiles[0]?.id,
   );
   const [selectedWorkspaceId, setSelectedWorkspaceId] = React.useState<string | undefined>(
     api ? undefined : fallbackWorkspaces[0]?.id,
   );
-  const [claudeLaunchMode, setClaudeLaunchMode] = React.useState<ClaudeLaunchMode>('lite');
+  const [launchMode, setLaunchMode] = React.useState<LaunchModeSelection>('lite');
+  const launchModeRef = React.useRef(launchMode);
+  launchModeRef.current = launchMode;
+  const selectedProfileIdRef = React.useRef(selectedProfileId);
+  selectedProfileIdRef.current = selectedProfileId;
   const [apiConfigFilter, setApiConfigFilter] = React.useState<ApiConfigFilter>('all');
   const [activeSessionId, setActiveSessionId] = React.useState<string | undefined>(
     api ? undefined : fallbackSessions[0]?.id,
@@ -380,13 +414,31 @@ export default function App(): React.JSX.Element {
       api.listProfiles(),
       api.listWorkspaces(),
     ]);
+    const previousProfileId = selectedProfileIdRef.current;
+    const previousProfile = profilesRef.current.find(
+      (profile) => profile.id === previousProfileId,
+    );
+    const nextProfileId =
+      previousProfileId && nextProfiles.some((profile) => profile.id === previousProfileId)
+        ? previousProfileId
+        : nextProfiles[0]?.id;
+    const nextProfile = nextProfiles.find((profile) => profile.id === nextProfileId);
+    const currentLaunchMode = launchModeRef.current;
+    const shouldSyncLaunchMode =
+      nextProfileId !== previousProfileId ||
+      nextProfile?.toolType !== previousProfile?.toolType ||
+      !launchModeMatchesProfile(currentLaunchMode, nextProfile);
+
+    profilesRef.current = nextProfiles;
+    selectedProfileIdRef.current = nextProfileId;
     setProfiles(nextProfiles);
     setWorkspaces(nextWorkspaces);
-    setSelectedProfileId((current) =>
-      current && nextProfiles.some((profile) => profile.id === current)
-        ? current
-        : nextProfiles[0]?.id,
-    );
+    setSelectedProfileId(nextProfileId);
+    if (shouldSyncLaunchMode) {
+      const nextLaunchMode = defaultLaunchModeFor(nextProfile);
+      launchModeRef.current = nextLaunchMode;
+      setLaunchMode(nextLaunchMode);
+    }
     setSelectedWorkspaceId((current) =>
       current && nextWorkspaces.some((workspace) => workspace.id === current)
         ? current
@@ -417,6 +469,7 @@ export default function App(): React.JSX.Element {
           return mergedSessions;
         });
         setSelectedProfileId((current) => current ?? nextProfiles[0]?.id);
+        setLaunchMode(defaultLaunchModeFor(nextProfiles[0]));
         setSelectedWorkspaceId((current) => current ?? nextWorkspaces[0]?.id);
         setActiveSessionId((current) => current ?? sessionsRef.current[0]?.id);
       })
@@ -430,6 +483,37 @@ export default function App(): React.JSX.Element {
       cancelled = true;
     };
   }, [api]);
+
+  const checkForUpdates = React.useCallback(async (): Promise<void> => {
+    if (!api || updateCheckInFlightRef.current) {
+      return;
+    }
+    updateCheckInFlightRef.current = true;
+    setCheckingForUpdates(true);
+    try {
+      setUpdateResult(await api.checkForUpdates());
+    } finally {
+      updateCheckInFlightRef.current = false;
+      setCheckingForUpdates(false);
+    }
+  }, [api]);
+
+  React.useEffect(() => {
+    if (!api) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => void checkForUpdates(), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [api, checkForUpdates]);
+
+  React.useEffect(() => {
+    if (updateResult?.status !== 'current' && updateResult?.status !== 'error') {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => setUpdateResult(undefined), 5_000);
+    return () => window.clearTimeout(timer);
+  }, [updateResult]);
 
   React.useEffect(() => {
     if (!api) {
@@ -508,6 +592,7 @@ export default function App(): React.JSX.Element {
     setSelectedProfileId(profileId);
     if (nextProfile) {
       setApiConfigFilter(nextProfile.toolType);
+      setLaunchMode(defaultLaunchModeFor(nextProfile));
     }
   };
 
@@ -560,20 +645,22 @@ export default function App(): React.JSX.Element {
     };
   }, [api, activeSessionId, activeSessionSupportsSummary]);
 
-  const launchSession = async (commandOverride?: string): Promise<AgentSession | undefined> => {
+  const launchSession = async (): Promise<AgentSession | undefined> => {
     if (!selectedProfile || !selectedWorkspace) {
       setLaunchError('启动失败，请先选择 API 配置和工作区。');
       return undefined;
     }
 
-    const command = commandOverride ?? defaultCommandFor(selectedProfile);
+    const command = launchMode === 'local-shell' ? 'zsh' : defaultCommandFor(selectedProfile);
     const launchRequest: LaunchRequest = {
       profileId: selectedProfile.id,
       workspaceId: selectedWorkspace.id,
       command,
     };
-    if (selectedProfile.toolType === 'claude' && !commandOverride) {
-      launchRequest.claudeLaunchMode = claudeLaunchMode;
+    if (launchMode !== 'local-shell' && selectedProfile.toolType === 'claude') {
+      launchRequest.claudeLaunchMode = launchMode as ClaudeLaunchMode;
+    } else if (launchMode !== 'local-shell' && selectedProfile.toolType === 'codex') {
+      launchRequest.codexLaunchMode = launchMode as CodexLaunchMode;
     }
 
     if (!api) {
@@ -625,14 +712,7 @@ export default function App(): React.JSX.Element {
         workspaceId: sourceSession.workspaceId,
         command,
       };
-      const sourceLaunchMode = claudeLaunchModeForSession(
-        sourceSession,
-        sourceProfile,
-        claudeLaunchMode,
-      );
-      if (sourceLaunchMode) {
-        launchRequest.claudeLaunchMode = sourceLaunchMode;
-      }
+      addSessionLaunchMode(launchRequest, sourceSession, sourceProfile);
 
       const session = await api.launchSession(launchRequest);
       setSessions((current) => upsertSession(current, session));
@@ -665,6 +745,8 @@ export default function App(): React.JSX.Element {
         sessionId: sourceSession.id,
         strategy,
       };
+      const sourceProfile = profiles.find((profile) => profile.id === sourceSession.profileId);
+      addSessionLaunchMode(restartRequest, sourceSession, sourceProfile);
 
       const session = await api.restartSession(restartRequest);
       setSessions((current) => upsertSession(current, session));
@@ -868,6 +950,7 @@ export default function App(): React.JSX.Element {
     });
     setSelectedProfileId(savedProfile.id);
     setApiConfigFilter(savedProfile.toolType);
+    setLaunchMode(defaultLaunchModeFor(savedProfile));
 
     return savedProfile;
   };
@@ -1090,6 +1173,10 @@ export default function App(): React.JSX.Element {
             workspaces={workspaces}
             activeSessionId={activeSessionId}
             buildInfo={buildInfo}
+            updateResult={updateResult}
+            checkingForUpdates={checkingForUpdates}
+            onCheckForUpdates={() => void checkForUpdates()}
+            onOpenUpdateDownload={(releaseUrl) => void api?.openUpdateDownload(releaseUrl)}
             onOpenSession={openSessionView}
             onContinueSession={(sessionId) => void continueSession(sessionId)}
             onStopSession={(sessionId) => void stopSession(sessionId)}
@@ -1117,13 +1204,12 @@ export default function App(): React.JSX.Element {
               workspaces={workspaces}
               workspace={selectedWorkspace}
               workspaceId={selectedWorkspace?.id}
-              claudeLaunchMode={claudeLaunchMode}
+              launchMode={launchMode}
               launching={launching}
               onProfileChange={selectProfile}
               onWorkspaceChange={setSelectedWorkspaceId}
-              onClaudeLaunchModeChange={setClaudeLaunchMode}
+              onLaunchModeChange={setLaunchMode}
               onChooseWorkspace={api ? () => void chooseWorkspace() : undefined}
-              onLaunchLocalShell={() => void launchSession('zsh')}
               onLaunch={() => void launchSession()}
             />
             {launchError ? <p role="alert" className="launch-error">{launchError}</p> : null}

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createSessionService } from '../../src/main/sessionService';
 import type { KeychainAdapter } from '../../src/main/adapters/keychainAdapter';
 import type { PtyAdapter } from '../../src/main/adapters/ptyAdapter';
@@ -130,6 +130,47 @@ async function launchTestSession(service: ReturnType<typeof createSessionService
 }
 
 describe('sessionService terminal controls', () => {
+  it('closes the compatible Codex proxy when the PTY exits', async () => {
+    const runtime = createTerminalRuntime();
+    const close = vi.fn().mockResolvedValue(undefined);
+    const service = createSessionService({
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      startCodexToolCompatibilityProxy: vi.fn().mockResolvedValue({
+        baseUrl: 'http://127.0.0.1:43101/v1',
+        localApiKey: 'test-local-session-token',
+        internalModel: 'agentdock-tool-runtime-session-1',
+        close,
+      }),
+      ensureDirectory() {},
+      writeTextFile() {},
+    });
+    await service.launch({
+      profile: {
+        id: 'profile-a',
+        name: 'Codex Compatible',
+        toolType: 'codex',
+        baseUrl: 'https://upstream.example.invalid/v1',
+        defaultModel: 'gpt-5.6-sol',
+        keychainService: 'AgentDock',
+        keychainAccount: 'profile-a',
+        codexHome: '/tmp/agentdock-codex-compatible',
+      },
+      workspace: {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: '/tmp/agentdock-workspace',
+      },
+      command: 'codex --no-alt-screen',
+      codexLaunchMode: 'newapi-tool-compatible',
+    });
+
+    runtime.emitExit({ exitCode: 0 });
+
+    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+  });
+
   it('retries an output batch after a transient history write failure', async () => {
     const runtime = createTerminalRuntime();
     const persistedBatches: string[] = [];

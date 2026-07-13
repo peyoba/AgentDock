@@ -62,6 +62,7 @@ describe('configMigration', () => {
 
       const migrated = migrateProfile(v1Profile);
 
+      expect(migrated.codexDefaultLaunchMode).toBeUndefined();
       expect(migrated).toEqual({
         id: 'codex-test',
         name: 'Codex Test',
@@ -72,6 +73,7 @@ describe('configMigration', () => {
         keychainService: 'AgentDock',
         keychainAccount: 'codex-test',
         codexHome: '~/.agentdock/codex-profiles/codex-test',
+        codexDefaultLaunchMode: undefined,
         skipPermissions: undefined,
         bypassApprovals: undefined,
         claudeCodeRetryWatchdog: undefined,
@@ -84,6 +86,23 @@ describe('configMigration', () => {
         disableInstallationChecks: undefined,
         claudeCleanupPeriodDays: undefined,
       });
+    });
+
+    it('preserves an explicitly selected Codex default launch mode', () => {
+      const migrated = migrateProfile({
+        __version: 5,
+        id: 'codex-compatible',
+        name: 'Codex Compatible',
+        toolType: 'codex',
+        baseUrl: 'https://codex.example.invalid/v1',
+        defaultModel: 'gpt-5.6-sol',
+        keychainService: 'AgentDock',
+        keychainAccount: 'codex-compatible',
+        codexHome: '~/.agentdock/codex-profiles/codex-compatible',
+        codexDefaultLaunchMode: 'newapi-tool-compatible',
+      });
+
+      expect(migrated.codexDefaultLaunchMode).toBe('newapi-tool-compatible');
     });
 
     it('handles v2 profile (already migrated)', () => {
@@ -293,25 +312,28 @@ describe('configMigration', () => {
   });
 
   describe('Version tagging', () => {
-    it('adds current version to profile', () => {
+    it('writes profiles with the v5 disk compatibility tag while preserving v6 fields', () => {
       const profile: ApiProfile = {
-        id: 'claude-test',
-        name: 'Claude Test',
-        toolType: 'claude',
-        baseUrl: 'https://api.example.com',
+        id: 'codex-compatible',
+        name: 'Codex Compatible',
+        toolType: 'codex',
+        baseUrl: 'https://api.example.com/v1',
         keychainService: 'AgentDock',
-        keychainAccount: 'claude-test',
+        keychainAccount: 'codex-compatible',
+        codexHome: '~/.agentdock/codex-profiles/codex-compatible',
+        codexDefaultLaunchMode: 'newapi-tool-compatible',
       };
 
       const versioned = addVersionToProfile(profile);
 
       expect(versioned).toEqual({
         ...profile,
-        __version: CURRENT_CONFIG_VERSION,
+        __version: 5,
       });
+      expect(migrateProfile(versioned).codexDefaultLaunchMode).toBe('newapi-tool-compatible');
     });
 
-    it('adds current version to workspace', () => {
+    it('writes workspaces with the v5 disk compatibility tag', () => {
       const workspace: Workspace = {
         id: 'workspace-test',
         name: 'Test Workspace',
@@ -322,12 +344,12 @@ describe('configMigration', () => {
 
       expect(versioned).toEqual({
         ...workspace,
-        __version: CURRENT_CONFIG_VERSION,
+        __version: 5,
       });
     });
 
     it('uses the current config version', () => {
-      expect(CURRENT_CONFIG_VERSION).toBe(5);
+      expect(CURRENT_CONFIG_VERSION).toBe(6);
     });
 
     it('preserves the Claude Anthropic compat proxy flag during migration and versioning', () => {

@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AgentSession, TerminalOutputEvent } from '../shared/agentdockTypes.js';
+import type {
+  AgentSession,
+  LaunchRequest,
+  RestartSessionRequest,
+  TerminalOutputEvent,
+} from '../shared/agentdockTypes.js';
 import type { AgentDockApi } from '../shared/preloadTypes.js';
 
 function isTerminalOutputEvent(value: unknown): value is TerminalOutputEvent {
@@ -26,9 +31,41 @@ function isAgentSession(value: unknown): value is AgentSession {
   );
 }
 
+function launchRequestPayload(request: LaunchRequest): LaunchRequest {
+  return {
+    profileId: request.profileId,
+    workspaceId: request.workspaceId,
+    command: request.command,
+    ...(request.claudeLaunchMode === 'lite' || request.claudeLaunchMode === 'full'
+      ? { claudeLaunchMode: request.claudeLaunchMode }
+      : {}),
+    ...(request.codexLaunchMode === 'native-responses' ||
+    request.codexLaunchMode === 'newapi-tool-compatible'
+      ? { codexLaunchMode: request.codexLaunchMode }
+      : {}),
+  };
+}
+
+function restartSessionRequestPayload(request: RestartSessionRequest): RestartSessionRequest {
+  return {
+    sessionId: request.sessionId,
+    strategy: request.strategy,
+    ...(typeof request.command === 'string' ? { command: request.command } : {}),
+    ...(request.claudeLaunchMode === 'lite' || request.claudeLaunchMode === 'full'
+      ? { claudeLaunchMode: request.claudeLaunchMode }
+      : {}),
+    ...(request.codexLaunchMode === 'native-responses' ||
+    request.codexLaunchMode === 'newapi-tool-compatible'
+      ? { codexLaunchMode: request.codexLaunchMode }
+      : {}),
+  };
+}
+
 const api: AgentDockApi = {
   version: '0.1.0',
   getBuildInfo: () => ipcRenderer.invoke('app:buildInfo'),
+  checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
+  openUpdateDownload: (releaseUrl) => ipcRenderer.invoke('app:openUpdateDownload', { releaseUrl }),
   listProfiles: () => ipcRenderer.invoke('profiles:list'),
   listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
   chooseWorkspace: () => ipcRenderer.invoke('workspaces:choose'),
@@ -37,8 +74,9 @@ const api: AgentDockApi = {
   saveProfileSecret: (request) => ipcRenderer.invoke('profiles:saveSecret', request),
   readProfileSecret: (request) => ipcRenderer.invoke('profiles:readSecret', request),
   fetchProfileModels: (request) => ipcRenderer.invoke('profiles:fetchModels', request),
-  launchSession: (request) => ipcRenderer.invoke('sessions:launch', request),
-  restartSession: (request) => ipcRenderer.invoke('sessions:restart', request),
+  launchSession: (request) => ipcRenderer.invoke('sessions:launch', launchRequestPayload(request)),
+  restartSession: (request) =>
+    ipcRenderer.invoke('sessions:restart', restartSessionRequestPayload(request)),
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   closeSessionView: (request) => ipcRenderer.invoke('sessions:closeView', request),
   archiveSessionRecord: (request) => ipcRenderer.invoke('sessions:archiveRecord', request),

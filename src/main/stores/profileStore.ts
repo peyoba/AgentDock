@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { ApiProfile } from '../../shared/agentdockTypes.js';
+import type { ApiProfile, CodexLaunchMode } from '../../shared/agentdockTypes.js';
 import { normalizeClaudeProfileDefaults } from '../../shared/claudeProfileDefaults.js';
 import { migrateProfile, addVersionToProfile } from './configMigration.js';
 import { createJsonStore } from './jsonStore.js';
@@ -15,6 +15,12 @@ function positiveInteger(value: number | undefined): number | undefined {
   }
 
   return Math.trunc(value);
+}
+
+function codexLaunchMode(value: unknown): CodexLaunchMode | undefined {
+  return value === 'native-responses' || value === 'newapi-tool-compatible'
+    ? value
+    : undefined;
 }
 
 function sanitizeProfile(profile: ApiProfile): ApiProfile {
@@ -36,6 +42,10 @@ function sanitizeProfile(profile: ApiProfile): ApiProfile {
   }
   if (normalizedProfile.codexHome) {
     sanitized.codexHome = normalizedProfile.codexHome;
+  }
+  const codexDefaultLaunchMode = codexLaunchMode(normalizedProfile.codexDefaultLaunchMode);
+  if (normalizedProfile.toolType === 'codex' && codexDefaultLaunchMode) {
+    sanitized.codexDefaultLaunchMode = codexDefaultLaunchMode;
   }
   if (typeof normalizedProfile.skipPermissions === 'boolean') {
     sanitized.skipPermissions = normalizedProfile.skipPermissions;

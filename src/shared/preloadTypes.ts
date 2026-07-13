@@ -1,5 +1,6 @@
 import type {
   AppBuildInfo,
+  AppUpdateCheckResult,
   AgentSession,
   ApiProfile,
   CloseSessionViewRequest,
@@ -31,6 +32,8 @@ import type {
 export type AgentDockApi = {
   version: string;
   getBuildInfo(): Promise<AppBuildInfo>;
+  checkForUpdates(): Promise<AppUpdateCheckResult>;
+  openUpdateDownload(releaseUrl: string): Promise<void>;
   listProfiles(): Promise<ApiProfile[]>;
   listWorkspaces(): Promise<Workspace[]>;
   chooseWorkspace(): Promise<Workspace | undefined>;
@@ -64,6 +67,8 @@ export type AgentDockApi = {
 export const AGENT_DOCK_API_METHODS = [
   'version',
   'getBuildInfo',
+  'checkForUpdates',
+  'openUpdateDownload',
   'listProfiles',
   'listWorkspaces',
   'chooseWorkspace',

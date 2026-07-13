@@ -1,5 +1,12 @@
 import React from 'react';
-import type { ApiProfile, ClaudeLaunchMode, Workspace } from '../../shared/agentdockTypes';
+import type {
+  ApiProfile,
+  ClaudeLaunchMode,
+  CodexLaunchMode,
+  Workspace,
+} from '../../shared/agentdockTypes';
+
+export type LaunchModeSelection = ClaudeLaunchMode | CodexLaunchMode | 'local-shell';
 
 type CommandBarProps = {
   profiles: ApiProfile[];
@@ -8,13 +15,12 @@ type CommandBarProps = {
   workspaces: Workspace[];
   workspace?: Workspace;
   workspaceId?: string;
-  claudeLaunchMode: ClaudeLaunchMode;
+  launchMode: LaunchModeSelection;
   launching?: boolean;
   onProfileChange(profileId: string): void;
   onWorkspaceChange(workspaceId: string): void;
-  onClaudeLaunchModeChange(mode: ClaudeLaunchMode): void;
+  onLaunchModeChange(mode: LaunchModeSelection): void;
   onChooseWorkspace?(): void;
-  onLaunchLocalShell(): void;
   onLaunch(): void;
 };
 
@@ -27,13 +33,12 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
   workspaces,
   workspace,
   workspaceId,
-  claudeLaunchMode,
+  launchMode,
   launching = false,
   onProfileChange,
   onWorkspaceChange,
-  onClaudeLaunchModeChange,
+  onLaunchModeChange,
   onChooseWorkspace,
-  onLaunchLocalShell,
   onLaunch,
 }, ref): React.JSX.Element {
   const handleWorkspaceChange = (workspaceValue: string): void => {
@@ -45,10 +50,16 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
     onWorkspaceChange(workspaceValue);
   };
   const showClaudeLaunchMode = profile?.toolType === 'claude';
+  const showCodexLaunchMode = profile?.toolType === 'codex';
+  const commandFieldsClassName = showClaudeLaunchMode
+    ? 'command-fields with-claude-mode'
+    : showCodexLaunchMode
+      ? 'command-fields with-codex-mode'
+      : 'command-fields';
 
   return (
     <section ref={ref} className="command-bar" aria-label="新建终端会话">
-      <div className={showClaudeLaunchMode ? 'command-fields with-claude-mode' : 'command-fields'}>
+      <div className={commandFieldsClassName}>
         <label>
           <span>API 配置</span>
           <select
@@ -86,29 +97,36 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
         </label>
         {showClaudeLaunchMode ? (
           <label className="claude-launch-mode-field">
-            <span>启动模式</span>
+            <span>运行模式</span>
             <select
               aria-label="Claude 启动模式"
-              title={claudeLaunchMode === 'lite' ? '轻量：不加载 MCP，会话更快更省' : '完整：加载 Claude MCP 配置'}
-              value={claudeLaunchMode}
+              value={launchMode}
               onChange={(event) =>
-                onClaudeLaunchModeChange(event.target.value as ClaudeLaunchMode)
+                onLaunchModeChange(event.target.value as LaunchModeSelection)
               }
             >
-              <option value="lite">轻量 · 空 MCP</option>
-              <option value="full">完整 · Claude MCP</option>
+              <option value="lite">轻量 Agent · 内置工具 / 空 MCP</option>
+              <option value="full">完整 Agent · 内置工具 + MCP</option>
+              <option value="local-shell">本地终端 · zsh</option>
             </select>
           </label>
         ) : null}
-        <button
-          type="button"
-          className="local-shell-button"
-          title="用当前配置的环境变量打开本地 zsh"
-          disabled={launching || !profile || !workspace}
-          onClick={onLaunchLocalShell}
-        >
-          zsh
-        </button>
+        {showCodexLaunchMode ? (
+          <label className="codex-launch-mode-field">
+            <span>运行模式</span>
+            <select
+              aria-label="Codex 运行模式"
+              value={launchMode}
+              onChange={(event) =>
+                onLaunchModeChange(event.target.value as LaunchModeSelection)
+              }
+            >
+              <option value="newapi-tool-compatible">完整工具 · NewAPI 兼容</option>
+              <option value="native-responses">原生 Codex · Responses</option>
+              <option value="local-shell">本地终端 · zsh</option>
+            </select>
+          </label>
+        ) : null}
         <button
           type="button"
           className="launch-button"

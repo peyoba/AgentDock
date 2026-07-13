@@ -1,4 +1,9 @@
-import type { ApiProfile, ToolType, Workspace } from '../../shared/agentdockTypes.js';
+import type {
+  ApiProfile,
+  CodexLaunchMode,
+  ToolType,
+  Workspace,
+} from '../../shared/agentdockTypes.js';
 import { normalizeClaudeProfileDefaults } from '../../shared/claudeProfileDefaults.js';
 
 /**
@@ -8,7 +13,7 @@ import { normalizeClaudeProfileDefaults } from '../../shared/claudeProfileDefaul
  * 不支持的较旧版本会被跳过，最新版本才会被使用
  */
 
-export type ConfigVersion = 1 | 2 | 3 | 4 | 5;
+export type ConfigVersion = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type VersionedApiProfile = ApiProfile & {
   __version: ConfigVersion;
@@ -22,7 +27,14 @@ export type VersionedWorkspace = Workspace & {
  * 当前配置版本
  * 每当配置结构变化时，递增此值
  */
-export const CURRENT_CONFIG_VERSION: ConfigVersion = 5;
+export const CURRENT_CONFIG_VERSION: ConfigVersion = 6;
+const DISK_COMPATIBILITY_VERSION: ConfigVersion = 5;
+
+function codexLaunchMode(value: unknown): CodexLaunchMode | undefined {
+  return value === 'native-responses' || value === 'newapi-tool-compatible'
+    ? value
+    : undefined;
+}
 
 /**
  * Profile 配置版本迁移函数
@@ -42,7 +54,7 @@ export function migrateProfile(data: unknown): ApiProfile {
   }
 
   // 已是最新版本
-  if (version === 3 || version === 4 || version === 5) {
+  if (version === 3 || version === 4 || version === 5 || version === 6) {
     return normalizeClaudeProfileDefaults({
       id: profile.id as string,
       name: profile.name as string,
@@ -53,6 +65,10 @@ export function migrateProfile(data: unknown): ApiProfile {
       keychainService: profile.keychainService as string,
       keychainAccount: profile.keychainAccount as string,
       codexHome: profile.codexHome as string | undefined,
+      codexDefaultLaunchMode:
+        version === 5 || version === 6
+          ? codexLaunchMode(profile.codexDefaultLaunchMode)
+          : undefined,
       skipPermissions: profile.skipPermissions as boolean | undefined,
       bypassApprovals: profile.bypassApprovals as boolean | undefined,
       claudeCodeRetryWatchdog: profile.claudeCodeRetryWatchdog as boolean | undefined,
@@ -95,6 +111,7 @@ function migrateProfileToCurrent(profile: Record<string, unknown>): ApiProfile {
     keychainService: profile.keychainService as string,
     keychainAccount: profile.keychainAccount as string,
     codexHome: profile.codexHome as string | undefined,
+    codexDefaultLaunchMode: undefined,
     skipPermissions: profile.skipPermissions as boolean | undefined,
     bypassApprovals: profile.bypassApprovals as boolean | undefined,
     claudeCodeRetryWatchdog: undefined,
@@ -129,7 +146,14 @@ export function migrateWorkspace(data: unknown): Workspace {
   const version = (workspace.__version as number) ?? 1;
 
   // 从 v1/v2/v3/v4 迁移到当前版本（没有实际变化，但保持一致性）
-  if (version === 1 || version === 2 || version === 3 || version === 4 || version === 5) {
+  if (
+    version === 1 ||
+    version === 2 ||
+    version === 3 ||
+    version === 4 ||
+    version === 5 ||
+    version === 6
+  ) {
     return {
       id: workspace.id as string,
       name: workspace.name as string,
@@ -147,13 +171,13 @@ export function migrateWorkspace(data: unknown): Workspace {
 export function addVersionToProfile(profile: ApiProfile): VersionedApiProfile {
   return {
     ...profile,
-    __version: CURRENT_CONFIG_VERSION,
+    __version: DISK_COMPATIBILITY_VERSION,
   };
 }
 
 export function addVersionToWorkspace(workspace: Workspace): VersionedWorkspace {
   return {
     ...workspace,
-    __version: CURRENT_CONFIG_VERSION,
+    __version: DISK_COMPATIBILITY_VERSION,
   };
 }

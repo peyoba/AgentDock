@@ -35,7 +35,7 @@ Codex D  -> Endpoint D -> Key D -> 项目 Y
 5. 启动器：选择 Profile + Workspace + 命令 + 启动模式。
 6. 长期会话库与内嵌终端视图：Session Record、打开视图和 PTY Process 分离，关闭视图不自动删除历史记录。
 7. Claude 会话隔离：每个 PTY 注入独立 `ANTHROPIC_BASE_URL` 和 Key。
-8. Codex 会话隔离：每个会话注入独立 endpoint/key，每个 Profile 使用独立 `CODEX_HOME`。
+8. Codex 会话隔离：每个会话注入独立 endpoint/key；原生模式每 Profile 使用独立 `CODEX_HOME`，NewAPI 兼容模式每 Session 使用临时运行目录。
 9. 当前会话详情：默认收起，可展开，显示 endpoint/key 来源/workspace/操作。
 10. 共享目录提示：轻提示，不作为错误。
 
@@ -73,9 +73,18 @@ Codex D  -> Endpoint D -> Key D -> 项目 Y
 - 左侧只显示当前工具类型下的配置。
 - 右侧表单根据工具类型显示不同字段。
 - Claude 类型展示：Base URL、模型、Anthropic 协议、API Key、本机密钥存储状态、环境变量预览。
-- Codex 类型展示：OpenAI base URL、model_provider、默认模型、独立 `CODEX_HOME`、Responses/Chat 适配方式、API Key。
+- Codex 类型展示：OpenAI base URL、model_provider、默认模型、独立 `CODEX_HOME`、默认运行模式、Responses 适配方式、API Key。
 - API Key 默认脱敏，只能通过用户操作显示/替换。
 - Renderer / preload / IPC 的默认查询和事件不得返回完整 secret 或完整环境变量对象；环境变量只能以脱敏预览或最小必要字段展示。只有用户明确点击查看某个已保存 Profile 的 API Key 时，专用 IPC 才可按需返回该单个 secret。
+
+### 4.3 Codex 运行模式
+
+- 顶部启动栏和 Codex Profile 必须显式提供“原生 Codex · Responses”与“完整工具 · NewAPI 兼容”。
+- 旧 Profile 和旧 Session 缺少字段时使用原生模式；不得根据 endpoint 或模型自动切换协议。
+- 原生模式直接连接 Profile 上游，使用真实模型名与 Profile 独立 `CODEX_HOME`。
+- NewAPI 兼容模式使用单 Session loopback 适配器和临时运行时 `CODEX_HOME`。内部别名只用于促使 Codex 生成标准顶层 tools；适配器只重写 `model`，其他请求字段与 Responses/SSE 原样透传。
+- 用户界面、普通 Session metadata 和 transcript 始终展示/保存真实模型名，不保存内部别名。
+- 兼容模式失败时显式失败；不实现自动 fallback、自动换模型、自动路由或通用 API gateway。用户可手动改选原生模式重新启动。
 
 ## 5. 技术架构要求
 
@@ -103,6 +112,7 @@ Electron + React + TypeScript + xterm.js + node-pty
 - 复制环境变量时默认隐藏 key，除非用户明确选择显示。
 - 错误日志不得输出 secret。
 - 除用户明确触发的单 Profile 密钥查看响应外，IPC 响应不得包含完整 secret 或完整 env；测试必须覆盖这一边界。
+- 恢复正文不得进入 CLI argv、Session command、错误或日志；只允许在 TUI 就绪后通过 PTY 注入一次。就绪超时或进程提前退出必须标记恢复失败。
 
 ## 7. 验收标准
 
@@ -118,6 +128,9 @@ MVP 验收时必须证明：
 8. 项目可通过 `npm run typecheck` 和 `npm run build`。
 9. UI 测试覆盖当前会话详情默认收起、API 配置按工具类型分组。
 10. IPC/Renderer 测试覆盖不返回完整 secret 或完整 env。
+11. Codex 两种运行模式在 Profile 和启动栏可见；Session 保存实际选择，旧 Session 缺字段时保持原生模式。
+12. NewAPI 兼容模式只改写 `model`，并使用单 Session 临时 `CODEX_HOME`；关闭一个 Session 不影响其他 Session。
+13. 自动化、typecheck 和 build 通过只构成代码闸门；真实 NewAPI 工具闭环、node-pty、恢复/并发、argv 与 secret scan 必须另有真实验证记录，未验证项不得标记为已验收。
 
 ## 8. 参考资料
 

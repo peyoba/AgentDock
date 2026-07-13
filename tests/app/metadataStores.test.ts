@@ -97,6 +97,61 @@ describe('metadata stores', () => {
     expect(rawProfiles).toContain('profile-b');
   });
 
+  it('persists the selected Codex default launch mode without persisting runtime aliases', async () => {
+    const store = createProfileStore(tempDir);
+
+    await store.save({
+      id: 'codex-compatible',
+      name: 'Codex Compatible',
+      toolType: 'codex',
+      baseUrl: 'https://codex.example.invalid/v1',
+      defaultModel: 'gpt-5.6-sol',
+      keychainService: 'AgentDock',
+      keychainAccount: 'codex-compatible',
+      codexHome: '~/.agentdock/codex-profiles/codex-compatible',
+      codexDefaultLaunchMode: 'newapi-tool-compatible',
+    } as ApiProfile);
+
+    const [saved] = await store.list();
+    expect(saved.codexDefaultLaunchMode).toBe('newapi-tool-compatible');
+    expect(saved.defaultModel).toBe('gpt-5.6-sol');
+    expect(JSON.stringify(saved)).not.toContain('agentdock-tool-runtime-');
+
+    const rawProfiles = JSON.parse(
+      await readFile(path.join(tempDir, 'profiles.json'), 'utf-8'),
+    ) as Array<Record<string, unknown>>;
+    expect(rawProfiles).toEqual([
+      expect.objectContaining({
+        __version: 5,
+        id: 'codex-compatible',
+        codexDefaultLaunchMode: 'newapi-tool-compatible',
+      }),
+    ]);
+  });
+
+  it('persists the actual Codex launch mode on session metadata', async () => {
+    const store = createSessionHistoryStore(tempDir);
+    const session = {
+      id: 'session-codex',
+      title: 'Codex Compatible · AgentDock',
+      profileId: 'codex-compatible',
+      workspaceId: 'workspace-a',
+      command: 'codex --no-alt-screen',
+      codexLaunchMode: 'newapi-tool-compatible',
+      status: 'running',
+      startedAt: '2026-07-12T00:00:00.000Z',
+    } as AgentSession;
+
+    await store.saveSession(session);
+
+    await expect(store.listSessions()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'session-codex',
+        codexLaunchMode: 'newapi-tool-compatible',
+      }),
+    ]);
+  });
+
   it('sanitizes stored AnyRouter Claude metadata before returning profiles', async () => {
     const store = createProfileStore(tempDir);
 
@@ -175,6 +230,16 @@ describe('metadata stores', () => {
         name: 'AgentDock',
         path: '/Users/example/Desktop/web/AgentDock',
       },
+    ]);
+
+    const rawWorkspaces = JSON.parse(
+      await readFile(path.join(tempDir, 'workspaces.json'), 'utf-8'),
+    ) as Array<Record<string, unknown>>;
+    expect(rawWorkspaces).toEqual([
+      expect.objectContaining({
+        __version: 5,
+        id: 'workspace-a',
+      }),
     ]);
   });
 

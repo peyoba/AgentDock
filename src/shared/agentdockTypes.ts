@@ -1,5 +1,6 @@
 export type ToolType = 'claude' | 'codex' | 'gemini' | 'opencode';
 export type ClaudeLaunchMode = 'lite' | 'full';
+export type CodexLaunchMode = 'native-responses' | 'newapi-tool-compatible';
 export type ClaudeDefaultLaunchMode = 'default' | 'opus' | 'sonnet' | 'haiku' | 'custom';
 
 export type ApiProfile = {
@@ -12,6 +13,7 @@ export type ApiProfile = {
   keychainService: string;
   keychainAccount: string;
   codexHome?: string;
+  codexDefaultLaunchMode?: CodexLaunchMode;
   skipPermissions?: boolean;
   bypassApprovals?: boolean;
   claudeCodeRetryWatchdog?: boolean;
@@ -46,6 +48,20 @@ export type AppBuildInfo = {
   commitShort: string;
   dirty: boolean;
 };
+
+export type AppUpdateCheckResult =
+  | {
+      status: 'available' | 'current';
+      currentVersion: string;
+      latestVersion: string;
+      releaseName?: string;
+      releaseUrl: string;
+    }
+  | {
+      status: 'error';
+      currentVersion: string;
+      message: string;
+    };
 
 export type SessionStatus =
   | 'starting'
@@ -87,6 +103,7 @@ export type AgentSession = {
   workspaceId: string;
   command: string;
   claudeLaunchMode?: ClaudeLaunchMode;
+  codexLaunchMode?: CodexLaunchMode;
   status: SessionStatus;
   archived?: boolean;
   closedViewIds?: string[];
@@ -113,6 +130,7 @@ export type LaunchRequest = {
   workspaceId: string;
   command: string;
   claudeLaunchMode?: ClaudeLaunchMode;
+  codexLaunchMode?: CodexLaunchMode;
 };
 
 export type RestartSessionStrategy = 'resume' | 'fresh';
@@ -122,6 +140,7 @@ export type RestartSessionRequest = {
   strategy: RestartSessionStrategy;
   command?: string;
   claudeLaunchMode?: ClaudeLaunchMode;
+  codexLaunchMode?: CodexLaunchMode;
 };
 
 export type ProfileSecretSaveRequest = {

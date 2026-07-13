@@ -4,6 +4,7 @@ import type {
   AgentSession,
   ApiProfile,
   ClaudeLaunchMode,
+  CodexLaunchMode,
   CloseSessionViewRequest,
   RuntimeOwner,
   RestartSessionStrategy,
@@ -31,6 +32,11 @@ import {
   type ClaudeCompatProxyInstance,
   type StartClaudeCompatProxyInput,
 } from './claudeCompatProxy.js';
+import {
+  startCodexToolCompatibilityProxy as startDefaultCodexToolCompatibilityProxy,
+  type CodexToolCompatibilityProxyInstance,
+  type StartCodexToolCompatibilityProxyInput,
+} from './codexToolCompatibilityProxy.js';
 import { estimateContextPressure } from './contextBudgetEstimator.js';
 import {
   ensurePrivateDirectory as ensurePrivateDirectoryOnDisk,
@@ -51,6 +57,7 @@ import {
   redactSecrets,
   registerKnownSecret,
 } from './secretRedaction.js';
+import { createInitialPromptInjector } from './initialPromptInjector.js';
 import type { SessionHistoryStore } from './stores/sessionHistoryStore.js';
 import {
   buildClaudeOptionalEnvironment,
@@ -70,6 +77,7 @@ type LaunchSessionInput = {
   workspace: Workspace;
   command: string;
   claudeLaunchMode?: ClaudeLaunchMode;
+  codexLaunchMode?: CodexLaunchMode;
 };
 
 type RestartSessionInput = {
@@ -79,6 +87,7 @@ type RestartSessionInput = {
   strategy: RestartSessionStrategy;
   command?: string;
   claudeLaunchMode?: ClaudeLaunchMode;
+  codexLaunchMode?: CodexLaunchMode;
 };
 
 type SummaryJobDelegate = (request: {
@@ -90,6 +99,10 @@ type SummaryJobDelegate = (request: {
 type ClaudeCompatProxyFactory = (
   input: StartClaudeCompatProxyInput,
 ) => Promise<ClaudeCompatProxyInstance>;
+
+type CodexToolCompatibilityProxyFactory = (
+  input: StartCodexToolCompatibilityProxyInput,
+) => Promise<CodexToolCompatibilityProxyInstance>;
 
 export type RuntimeOwnerRegistry = {
   claim(sessionId: string, owner: RuntimeOwner): boolean;
@@ -105,6 +118,7 @@ type CreateSessionServiceOptions = {
   homeDir?: string;
   ensureDirectory?: (directoryPath: string) => void | Promise<void>;
   writeTextFile?: (filePath: string, content: string) => void | Promise<void>;
+  removeDirectory?: (directoryPath: string) => void | Promise<void>;
   ensurePrivateDirectory?: (directoryPath: string) => void | Promise<void>;
   writePrivateTextFile?: (filePath: string, content: string) => void | Promise<void>;
   workspaceExists?: (workspacePath: string) => boolean;
@@ -119,6 +133,7 @@ type CreateSessionServiceOptions = {
   resolveCclineCommand?: () => string;
   summaryJob?: SummaryJobDelegate;
   startClaudeCompatProxy?: ClaudeCompatProxyFactory;
+  startCodexToolCompatibilityProxy?: CodexToolCompatibilityProxyFactory;
 };
 
 type NormalizedSessionServiceOptions = Required<
@@ -195,6 +210,10 @@ function defaultWriteTextFile(filePath: string, content: string): void {
   fs.writeFileSync(filePath, content, 'utf-8');
 }
 
+function defaultRemoveDirectory(directoryPath: string): void {
+  fs.rmSync(directoryPath, { recursive: true, force: true });
+}
+
 function isPathInsideDirectory(candidatePath: string, directoryPath: string): boolean {
   const relativePath = path.relative(path.resolve(directoryPath), path.resolve(candidatePath));
   return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
@@ -211,8 +230,13 @@ function isAgentDockManagedCodexHome({
 }): boolean {
   return [
     path.join(appDataPath, 'codex-profiles'),
+    path.join(appDataPath, 'codex-session-runtimes'),
     path.join(homeDir, '.agentdock', 'codex-profiles'),
   ].some((managedRoot) => isPathInsideDirectory(codexHome, managedRoot));
+}
+
+function codexRuntimeDirectoryName(sessionId: string): string {
+  return sessionId.replace(/[^A-Za-z0-9._-]/g, '-');
 }
 
 function tomlString(value: string): string {
@@ -257,14 +281,56 @@ function restoreInstructionToInitialPrompt(instruction: string): string {
   return instruction.replace(/\r+$/g, '').trim();
 }
 
-function appendInitialPromptCommand(command: string, initialPrompt: string | undefined): string {
-  const prompt = initialPrompt?.trim();
-  return prompt ? `${command} ${shellQuote(prompt)}` : command;
-}
+type TerminalDataTransformer = {
+  push(data: string): string;
+  end(): string;
+};
 
-function appendClaudeSystemPromptCommand(command: string, systemPrompt: string | undefined): string {
-  const prompt = systemPrompt?.trim();
-  return prompt ? `${command} --append-system-prompt ${shellQuote(prompt)}` : command;
+function createTerminalDataTransformer(
+  proxy: CodexToolCompatibilityProxyInstance,
+  realModel: string,
+): TerminalDataTransformer {
+  const internalModel = proxy.internalModel;
+  let pendingData = '';
+
+  const possibleAliasSuffixLength = (data: string): number => {
+    const maximumLength = Math.min(data.length, internalModel.length - 1);
+    for (let length = maximumLength; length > 0; length -= 1) {
+      if (data.endsWith(internalModel.slice(0, length))) {
+        return length;
+      }
+    }
+    return 0;
+  };
+
+  return {
+    push(data: string): string {
+      pendingData += data;
+      let visibleData = '';
+
+      while (pendingData) {
+        const aliasIndex = pendingData.indexOf(internalModel);
+        if (aliasIndex >= 0) {
+          visibleData += `${pendingData.slice(0, aliasIndex)}${realModel}`;
+          pendingData = pendingData.slice(aliasIndex + internalModel.length);
+          continue;
+        }
+
+        const retainedLength = possibleAliasSuffixLength(pendingData);
+        visibleData += pendingData.slice(0, pendingData.length - retainedLength);
+        pendingData = retainedLength > 0 ? pendingData.slice(-retainedLength) : '';
+        break;
+      }
+
+      return visibleData;
+    },
+
+    end(): string {
+      const visibleTail = possibleAliasSuffixLength(pendingData) > 0 ? '' : pendingData;
+      pendingData = '';
+      return visibleTail;
+    },
+  };
 }
 
 // statusLine.command 由 Claude Code 交给 shell 解析，绝对路径含特殊字符时需要引号
@@ -337,6 +403,14 @@ function appendClaudeMcpConfigCommand(command: string, mcpConfigPath: string): s
   return `${command} --mcp-config ${shellQuote(mcpConfigPath)} --strict-mcp-config`;
 }
 
+function appendCodexCompatibilityOverrides(command: string, internalModel: string): string {
+  const match = command.trim().match(/^(\S+)([\s\S]*)$/);
+  if (!match) {
+    throw new Error('Codex compatibility command is empty');
+  }
+  return `${match[1]} -c model_provider=agentdock -c model=${internalModel}${match[2]}`;
+}
+
 function contextEnvironment(files: WorkspaceContextFiles | undefined): Record<string, string> {
   if (!files) {
     return {};
@@ -362,6 +436,7 @@ function normalizeOptions(
       homeDir,
       ensureDirectory: defaultEnsureDirectory,
       writeTextFile: defaultWriteTextFile,
+      removeDirectory: defaultRemoveDirectory,
       ensurePrivateDirectory: ensurePrivateDirectoryOnDisk,
       writePrivateTextFile: writePrivateFileAtomicallyOnDisk,
       workspaceExists: undefined,
@@ -374,6 +449,7 @@ function normalizeOptions(
       resolveCclineCommand: () => locateCclineCommand({ homeDir }),
       summaryJob: undefined,
       startClaudeCompatProxy: startDefaultClaudeCompatProxy,
+      startCodexToolCompatibilityProxy: startDefaultCodexToolCompatibilityProxy,
     };
   }
 
@@ -388,6 +464,7 @@ function normalizeOptions(
     homeDir,
     ensureDirectory: options.ensureDirectory ?? defaultEnsureDirectory,
     writeTextFile: options.writeTextFile ?? defaultWriteTextFile,
+    removeDirectory: options.removeDirectory ?? defaultRemoveDirectory,
     ensurePrivateDirectory:
       options.ensurePrivateDirectory ?? options.ensureDirectory ?? ensurePrivateDirectoryOnDisk,
     writePrivateTextFile:
@@ -403,6 +480,8 @@ function normalizeOptions(
       options.resolveCclineCommand ?? (() => locateCclineCommand({ homeDir })),
     summaryJob: options.summaryJob,
     startClaudeCompatProxy: options.startClaudeCompatProxy ?? startDefaultClaudeCompatProxy,
+    startCodexToolCompatibilityProxy:
+      options.startCodexToolCompatibilityProxy ?? startDefaultCodexToolCompatibilityProxy,
   };
 }
 
@@ -512,6 +591,7 @@ export function createSessionService(
     homeDir,
     ensureDirectory,
     writeTextFile,
+    removeDirectory,
     ensurePrivateDirectory,
     writePrivateTextFile,
     workspaceExists,
@@ -524,12 +604,16 @@ export function createSessionService(
     resolveCclineCommand,
     summaryJob,
     startClaudeCompatProxy,
+    startCodexToolCompatibilityProxy,
   } = normalizeOptions(optionsOrClock);
   const sessions: AgentSession[] = [];
   const ptySessions = new Map<string, PtySession>();
   const ptyUnsubscribers = new Map<string, () => void>();
   const terminalBuffers = new Map<string, string>();
   const claudeCompatProxies = new Map<string, ClaudeCompatProxyInstance>();
+  const codexCompatibilityProxies = new Map<string, CodexToolCompatibilityProxyInstance>();
+  const codexCompatibilityRuntimeHomes = new Map<string, string>();
+  const terminalDataTransformers = new Map<string, TerminalDataTransformer>();
   const workspacesBySessionId = new Map<string, Workspace>();
   const persistenceSanitizers = new Map<string, StreamingPersistenceSanitizer>();
   const pendingHistoryOutput = new Map<string, string>();
@@ -537,6 +621,10 @@ export function createSessionService(
   const pendingWorkspaceOutput = new Map<string, string>();
   const workspaceOutputFlushes = new Map<string, Promise<void>>();
   const sessionLifecycleFinalizations = new Map<string, Promise<void>>();
+  const initialPromptInjectors = new Map<
+    string,
+    ReturnType<typeof createInitialPromptInjector>
+  >();
   const metadataSavePromises = new Set<Promise<void>>();
   const restoreContextStore = createRestoreContextStore();
   const sessionSummaryStore = createSessionSummaryStore();
@@ -554,6 +642,37 @@ export function createSessionService(
     }
     claudeCompatProxies.delete(sessionId);
     await proxy.close().catch(() => undefined);
+  };
+
+  const codexCompatibilityRuntimeRoot = path.join(appDataPath, 'codex-session-runtimes');
+
+  const removeCodexCompatibilityRuntimeHome = async (sessionId: string): Promise<void> => {
+    const runtimeHome = codexCompatibilityRuntimeHomes.get(sessionId);
+    if (!runtimeHome) {
+      return;
+    }
+
+    const resolvedRoot = path.resolve(codexCompatibilityRuntimeRoot);
+    const resolvedRuntimeHome = path.resolve(runtimeHome);
+    if (
+      path.dirname(resolvedRuntimeHome) !== resolvedRoot ||
+      path.basename(resolvedRuntimeHome).length === 0
+    ) {
+      throw new Error('拒绝清理非 AgentDock Session Codex 运行目录');
+    }
+    await removeDirectory(resolvedRuntimeHome);
+    if (codexCompatibilityRuntimeHomes.get(sessionId) === runtimeHome) {
+      codexCompatibilityRuntimeHomes.delete(sessionId);
+    }
+  };
+
+  const closeCodexCompatibilityProxy = async (sessionId: string): Promise<void> => {
+    const proxy = codexCompatibilityProxies.get(sessionId);
+    if (proxy) {
+      codexCompatibilityProxies.delete(sessionId);
+      await proxy.close().catch(() => undefined);
+    }
+    await removeCodexCompatibilityRuntimeHome(sessionId);
   };
 
   const loadHistory = (): Promise<void> => {
@@ -752,6 +871,29 @@ export function createSessionService(
     }
   };
 
+  const flushTerminalDataTransformer = (
+    sessionId: string,
+    workspace: Workspace,
+  ): void => {
+    const transformer = terminalDataTransformers.get(sessionId);
+    if (!transformer) {
+      return;
+    }
+    terminalDataTransformers.delete(sessionId);
+    const visibleTail = transformer.end();
+    if (!visibleTail) {
+      return;
+    }
+
+    publishTerminalOutput({ sessionId, data: visibleTail });
+    const sanitizer = persistenceSanitizers.get(sessionId);
+    queueCanonicalPersistenceOutput(
+      sessionId,
+      workspace,
+      sanitizer ? sanitizer.push(visibleTail) : visibleTail,
+    );
+  };
+
   const endPersistenceStream = async (
     sessionId: string,
     workspace: Workspace,
@@ -797,20 +939,28 @@ export function createSessionService(
     workspace,
     command,
     claudeLaunchMode,
+    codexLaunchMode,
     initialPrompt,
+    sessionCommand,
+    resumeCommand,
   }: {
     session: AgentSession;
     profile: ApiProfile;
     workspace: Workspace;
     command: string;
     claudeLaunchMode?: ClaudeLaunchMode;
+    codexLaunchMode?: CodexLaunchMode;
     initialPrompt?: string;
-  }): Promise<AgentSession> => {
+    sessionCommand?: string;
+    resumeCommand?: string;
+  }): Promise<{ session: AgentSession; initialPromptError?: string }> => {
     assertSessionCommandHasNoSensitiveValues(command);
     ensureWorkspaceAvailable(workspace);
     if (ptySessions.has(session.id)) {
       throw new Error('会话仍在运行，无法重启');
     }
+    await sessionLifecycleFinalizations.get(session.id);
+    await closeCodexCompatibilityProxy(session.id);
     const startedAt = clock.now().toISOString();
     const owner: RuntimeOwner = { ownerId: runtimeOwnerId, startedAt };
     if (!runtimeOwnerRegistry.claim(session.id, owner)) {
@@ -821,15 +971,24 @@ export function createSessionService(
       profile.toolType === 'claude' && !isLocalShellCommand(command)
         ? claudeLaunchMode ?? session.claudeLaunchMode
         : undefined;
+    const effectiveCodexLaunchMode =
+      profile.toolType === 'codex' && !isLocalShellCommand(command)
+        ? codexLaunchMode ?? session.codexLaunchMode ?? profile.codexDefaultLaunchMode ?? 'native-responses'
+        : undefined;
 
     session.title = `${profile.name} · ${workspace.name}`;
     session.profileId = profile.id;
     session.workspaceId = workspace.id;
-    session.command = command;
+    session.command = sessionCommand ?? command;
     if (effectiveClaudeLaunchMode) {
       session.claudeLaunchMode = effectiveClaudeLaunchMode;
     } else {
       delete session.claudeLaunchMode;
+    }
+    if (effectiveCodexLaunchMode) {
+      session.codexLaunchMode = effectiveCodexLaunchMode;
+    } else {
+      delete session.codexLaunchMode;
     }
     session.status = 'starting';
     session.startedAt = startedAt;
@@ -838,7 +997,11 @@ export function createSessionService(
     delete session.exitedAt;
     delete session.exitCode;
     delete session.exitSignal;
-    delete session.resumeCommand;
+    if (resumeCommand) {
+      session.resumeCommand = resumeCommand;
+    } else {
+      delete session.resumeCommand;
+    }
     delete session.memoryRestore;
 
     try {
@@ -847,10 +1010,6 @@ export function createSessionService(
         ? undefined
         : await keychain.readSecret(profile.keychainService, profile.keychainAccount);
       registerKnownSecret(secret ?? undefined);
-      const persistenceSanitizer = createStreamingPersistenceSanitizer({
-        knownSecrets: secret ? [secret] : [],
-      });
-      persistenceSanitizers.set(session.id, persistenceSanitizer);
       const compatProxy =
         !isLocalShellCommand(command) &&
         profile.toolType === 'claude' &&
@@ -864,11 +1023,53 @@ export function createSessionService(
       if (compatProxy) {
         claudeCompatProxies.set(session.id, compatProxy);
       }
+      const realCodexModel = profile.defaultModel ?? 'gpt-5-codex';
+      const codexCompatibilityProxy =
+        effectiveCodexLaunchMode === 'newapi-tool-compatible'
+          ? await startCodexToolCompatibilityProxy({
+              upstreamBaseUrl: profile.baseUrl,
+              upstreamApiKey: secret ?? '',
+              upstreamModel: realCodexModel,
+              profileId: profile.id,
+              sessionId: session.id,
+            })
+          : undefined;
+      if (codexCompatibilityProxy) {
+        codexCompatibilityProxies.set(session.id, codexCompatibilityProxy);
+        registerKnownSecret(codexCompatibilityProxy.localApiKey);
+      }
+      const codexCompatibilityRuntimeHome = codexCompatibilityProxy
+        ? path.join(codexCompatibilityRuntimeRoot, codexRuntimeDirectoryName(session.id))
+        : undefined;
+      if (codexCompatibilityRuntimeHome) {
+        codexCompatibilityRuntimeHomes.set(session.id, codexCompatibilityRuntimeHome);
+      }
+      const runtimeProfile = codexCompatibilityProxy
+        ? {
+            ...profile,
+            baseUrl: codexCompatibilityProxy.baseUrl,
+            defaultModel: codexCompatibilityProxy.internalModel,
+            codexHome: codexCompatibilityRuntimeHome,
+          }
+        : profile;
+      const runtimeSecret = codexCompatibilityProxy?.localApiKey ?? secret ?? '';
+      const persistenceSanitizer = createStreamingPersistenceSanitizer({
+        knownSecrets: [secret, codexCompatibilityProxy?.localApiKey].filter(
+          (value): value is string => Boolean(value),
+        ),
+      });
+      persistenceSanitizers.set(session.id, persistenceSanitizer);
+      if (codexCompatibilityProxy) {
+        terminalDataTransformers.set(
+          session.id,
+          createTerminalDataTransformer(codexCompatibilityProxy, realCodexModel),
+        );
+      }
       const baseEnv = isLocalShellCommand(command)
         ? {}
         : buildLaunchEnvironment({
-            profile,
-            secret: secret ?? '',
+            profile: runtimeProfile,
+            secret: runtimeSecret,
             appDataPath,
             homeDir,
             anthropicBaseUrl: compatProxy?.baseUrl,
@@ -878,6 +1079,13 @@ export function createSessionService(
         ...contextEnvironment(contextFiles),
       };
       let spawnCommand = command;
+
+      if (codexCompatibilityProxy) {
+        spawnCommand = appendCodexCompatibilityOverrides(
+          spawnCommand,
+          codexCompatibilityProxy.internalModel,
+        );
+      }
 
       if (env.CODEX_HOME) {
         const agentDockManagesCodexHome = isAgentDockManagedCodexHome({
@@ -892,7 +1100,7 @@ export function createSessionService(
         }
         if (profile.toolType === 'codex') {
           const codexConfigPath = path.join(env.CODEX_HOME, 'config.toml');
-          const codexConfig = buildCodexConfig(profile, workspace);
+          const codexConfig = buildCodexConfig(runtimeProfile, workspace);
           if (agentDockManagesCodexHome) {
             await writePrivateTextFile(codexConfigPath, codexConfig);
           } else {
@@ -921,10 +1129,6 @@ export function createSessionService(
         }
       }
 
-      spawnCommand = profile.toolType === 'claude' && !isLocalShellCommand(command)
-        ? appendClaudeSystemPromptCommand(spawnCommand, initialPrompt)
-        : appendInitialPromptCommand(spawnCommand, initialPrompt);
-
       const ptySession = await pty.spawn({
         sessionId: session.id,
         command: spawnCommand,
@@ -933,15 +1137,33 @@ export function createSessionService(
       });
 
       ptySessions.set(session.id, ptySession);
+      let initialPromptInjector: ReturnType<typeof createInitialPromptInjector> | undefined;
+      let initialPromptOutcome: Promise<{ error?: string }> | undefined;
+      let pendingInitialOutput = '';
+      let exitedBeforeInitialPromptInjector = false;
       const unsubscribeData = ptySession.onData((data) => {
-        publishTerminalOutput({ sessionId: session.id, data });
+        if (initialPromptInjector) {
+          initialPromptInjector.acceptOutput(data);
+        } else {
+          pendingInitialOutput = `${pendingInitialOutput}${data}`.slice(-(32 * 1024));
+        }
+        const visibleData = terminalDataTransformers.get(session.id)?.push(data) ?? data;
+        if (!visibleData) {
+          return;
+        }
+        publishTerminalOutput({ sessionId: session.id, data: visibleData });
         queueCanonicalPersistenceOutput(
           session.id,
           workspace,
-          persistenceSanitizer.push(data),
+          persistenceSanitizer.push(visibleData),
         );
       });
       const unsubscribeExit = ptySession.onExit?.((event) => {
+        if (initialPromptInjector) {
+          initialPromptInjector.exit();
+        } else {
+          exitedBeforeInitialPromptInjector = true;
+        }
         // killTerminal/dispose 已经清理过的会话不再处理（kill 也会触发 onExit）
         if (ptySessions.get(session.id) !== ptySession) {
           return;
@@ -955,10 +1177,14 @@ export function createSessionService(
         session.exitCode = event.exitCode;
         session.exitSignal = event.signal;
         session.exitedAt = clock.now().toISOString();
-        session.resumeCommand = extractClaudeResumeCommand(
+        const extractedResumeCommand = extractClaudeResumeCommand(
           terminalBuffers.get(session.id) ?? '',
         );
+        if (extractedResumeCommand) {
+          session.resumeCommand = extractedResumeCommand;
+        }
         publishSessionChanged(session);
+        flushTerminalDataTransformer(session.id, workspace);
         const exitNotice =
           `\r\n\u001b[2m[AgentDock] 进程已退出（exit code ${event.exitCode}），会话已结束，可关闭此标签页。\u001b[0m\r\n`;
         publishTerminalOutput({
@@ -973,6 +1199,7 @@ export function createSessionService(
         const finalization = Promise.all([
           endPersistenceStream(session.id, workspace),
           closeClaudeCompatProxy(session.id),
+          closeCodexCompatibilityProxy(session.id),
         ]).then(async () => {
           await saveSessionMetadata(session);
         }).finally(() => {
@@ -989,15 +1216,58 @@ export function createSessionService(
         unsubscribeData();
         unsubscribeExit?.();
       });
-      session.status = 'running';
-      session.runtimeOwner = owner;
+      if (
+        initialPrompt?.trim() &&
+        (profile.toolType === 'claude' || profile.toolType === 'codex')
+      ) {
+        initialPromptInjector = createInitialPromptInjector({
+          tool: profile.toolType,
+          prompt: initialPrompt,
+          write: (input) => ptySession.write(input),
+        });
+        initialPromptOutcome = initialPromptInjector.completion.then(
+          () => ({}),
+          (error: unknown) => ({
+            error: redactSecrets(
+              error instanceof Error ? error.message : 'Initial prompt injection failed',
+            ),
+          }),
+        );
+        initialPromptInjectors.set(session.id, initialPromptInjector);
+        initialPromptInjector.acceptOutput(pendingInitialOutput);
+        if (exitedBeforeInitialPromptInjector) {
+          initialPromptInjector.exit();
+        }
+      }
+      pendingInitialOutput = '';
+      if (ptySessions.get(session.id) === ptySession) {
+        session.status = 'running';
+        session.runtimeOwner = owner;
+      }
       await saveSessionMetadata(session);
-      return cloneSession(session);
+      let initialPromptError: string | undefined;
+      if (initialPromptInjector && initialPromptOutcome) {
+        try {
+          const outcome = await initialPromptOutcome;
+          initialPromptError = outcome.error;
+        } finally {
+          if (initialPromptInjectors.get(session.id) === initialPromptInjector) {
+            initialPromptInjectors.delete(session.id);
+          }
+        }
+      }
+      return { session: cloneSession(session), initialPromptError };
     } catch (error) {
+      initialPromptInjectors.get(session.id)?.cancel();
+      initialPromptInjectors.delete(session.id);
       persistenceSanitizers.get(session.id)?.end();
       persistenceSanitizers.delete(session.id);
+      terminalDataTransformers.delete(session.id);
       runtimeOwnerRegistry.release(session.id, runtimeOwnerId);
-      await closeClaudeCompatProxy(session.id);
+      await Promise.all([
+        closeClaudeCompatProxy(session.id),
+        closeCodexCompatibilityProxy(session.id),
+      ]);
       delete session.runtimeOwner;
       session.status = 'failed';
       await saveSessionMetadata(session);
@@ -1071,6 +1341,7 @@ export function createSessionService(
       workspace,
       command,
       claudeLaunchMode,
+      codexLaunchMode,
     }: LaunchSessionInput): Promise<AgentSession> {
       await loadHistory();
       assertSessionCommandHasNoSensitiveValues(command);
@@ -1086,7 +1357,15 @@ export function createSessionService(
       };
 
       sessions.push(session);
-      return startSessionPty({ session, profile, workspace, command, claudeLaunchMode });
+      const started = await startSessionPty({
+        session,
+        profile,
+        workspace,
+        command,
+        claudeLaunchMode,
+        codexLaunchMode,
+      });
+      return started.session;
     },
 
     async restart({
@@ -1096,6 +1375,7 @@ export function createSessionService(
       strategy,
       command,
       claudeLaunchMode,
+      codexLaunchMode,
     }: RestartSessionInput): Promise<AgentSession> {
       await loadHistory();
       const session = findSession(sessionId);
@@ -1107,25 +1387,34 @@ export function createSessionService(
         strategy === 'resume' ? session.resumeCommand : undefined
       ) ?? session.command;
       assertSessionCommandHasNoSensitiveValues(nextCommand);
+      const restartCodexLaunchMode =
+        profile.toolType === 'codex' && !isLocalShellCommand(nextCommand)
+          ? session.codexLaunchMode ?? 'native-responses'
+          : codexLaunchMode;
       if (strategy === 'fresh') {
-        await startSessionPty({
+        const started = await startSessionPty({
           session,
           profile,
           workspace,
           command: nextCommand,
           claudeLaunchMode,
+          codexLaunchMode: restartCodexLaunchMode,
         });
-        return cloneSession(session);
+        return started.session;
       }
 
       const nativeResume = nativeResumeCommandForSession(session, profile);
       if (nativeResume) {
+        const baseCommand = session.command;
         await startSessionPty({
           session,
           profile,
           workspace,
           command: nativeResume.command,
           claudeLaunchMode,
+          codexLaunchMode: restartCodexLaunchMode,
+          sessionCommand: baseCommand,
+          resumeCommand: nativeResume.command,
         });
         session.memoryRestore = {
           method: 'native',
@@ -1146,21 +1435,28 @@ export function createSessionService(
       const initialPrompt = memoryRestore?.status === 'loaded' && memoryRestore.instruction
         ? restoreInstructionToInitialPrompt(memoryRestore.instruction)
         : undefined;
-      await startSessionPty({
+      const started = await startSessionPty({
         session,
         profile,
         workspace,
         command: nextCommand,
         claudeLaunchMode,
+        codexLaunchMode: restartCodexLaunchMode,
         initialPrompt,
+        sessionCommand: session.command,
+        resumeCommand: nextCommand !== session.command ? nextCommand : undefined,
       });
+      if (!findSession(session.id)) {
+        return cloneSession(session);
+      }
       if (memoryRestore) {
+        const restoreFailed = memoryRestore.status === 'loaded' && started.initialPromptError;
         session.memoryRestore = {
-          method: memoryRestore.status === 'loaded' ? 'agentdock' : 'none',
-          status: memoryRestore.status,
-          summary: memoryRestore.summary,
+          method: memoryRestore.status === 'loaded' && !restoreFailed ? 'agentdock' : 'none',
+          status: restoreFailed ? 'failed' : memoryRestore.status,
+          summary: restoreFailed ? '记忆恢复失败' : memoryRestore.summary,
           contextFile: memoryRestore.contextFile,
-          error: memoryRestore.error,
+          error: restoreFailed ? started.initialPromptError : memoryRestore.error,
         };
         await saveSessionMetadata(session);
         publishSessionChanged(session);
@@ -1192,14 +1488,20 @@ export function createSessionService(
       // and transcript stay available for later resume or deletion.
       const ptySession = ptySessions.get(sessionId);
       if (ptySession) {
+        initialPromptInjectors.get(sessionId)?.cancel();
+        initialPromptInjectors.delete(sessionId);
         ptyUnsubscribers.get(sessionId)?.();
         ptyUnsubscribers.delete(sessionId);
         ptySessions.delete(sessionId);
         ptySession.kill();
       }
-      await closeClaudeCompatProxy(sessionId);
+      await Promise.all([
+        closeClaudeCompatProxy(sessionId),
+        closeCodexCompatibilityProxy(sessionId),
+      ]);
       const workspace = workspacesBySessionId.get(sessionId);
       if (workspace) {
+        flushTerminalDataTransformer(sessionId, workspace);
         await endPersistenceStream(sessionId, workspace);
       }
       await waitForHistoryOutputFlush(sessionId);
@@ -1234,6 +1536,7 @@ export function createSessionService(
       }
 
       session.archived = true;
+      await closeCodexCompatibilityProxy(sessionId);
       await historyStore?.archiveSession(sessionId);
       publishSessionChanged(session);
       return cloneSession(session);
@@ -1248,14 +1551,20 @@ export function createSessionService(
 
       const ptySession = ptySessions.get(sessionId);
       if (ptySession) {
+        initialPromptInjectors.get(sessionId)?.cancel();
+        initialPromptInjectors.delete(sessionId);
         ptyUnsubscribers.get(sessionId)?.();
         ptyUnsubscribers.delete(sessionId);
         ptySessions.delete(sessionId);
         ptySession.kill();
       }
-      await closeClaudeCompatProxy(sessionId);
+      await Promise.all([
+        closeClaudeCompatProxy(sessionId),
+        closeCodexCompatibilityProxy(sessionId),
+      ]);
       const workspace = workspacesBySessionId.get(sessionId);
       if (workspace) {
+        flushTerminalDataTransformer(sessionId, workspace);
         await endPersistenceStream(sessionId, workspace);
       }
       await waitForHistoryOutputFlush(sessionId);
@@ -1267,6 +1576,7 @@ export function createSessionService(
       pendingWorkspaceOutput.delete(sessionId);
       workspaceOutputFlushes.delete(sessionId);
       persistenceSanitizers.delete(sessionId);
+      terminalDataTransformers.delete(sessionId);
       workspacesBySessionId.delete(sessionId);
       await historyStore?.deleteRecord(sessionId);
     },
@@ -1370,19 +1680,25 @@ export function createSessionService(
 
     async dispose(): Promise<void> {
       for (const [sessionId, ptySession] of ptySessions.entries()) {
+        initialPromptInjectors.get(sessionId)?.cancel();
+        initialPromptInjectors.delete(sessionId);
         ptyUnsubscribers.get(sessionId)?.();
         ptyUnsubscribers.delete(sessionId);
         ptySessions.delete(sessionId);
         ptySession.kill();
         const workspace = workspacesBySessionId.get(sessionId);
         if (workspace) {
+          flushTerminalDataTransformer(sessionId, workspace);
           await endPersistenceStream(sessionId, workspace);
         }
         const session = findSession(sessionId);
         if (session) {
           session.status = historyStore ? 'interrupted' : 'stopped';
           runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
-          await closeClaudeCompatProxy(sessionId);
+          await Promise.all([
+            closeClaudeCompatProxy(sessionId),
+            closeCodexCompatibilityProxy(sessionId),
+          ]);
           delete session.runtimeOwner;
           await saveSessionMetadata(session);
         }
@@ -1397,11 +1713,19 @@ export function createSessionService(
 
       ptySessions.clear();
       ptyUnsubscribers.clear();
+      initialPromptInjectors.clear();
       // findSession 未命中（会话已被并发删除）时上面的循环不会关闭对应 proxy，这里兜底。
       for (const proxy of claudeCompatProxies.values()) {
         await proxy.close().catch(() => undefined);
       }
       claudeCompatProxies.clear();
+      for (const proxy of codexCompatibilityProxies.values()) {
+        await proxy.close().catch(() => undefined);
+      }
+      codexCompatibilityProxies.clear();
+      for (const sessionId of [...codexCompatibilityRuntimeHomes.keys()]) {
+        await removeCodexCompatibilityRuntimeHome(sessionId);
+      }
       terminalBuffers.clear();
       pendingHistoryOutput.clear();
       historyOutputFlushes.clear();
@@ -1410,6 +1734,7 @@ export function createSessionService(
       sessionLifecycleFinalizations.clear();
       metadataSavePromises.clear();
       persistenceSanitizers.clear();
+      terminalDataTransformers.clear();
       terminalOutputListeners.clear();
       sessionChangedListeners.clear();
       await workspaceContext?.flush?.();

@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { SessionDetailsDrawer } from '../../src/renderer/components/SessionDetailsDrawer';
 
@@ -23,6 +23,82 @@ const sessionA = {
 };
 
 describe('SessionDetailsDrawer', () => {
+  it('opens shared context in a searchable reading dialog instead of the narrow drawer', async () => {
+    const readWorkspaceContext = vi.fn().mockResolvedValue({
+      filePath: '/workspace-a/.agentdock/context/shared-context.md',
+      content: [
+        '# AgentDock Shared Context',
+        '',
+        '## Current Goal',
+        'Improve the shared context reader.',
+        '',
+        '- Keep the terminal wide',
+        '- Preserve session context',
+      ].join('\n'),
+    });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(
+      <SessionDetailsDrawer
+        open
+        session={sessionA}
+        profile={profile}
+        workspace={{ id: 'workspace-a', name: 'Workspace A', path: '/workspace-a' }}
+        onReadWorkspaceContext={readWorkspaceContext}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '查看共享上下文' }));
+
+    const dialog = await screen.findByRole('dialog', { name: '共享上下文' });
+    expect(within(dialog).getByRole('heading', { name: 'AgentDock Shared Context' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('heading', { name: 'Current Goal' })).toBeInTheDocument();
+    expect(within(dialog).getByText('Keep the terminal wide')).toBeInTheDocument();
+    expect(within(dialog).getByText('/workspace-a/.agentdock/context/shared-context.md')).toBeInTheDocument();
+    expect(screen.queryByText('# AgentDock Shared Context')).not.toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByRole('searchbox', { name: '搜索共享上下文' }), {
+      target: { value: 'terminal' },
+    });
+    expect(within(dialog).getByText('Keep the terminal wide')).toBeInTheDocument();
+    expect(within(dialog).queryByText('Preserve session context')).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '复制全文' }));
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining('# AgentDock Shared Context'));
+    });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '刷新' }));
+    await waitFor(() => {
+      expect(readWorkspaceContext).toHaveBeenCalledTimes(2);
+    });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: '共享上下文' })).not.toBeInTheDocument();
+  });
+
+  it('closes the shared context dialog when its backdrop is clicked', async () => {
+    render(
+      <SessionDetailsDrawer
+        open
+        session={sessionA}
+        profile={profile}
+        workspace={{ id: 'workspace-a', name: 'Workspace A', path: '/workspace-a' }}
+        onReadWorkspaceContext={() => Promise.resolve({ filePath: '/context.md', content: 'Context' })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '查看共享上下文' }));
+    await screen.findByRole('dialog', { name: '共享上下文' });
+    fireEvent.mouseDown(screen.getByTestId('workspace-context-dialog-backdrop'));
+
+    expect(screen.queryByRole('dialog', { name: '共享上下文' })).not.toBeInTheDocument();
+  });
+
   it('ignores stale workspace context after switching sessions', async () => {
     let resolveWorkspaceA: ((value: { filePath: string; content: string }) => void) | undefined;
     const workspaceAResult = new Promise<{ filePath: string; content: string }>((resolve) => {

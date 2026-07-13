@@ -1,5 +1,11 @@
 import React from 'react';
-import type { AgentSession, ApiProfile, AppBuildInfo, Workspace } from '../../shared/agentdockTypes';
+import type {
+  AgentSession,
+  ApiProfile,
+  AppBuildInfo,
+  AppUpdateCheckResult,
+  Workspace,
+} from '../../shared/agentdockTypes';
 
 type SessionLibraryProps = {
   sessions: AgentSession[];
@@ -7,6 +13,10 @@ type SessionLibraryProps = {
   workspaces: Workspace[];
   activeSessionId?: string;
   buildInfo?: AppBuildInfo;
+  updateResult?: AppUpdateCheckResult;
+  checkingForUpdates?: boolean;
+  onCheckForUpdates(): void;
+  onOpenUpdateDownload(releaseUrl: string): void;
   onOpenSession(sessionId: string): void;
   onContinueSession(sessionId: string): void;
   onStopSession(sessionId: string): void;
@@ -76,6 +86,10 @@ export function SessionLibrary({
   workspaces,
   activeSessionId,
   buildInfo,
+  updateResult,
+  checkingForUpdates,
+  onCheckForUpdates,
+  onOpenUpdateDownload,
   onOpenSession,
   onContinueSession,
   onStopSession,
@@ -137,15 +151,43 @@ export function SessionLibrary({
         <div className="session-library-brand">
           <h2>AgentDock</h2>
           {buildInfo ? (
-            <span
-              className="app-version-chip"
-              aria-label="AgentDock 版本信息"
-              title={buildInfoTitle(buildInfo)}
-            >
-              v{buildInfo.version}
-            </span>
+            <div className="app-version-row">
+              <span
+                className="app-version-chip"
+                aria-label="AgentDock 版本信息"
+                title={buildInfoTitle(buildInfo)}
+              >
+                v{buildInfo.version}
+              </span>
+              <button
+                type="button"
+                className="app-update-check"
+                onClick={onCheckForUpdates}
+                disabled={checkingForUpdates}
+              >
+                {checkingForUpdates ? '检查中…' : '检查更新'}
+              </button>
+            </div>
           ) : null}
         </div>
+        {updateResult?.status === 'available' ? (
+          <button
+            type="button"
+            className="app-update-download"
+            onClick={() => onOpenUpdateDownload(updateResult.releaseUrl)}
+          >
+            发现 v{updateResult.latestVersion} · 前往下载
+          </button>
+        ) : null}
+        {updateResult?.status === 'current' ? (
+          <span className="app-update-status" role="status">当前已是最新版本</span>
+        ) : null}
+        {updateResult?.status === 'error' ? (
+          <div className="app-update-error" role="status">
+            <span>检查更新失败</span>
+            <button type="button" onClick={onCheckForUpdates}>重试</button>
+          </div>
+        ) : null}
       </div>
       <input
         className="session-library-search"

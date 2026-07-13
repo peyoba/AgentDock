@@ -42,6 +42,12 @@ describe('layout polish styles', () => {
     expect(css).toMatch(/\.command-bar select\s*\{[^}]*text-overflow:\s*ellipsis/s);
   });
 
+  it('reserves a readable command-bar column for the visible Codex runtime selector', () => {
+    const css = styles();
+
+    expect(css).toMatch(/\.command-fields\.with-codex-mode\s*\{[^}]*grid-template-columns:[^}]*minmax\(220px,\s*auto\)/s);
+  });
+
   it('hides the native xterm scrollbar and styles the overlay scrollbar like macOS', () => {
     const css = styles();
 

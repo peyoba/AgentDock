@@ -1,6 +1,7 @@
 import React from 'react';
 import type { AgentSession, ApiProfile, Workspace } from '../../shared/agentdockTypes';
 import { sessionStatusLabel } from '../../shared/sessionStatusLabels';
+import { WorkspaceContextDialog } from './WorkspaceContextDialog';
 
 type SessionDetailsDrawerProps = {
   open: boolean;
@@ -23,6 +24,8 @@ export function SessionDetailsDrawer({
   const [contextFilePath, setContextFilePath] = React.useState('');
   const [contextContent, setContextContent] = React.useState('');
   const [contextError, setContextError] = React.useState('');
+  const [contextLoading, setContextLoading] = React.useState(false);
+  const [contextDialogOpen, setContextDialogOpen] = React.useState(false);
   const contextRequestVersionRef = React.useRef(0);
 
   React.useEffect(() => {
@@ -31,6 +34,8 @@ export function SessionDetailsDrawer({
     setContextFilePath('');
     setContextContent('');
     setContextError('');
+    setContextLoading(false);
+    setContextDialogOpen(false);
   }, [open, session?.id, workspace?.id]);
 
   const readWorkspaceContext = async (): Promise<void> => {
@@ -41,6 +46,7 @@ export function SessionDetailsDrawer({
     const requestVersion = contextRequestVersionRef.current + 1;
     contextRequestVersionRef.current = requestVersion;
     setContextError('');
+    setContextLoading(true);
     try {
       const context = await onReadWorkspaceContext(workspace.id);
       if (contextRequestVersionRef.current !== requestVersion) {
@@ -53,7 +59,16 @@ export function SessionDetailsDrawer({
         return;
       }
       setContextError(error instanceof Error ? error.message : '无法读取共享上下文');
+    } finally {
+      if (contextRequestVersionRef.current === requestVersion) {
+        setContextLoading(false);
+      }
     }
+  };
+
+  const openWorkspaceContextDialog = (): void => {
+    setContextDialogOpen(true);
+    void readWorkspaceContext();
   };
 
   const openWorkspaceContextFolder = async (): Promise<void> => {
@@ -106,7 +121,7 @@ export function SessionDetailsDrawer({
               <button
                 type="button"
                 className="advanced-toggle-button"
-                onClick={() => void readWorkspaceContext()}
+                onClick={openWorkspaceContextDialog}
               >
                 查看共享上下文
               </button>
@@ -119,12 +134,6 @@ export function SessionDetailsDrawer({
               </button>
             </div>
             {contextError ? <p role="alert">{contextError}</p> : null}
-            {contextFilePath ? (
-              <div className="workspace-context-preview">
-                <span>{contextFilePath}</span>
-                <pre>{contextContent}</pre>
-              </div>
-            ) : null}
           </div>
           <button
             type="button"
@@ -142,6 +151,18 @@ export function SessionDetailsDrawer({
             </dl>
           ) : null}
         </div>
+      ) : null}
+      {contextDialogOpen && workspace ? (
+        <WorkspaceContextDialog
+          workspaceName={workspace.name}
+          filePath={contextFilePath}
+          content={contextContent}
+          loading={contextLoading}
+          error={contextError}
+          onClose={() => setContextDialogOpen(false)}
+          onRefresh={readWorkspaceContext}
+          onOpenFolder={onOpenWorkspaceContextFolder ? openWorkspaceContextFolder : undefined}
+        />
       ) : null}
     </aside>
   );

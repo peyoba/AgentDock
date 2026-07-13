@@ -12,6 +12,7 @@ import {
   createVaultBackedSecretAdapter,
 } from './adapters/secretVaultAdapter.js';
 import { fetchProfileModels } from './modelFetchService.js';
+import { startCodexToolCompatibilityProxy } from './codexToolCompatibilityProxy.js';
 import type { SessionService } from './sessionService.js';
 import { createRuntimeOwnerRegistry, createSessionService } from './sessionService.js';
 import { installSingleInstanceGuard } from './singleInstanceGuard.js';
@@ -21,6 +22,7 @@ import { createSessionFileIndexStore } from './stores/sessionFileIndexStore.js';
 import { createSessionHistoryStore } from './stores/sessionHistoryStore.js';
 import { createWorkspaceStore } from './stores/workspaceStore.js';
 import { createSummaryJobService } from './summaryJobService.js';
+import { checkForAppUpdate, isAllowedReleaseUrl } from './updateCheckService.js';
 import { launchContinuationWithPrompt } from './summaryContinuation.js';
 import { createProfileSummaryRunner } from './summaryRunner.js';
 import { createWindowSessionRegistry } from './windowSessionRegistry.js';
@@ -33,6 +35,8 @@ import { defaultWorkspaces } from '../shared/defaultWorkspaces.js';
 import type {
   ApiProfile,
   CloseSessionViewRequest,
+  ClaudeLaunchMode,
+  CodexLaunchMode,
   LaunchRequest,
   ProfileModelsFetchRequest,
   ProfileSecretReadRequest,
@@ -99,6 +103,7 @@ const sessionRegistry = createWindowSessionRegistry((windowId) => {
     sessionIdPrefix: `w${windowId}-`,
     runtimeOwnerId: `window-${windowId}`,
     runtimeOwnerRegistry,
+    startCodexToolCompatibilityProxy,
     summaryJob: async ({ session, workspace, continueAfterSummary }) => {
       const profile = (await listProfiles()).find((item) => item.id === session.profileId);
       if (!profile) {
@@ -114,14 +119,24 @@ const sessionRegistry = createWindowSessionRegistry((windowId) => {
           homeDir: process.env.HOME ?? app.getPath('home'),
         }),
         readTranscript: () => service.readTerminalBuffer({ sessionId: session.id }),
-        launchContinuation: async ({ sourceSession, handoffPrompt }) =>
-          launchContinuationWithPrompt({
-            service,
+        launchContinuation: async ({ sourceSession, handoffPrompt }) => {
+          const continuationService = profile.toolType === 'codex'
+            ? {
+                ...service,
+                launch: (input: Parameters<SessionService['launch']>[0]) => service.launch({
+                  ...input,
+                  codexLaunchMode: sourceSession.codexLaunchMode,
+                }),
+              }
+            : service;
+          return launchContinuationWithPrompt({
+            service: continuationService,
             profile,
             workspace,
             sourceSession,
             handoffPrompt,
-          }),
+          });
+        },
       });
       return job.summarizeSession({
         session,
@@ -164,6 +179,10 @@ function sanitizeProfile(profile: ApiProfile): ApiProfile {
     keychainService: normalizedProfile.keychainService,
     keychainAccount: normalizedProfile.keychainAccount,
     codexHome: normalizedProfile.codexHome || undefined,
+    codexDefaultLaunchMode:
+      normalizedProfile.toolType === 'codex'
+        ? validCodexLaunchMode(normalizedProfile.codexDefaultLaunchMode)
+        : undefined,
     skipPermissions: normalizedProfile.skipPermissions,
     bypassApprovals: normalizedProfile.bypassApprovals,
     claudeCodeRetryWatchdog: normalizedProfile.claudeCodeRetryWatchdog,
@@ -216,6 +235,43 @@ function positiveInteger(value: number | undefined): number | undefined {
   }
 
   return Math.trunc(value);
+}
+
+function validClaudeLaunchMode(value: unknown): ClaudeLaunchMode | undefined {
+  return value === 'lite' || value === 'full' ? value : undefined;
+}
+
+function validCodexLaunchMode(value: unknown): CodexLaunchMode | undefined {
+  return value === 'native-responses' || value === 'newapi-tool-compatible'
+    ? value
+    : undefined;
+}
+
+function isLocalShellCommand(command: string): boolean {
+  const executable = command.trim().split(/\s+/)[0]?.split('/').pop();
+  return executable === 'zsh' || executable === 'bash';
+}
+
+function normalizedLaunchModes(
+  profile: ApiProfile,
+  command: string,
+  claudeLaunchMode: unknown,
+  codexLaunchMode: unknown,
+): Pick<LaunchRequest, 'claudeLaunchMode' | 'codexLaunchMode'> {
+  if (isLocalShellCommand(command)) {
+    return {};
+  }
+  if (profile.toolType === 'claude') {
+    const validatedMode = validClaudeLaunchMode(claudeLaunchMode);
+    return validatedMode ? { claudeLaunchMode: validatedMode } : {};
+  }
+  if (profile.toolType === 'codex') {
+    const validatedMode =
+      validCodexLaunchMode(codexLaunchMode) ??
+      validCodexLaunchMode(profile.codexDefaultLaunchMode);
+    return validatedMode ? { codexLaunchMode: validatedMode } : {};
+  }
+  return {};
 }
 
 async function listProfiles(): Promise<ApiProfile[]> {
@@ -372,6 +428,18 @@ function registerIpcHandlers(): void {
       isGitDirty: () => isGitDirty(),
     }),
   );
+  ipcMain.handle('app:checkForUpdates', () =>
+    checkForAppUpdate({ currentVersion: app.getVersion() }),
+  );
+  ipcMain.handle(
+    'app:openUpdateDownload',
+    async (_event, { releaseUrl }: { releaseUrl: string }) => {
+      if (!isAllowedReleaseUrl(releaseUrl)) {
+        throw new Error('更新下载地址无效');
+      }
+      await shell.openExternal(releaseUrl);
+    },
+  );
   ipcMain.handle('profiles:list', () => listProfiles());
   ipcMain.handle('profiles:save', async (_event, profile: ApiProfile) => {
     const savedProfile = await saveProfile(profile);
@@ -519,12 +587,18 @@ function registerIpcHandlers(): void {
     }
     validateSessionCommand(request.command);
 
-    return sessionServiceForWebContents(event.sender).launch({
+    const launchInput = {
       profile,
       workspace,
       command: request.command,
-      claudeLaunchMode: request.claudeLaunchMode,
-    });
+      ...normalizedLaunchModes(
+        profile,
+        request.command,
+        request.claudeLaunchMode,
+        request.codexLaunchMode,
+      ),
+    };
+    return sessionServiceForWebContents(event.sender).launch(launchInput);
   });
   ipcMain.handle('sessions:restart', async (event, request: RestartSessionRequest) => {
     const service = sessionServiceForWebContents(event.sender);
@@ -542,20 +616,26 @@ function registerIpcHandlers(): void {
     if (!profile || !workspace) {
       throw new Error('所选配置或工作区不存在，无法重启会话');
     }
-    validateSessionCommand(
-      request.command ?? (
-        request.strategy === 'resume' ? session.resumeCommand : undefined
-      ) ?? session.command,
-    );
+    const restartCommand =
+      request.command ??
+      (request.strategy === 'resume' ? session.resumeCommand : undefined) ??
+      session.command;
+    validateSessionCommand(restartCommand);
 
-    return service.restart({
+    const restartInput = {
       sessionId: request.sessionId,
       profile,
       workspace,
       strategy: request.strategy,
-      command: request.command,
-      claudeLaunchMode: request.claudeLaunchMode,
-    });
+      command: restartCommand,
+      ...normalizedLaunchModes(
+        profile,
+        restartCommand,
+        request.claudeLaunchMode,
+        request.codexLaunchMode,
+      ),
+    };
+    return service.restart(restartInput);
   });
   ipcMain.handle('windows:new', () => {
     createMainWindow({ restoreHistory: false });

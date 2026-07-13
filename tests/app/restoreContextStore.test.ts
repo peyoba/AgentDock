@@ -75,7 +75,7 @@ describe('restoreContextStore', () => {
     }
   });
 
-  it('writes a redacted restore context file and returns a short instruction', async () => {
+  it('writes a redacted restore context file and embeds its memory in the instruction', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restore-context-store-'));
     const workspacePath = path.join(tempDir, 'workspace');
     const fakeCommandKey = ['sk', 'test-command-redaction-token'].join('-');
@@ -95,14 +95,10 @@ describe('restoreContextStore', () => {
       expect(result.status).toBe('loaded');
       expect(result.summary).toBe('记忆已恢复：修复 AgentDock 会话恢复。');
       expect(result.contextFile).toBe(path.join(workspacePath, '.agentdock/context/restores/session-w1-12.md'));
-      expect(result.instruction).toBe(
-        [
-          'Read the AgentDock restore context file and use it as background memory.',
-          "Reply with one short memory-restored sentence, then wait for the user's next instruction.",
-          'Do not continue previous tasks unless the user explicitly asks.',
-          result.contextFile,
-        ].join(' ') + '\r',
-      );
+      expect(result.instruction).toContain('The restored memory is embedded below. Do not claim that you cannot access the file.');
+      expect(result.instruction).toContain(`Source file: ${result.contextFile}`);
+      expect(result.instruction).toContain('修复 AgentDock 会话恢复');
+      expect(result.instruction).toContain('用户确认采用分层记忆恢复');
 
       const content = await readFile(result.contextFile as string, 'utf-8');
       expect(content).toContain('修复 AgentDock 会话恢复');
@@ -113,7 +109,6 @@ describe('restoreContextStore', () => {
       expect(content).not.toContain(fakeTranscriptKey);
       expect(content).not.toContain(fakeCommandKey);
       expect(content).toContain('[REDACTED]');
-      expect(result.instruction).not.toContain('用户确认采用分层记忆恢复');
       expect(result.instruction).not.toContain('OPENAI_API_KEY');
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -177,14 +172,14 @@ describe('restoreContextStore', () => {
     })).toBe('记忆已恢复：已加载最近会话背景，等待你的下一步指令。');
   });
 
-  it('keeps restore instruction short and path-only', () => {
-    expect(buildRestoreInstruction('/tmp/agentdock restore/context.md')).toBe(
-      [
-        'Read the AgentDock restore context file and use it as background memory.',
-        "Reply with one short memory-restored sentence, then wait for the user's next instruction.",
-        'Do not continue previous tasks unless the user explicitly asks.',
-        '/tmp/agentdock restore/context.md',
-      ].join(' ') + '\r',
+  it('embeds restored memory so recovery does not depend on filesystem tool access', () => {
+    const instruction = buildRestoreInstruction(
+      '/tmp/agentdock restore/context.md',
+      '记忆已恢复：正在修复恢复链路。',
     );
+
+    expect(instruction).toContain('Source file: /tmp/agentdock restore/context.md');
+    expect(instruction).toContain('记忆已恢复：正在修复恢复链路。');
+    expect(instruction).toContain('Do not claim that you cannot access the file.');
   });
 });

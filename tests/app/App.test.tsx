@@ -37,11 +37,13 @@ type TestAgentDockApi = AgentDockApi & {
   archiveSessionRecord: ReturnType<typeof vi.fn<[(request: { sessionId: string }) => Promise<AgentSession>]>>;
   deleteSessionRecord: ReturnType<typeof vi.fn<[(request: { sessionId: string }) => Promise<void>]>>;
   archiveSessionHistory: ReturnType<typeof vi.fn<[(request: { sessionId: string }) => Promise<{ filePath: string }>]>>;
-  restartSession: ReturnType<typeof vi.fn<[(request: { sessionId: string; command?: string; claudeLaunchMode?: 'lite' | 'full' }) => Promise<AgentSession>]>>;
+  restartSession: ReturnType<typeof vi.fn<[(request: { sessionId: string; command?: string; claudeLaunchMode?: 'lite' | 'full'; codexLaunchMode?: 'native-responses' | 'newapi-tool-compatible' }) => Promise<AgentSession>]>>;
   getSessionContextPressure: ReturnType<typeof vi.fn<[(request: { sessionId: string }) => Promise<{ sessionId: string; level: 'low' | 'medium' | 'high' | 'full'; score: number }>]>>;
   summarizeSession: ReturnType<typeof vi.fn<[(request: { sessionId: string; continueAfterSummary?: boolean }) => Promise<{ status: 'success'; summaryFile: string; handoffFile: string; handoffPrompt: string; continuationSession?: AgentSession }>]>>;
   listWorkspaceDirectory: ReturnType<typeof vi.fn<[(request: WorkspaceDirectoryRequest) => Promise<WorkspaceDirectoryResult>]>>;
   getBuildInfo: ReturnType<typeof vi.fn<() => Promise<AppBuildInfo>>>;
+  checkForUpdates: ReturnType<typeof vi.fn>;
+  openUpdateDownload: ReturnType<typeof vi.fn>;
 };
 
 function deferred<Value>(): {
@@ -69,6 +71,13 @@ function installAgentDockApi(overrides: Partial<TestAgentDockApi> = {}) {
       commitShort: 'unknown',
       dirty: false,
     }),
+    checkForUpdates: vi.fn().mockResolvedValue({
+      status: 'current',
+      currentVersion: '0.1.0',
+      latestVersion: '0.1.0',
+      releaseUrl: 'https://github.com/peyoba/AgentDock-Releases/releases/tag/v0.1.0',
+    }),
+    openUpdateDownload: vi.fn().mockResolvedValue(undefined),
     listProfiles: vi.fn().mockResolvedValue([
       {
         id: 'profile-a',
@@ -393,6 +402,162 @@ describe('AgentDock shell', () => {
     });
   });
 
+  it('syncs to a fallback Codex profile mode when metadata removes the selected Claude profile', async () => {
+    let metadataListener: (() => void) | undefined;
+    const codexProfile: ApiProfile = {
+      id: 'profile-codex',
+      name: 'Codex Compatible',
+      toolType: 'codex',
+      baseUrl: 'https://codex.example.invalid/v1',
+      defaultModel: 'gpt-5.6-sol',
+      keychainService: 'AgentDock',
+      keychainAccount: 'profile-codex',
+      codexHome: '~/.agentdock/codex-profiles/profile-codex',
+      codexDefaultLaunchMode: 'newapi-tool-compatible',
+    };
+    const api = installAgentDockApi({
+      listProfiles: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 'profile-claude',
+            name: 'Claude A',
+            toolType: 'claude',
+            baseUrl: 'https://claude.example.invalid',
+            keychainService: 'AgentDock',
+            keychainAccount: 'profile-claude',
+            claudeDefaultLaunchMode: 'default',
+          },
+          codexProfile,
+        ])
+        .mockResolvedValueOnce([codexProfile]),
+      onMetadataChanged: vi.fn((listener: () => void) => {
+        metadataListener = listener;
+        return () => undefined;
+      }),
+    });
+
+    render(<App />);
+    expect(await screen.findByLabelText('选择 API 配置')).toHaveValue('profile-claude');
+    expect(screen.getByLabelText('Claude 启动模式')).toHaveValue('lite');
+
+    act(() => metadataListener?.());
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('选择 API 配置')).toHaveValue('profile-codex');
+      expect(screen.getByLabelText('Codex 运行模式')).toHaveValue('newapi-tool-compatible');
+    });
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
+    await waitFor(() => {
+      expect(api.launchSession).toHaveBeenCalledWith({
+        profileId: 'profile-codex',
+        workspaceId: 'workspace-a',
+        command:
+          'codex --no-alt-screen --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust',
+        codexLaunchMode: 'newapi-tool-compatible',
+      });
+    });
+  });
+
+  it('syncs launch mode when the same profile id changes tool type in another window', async () => {
+    let metadataListener: (() => void) | undefined;
+    const api = installAgentDockApi({
+      listProfiles: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            id: 'profile-shared',
+            name: 'Shared Profile',
+            toolType: 'claude',
+            baseUrl: 'https://claude.example.invalid',
+            keychainService: 'AgentDock',
+            keychainAccount: 'profile-shared',
+            claudeDefaultLaunchMode: 'default',
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            id: 'profile-shared',
+            name: 'Shared Profile',
+            toolType: 'codex',
+            baseUrl: 'https://codex.example.invalid/v1',
+            defaultModel: 'gpt-5.6-sol',
+            keychainService: 'AgentDock',
+            keychainAccount: 'profile-shared',
+            codexHome: '~/.agentdock/codex-profiles/profile-shared',
+            codexDefaultLaunchMode: 'native-responses',
+          },
+        ]),
+      onMetadataChanged: vi.fn((listener: () => void) => {
+        metadataListener = listener;
+        return () => undefined;
+      }),
+    });
+
+    render(<App />);
+    expect(await screen.findByLabelText('Claude 启动模式')).toHaveValue('lite');
+
+    act(() => metadataListener?.());
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Codex 运行模式')).toHaveValue('native-responses');
+    });
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
+    await waitFor(() => {
+      expect(api.launchSession).toHaveBeenCalledWith(expect.objectContaining({
+        profileId: 'profile-shared',
+        codexLaunchMode: 'native-responses',
+      }));
+      expect(api.launchSession.mock.calls.at(-1)?.[0]).not.toHaveProperty('claudeLaunchMode');
+    });
+  });
+
+  it('preserves a legal manual mode selection when metadata refreshes the same profile and tool', async () => {
+    let metadataListener: (() => void) | undefined;
+    const baseProfile: ApiProfile = {
+      id: 'profile-codex',
+      name: 'Codex Compatible',
+      toolType: 'codex',
+      baseUrl: 'https://codex.example.invalid/v1',
+      defaultModel: 'gpt-5.6-sol',
+      keychainService: 'AgentDock',
+      keychainAccount: 'profile-codex',
+      codexHome: '~/.agentdock/codex-profiles/profile-codex',
+      codexDefaultLaunchMode: 'newapi-tool-compatible',
+    };
+    const api = installAgentDockApi({
+      listProfiles: vi
+        .fn()
+        .mockResolvedValueOnce([baseProfile])
+        .mockResolvedValueOnce([{ ...baseProfile, name: 'Codex Compatible Renamed' }]),
+      onMetadataChanged: vi.fn((listener: () => void) => {
+        metadataListener = listener;
+        return () => undefined;
+      }),
+    });
+
+    render(<App />);
+    const mode = await screen.findByLabelText('Codex 运行模式');
+    fireEvent.change(mode, { target: { value: 'native-responses' } });
+    expect(mode).toHaveValue('native-responses');
+
+    act(() => metadataListener?.());
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Codex 运行模式')).toHaveValue('native-responses');
+      expect(screen.getByLabelText('选择 API 配置')).toHaveTextContent(
+        'Codex Compatible Renamed',
+      );
+    });
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
+    await waitFor(() => {
+      expect(api.launchSession).toHaveBeenCalledWith(expect.objectContaining({
+        profileId: 'profile-codex',
+        codexLaunchMode: 'native-responses',
+      }));
+    });
+  });
+
   it('does not let the initial session snapshot overwrite a newer session event', async () => {
     const initialSessions = deferred<AgentSession[]>();
     let sessionChangedListener: ((session: AgentSession) => void) | undefined;
@@ -450,10 +615,12 @@ describe('AgentDock shell', () => {
     expect(screen.getByLabelText('运行中的会话')).toBeInTheDocument();
     expect(screen.queryByText('共享目录')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('选择启动命令')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'zsh' })).toBeInTheDocument();
     expect(screen.getByLabelText('选择工作区')).toHaveTextContent('选择其他文件夹…');
     expect(screen.getByLabelText('Claude 启动模式')).toHaveValue('lite');
-    expect(screen.getByText('轻量 · 空 MCP')).toBeInTheDocument();
+    expect(screen.getByLabelText('Claude 启动模式')).toHaveTextContent(
+      '轻量 Agent · 内置工具 / 空 MCP',
+    );
+    expect(screen.getByLabelText('Claude 启动模式')).toHaveTextContent('本地终端 · zsh');
   });
 
   it('renders a workspace-grouped session library with a single new session action', async () => {
@@ -805,8 +972,9 @@ describe('AgentDock shell', () => {
     fireEvent.click(screen.getByRole('button', { name: /会话详情/ }));
     fireEvent.click(screen.getByRole('button', { name: '查看共享上下文' }));
 
-    expect(await screen.findByText('/Users/example/Desktop/web/AgentDock/.agentdock/context/shared-context.md')).toBeInTheDocument();
-    expect(screen.getByText('# AgentDock Shared Context')).toBeInTheDocument();
+    const contextDialog = await screen.findByRole('dialog', { name: '共享上下文' });
+    expect(within(contextDialog).getByText('/Users/example/Desktop/web/AgentDock/.agentdock/context/shared-context.md')).toBeInTheDocument();
+    expect(within(contextDialog).getByRole('heading', { name: 'AgentDock Shared Context' })).toBeInTheDocument();
     expect(api.readWorkspaceContext).toHaveBeenCalledWith({ workspaceId: 'workspace-a' });
 
     fireEvent.click(screen.getByRole('button', { name: '打开上下文文件夹' }));
@@ -954,7 +1122,10 @@ describe('AgentDock session launch flow', () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'zsh' }));
+    fireEvent.change(await screen.findByLabelText('Claude 启动模式'), {
+      target: { value: 'local-shell' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
 
     await waitFor(() => {
       expect(api.launchSession).toHaveBeenCalledWith({
@@ -1030,6 +1201,7 @@ describe('AgentDock session launch flow', () => {
       expect(api.restartSession).toHaveBeenCalledWith({
         sessionId: 'session-1',
         strategy: 'resume',
+        claudeLaunchMode: 'lite',
       });
     });
     expect(api.launchSession).not.toHaveBeenCalled();
@@ -1071,6 +1243,7 @@ describe('AgentDock session launch flow', () => {
       expect(api.restartSession).toHaveBeenCalledWith({
         sessionId: 'session-1',
         strategy: 'fresh',
+        claudeLaunchMode: 'lite',
       });
     });
     expect(api.launchSession).not.toHaveBeenCalled();
@@ -1119,6 +1292,7 @@ describe('AgentDock session launch flow', () => {
       expect(api.restartSession).toHaveBeenCalledWith({
         sessionId: 'session-1',
         strategy: 'fresh',
+        claudeLaunchMode: 'lite',
       });
     });
     expect(api.launchSession).not.toHaveBeenCalled();
@@ -1602,6 +1776,7 @@ describe('AgentDock session launch flow', () => {
           keychainService: 'AgentDock',
           keychainAccount: 'codex-b',
           codexHome: '~/.agentdock/codex-profiles/codex-b',
+          codexDefaultLaunchMode: 'newapi-tool-compatible',
         },
       ]),
       listWorkspaces: vi.fn().mockResolvedValue([
@@ -1613,6 +1788,7 @@ describe('AgentDock session launch flow', () => {
     render(<App />);
 
     fireEvent.change(await screen.findByLabelText('选择 API 配置'), { target: { value: 'codex-b' } });
+    expect(screen.getByLabelText('Codex 运行模式')).toHaveValue('newapi-tool-compatible');
     fireEvent.change(screen.getByLabelText('选择工作区'), { target: { value: 'workspace-b' } });
     fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
 
@@ -1622,6 +1798,72 @@ describe('AgentDock session launch flow', () => {
         workspaceId: 'workspace-b',
         command:
           'codex --no-alt-screen --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust',
+        codexLaunchMode: 'newapi-tool-compatible',
+      });
+    });
+  });
+
+  it('shows the Codex runtime selector and sends native Responses when selected', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'codex-b',
+          name: 'Codex B',
+          toolType: 'codex',
+          baseUrl: 'https://codex.example.invalid/v1',
+          defaultModel: 'gpt-5.6-sol',
+          keychainService: 'AgentDock',
+          keychainAccount: 'codex-b',
+          codexHome: '~/.agentdock/codex-profiles/codex-b',
+          codexDefaultLaunchMode: 'newapi-tool-compatible',
+        },
+      ]),
+    });
+
+    render(<App />);
+
+    const mode = await screen.findByLabelText('Codex 运行模式');
+    expect(mode).toHaveTextContent('完整工具 · NewAPI 兼容');
+    expect(mode).toHaveTextContent('原生 Codex · Responses');
+    fireEvent.change(mode, { target: { value: 'native-responses' } });
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
+
+    await waitFor(() => {
+      expect(api.launchSession).toHaveBeenCalledWith(expect.objectContaining({
+        profileId: 'codex-b',
+        command: expect.stringMatching(/^codex\b/),
+        codexLaunchMode: 'native-responses',
+      }));
+    });
+  });
+
+  it('launches local zsh from a Codex profile without an agent launch mode', async () => {
+    const api = installAgentDockApi({
+      listProfiles: vi.fn().mockResolvedValue([
+        {
+          id: 'codex-b',
+          name: 'Codex B',
+          toolType: 'codex',
+          baseUrl: 'https://codex.example.invalid/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'codex-b',
+          codexHome: '~/.agentdock/codex-profiles/codex-b',
+          codexDefaultLaunchMode: 'newapi-tool-compatible',
+        },
+      ]),
+    });
+
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText('Codex 运行模式'), {
+      target: { value: 'local-shell' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '启动新会话' }));
+
+    await waitFor(() => {
+      expect(api.launchSession).toHaveBeenCalledWith({
+        profileId: 'codex-b',
+        workspaceId: 'workspace-a',
+        command: 'zsh',
       });
     });
   });
@@ -2139,6 +2381,7 @@ describe('AgentDock session launch flow', () => {
         toolType: 'codex',
         baseUrl: 'https://codex.example.invalid/v1',
         defaultModel: 'gpt-4o',
+        codexDefaultLaunchMode: 'native-responses',
         keychainService: 'AgentDock',
         keychainAccount: 'codex-b',
         availableModels: ['gpt-4o', 'o3'],
@@ -2250,6 +2493,7 @@ describe('AgentDock session launch flow', () => {
         toolType: 'codex',
         baseUrl: 'https://anyrouter.top/v1',
         defaultModel: 'gpt-4o',
+        codexDefaultLaunchMode: 'native-responses',
         keychainService: 'AgentDock',
         keychainAccount: 'codex-openai',
         availableModels: ['gpt-5-codex', 'gpt-4o'],

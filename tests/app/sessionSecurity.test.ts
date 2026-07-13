@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createSessionService } from '../../src/main/sessionService';
 import type { KeychainAdapter } from '../../src/main/adapters/keychainAdapter';
 import type { PtyAdapter } from '../../src/main/adapters/ptyAdapter';
@@ -195,29 +195,37 @@ describe('sessionService security boundary', () => {
       await historyStore.readBuffer(session.id);
       exitHandlers.get(session.id)?.({ exitCode: 0 });
 
-      const restarted = await service.restart({
+      const restartPromise = service.restart({
         sessionId: session.id,
         profile,
         workspace,
         command: 'claude --resume c4bf-b857',
       });
-      const returnedPayload = JSON.stringify({ restarted, sessions: await service.list() });
       const restoreContextFile = path.join(tempDir, '.agentdock/context/restores/session-1.md');
 
+      await vi.waitFor(() => expect(spawnCommands).toHaveLength(2));
+      expect(spawnCommands.at(-1)).toBe('claude --resume c4bf-b857');
+      expect(spawnCommands.at(-1)).not.toContain('--append-system-prompt');
+      expect(spawnCommands.at(-1)).not.toContain('<agentdock-restored-memory>');
+      expect(spawnCommands.at(-1)).not.toContain('Current task relies on short memory restore.');
+      expect(writes).toEqual([]);
+
+      dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
+      const restarted = await restartPromise;
+      const returnedPayload = JSON.stringify({ restarted, sessions: await service.list() });
       expect(restarted.memoryRestore).toMatchObject({
         status: 'loaded',
         summary: '记忆已恢复：已加载最近会话背景，等待你的下一步指令。',
         contextFile: restoreContextFile,
       });
-      expect(writes).toEqual([]);
-      expect(spawnCommands.at(-1)).toBe(
-        [
-          'claude --resume c4bf-b857 --append-system-prompt ',
-          "'Read the AgentDock restore context file and use it as background memory. ",
-          "Reply with one short memory-restored sentence, then wait for the user'\\''s next instruction. ",
-          `Do not continue previous tasks unless the user explicitly asks. ${restoreContextFile}'`,
-        ].join(''),
-      );
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).toContain('<agentdock-restored-memory>');
+      expect(writes[0]).toContain('Current task relies on short memory restore.');
+      expect(writes[0]).not.toContain(secret);
+      expect(writes[0]).not.toContain(fakeOpenAiKey);
+      expect(writes[0]).not.toContain('OPENAI_API_KEY');
+      dataHandlers.get(session.id)?.('❯ ');
+      expect(writes).toHaveLength(1);
       expect(returnedPayload).not.toContain('Read the AgentDock restore context file');
       expect(returnedPayload).not.toContain('AgentDock Restore Context');
       expect(returnedPayload).not.toContain('Transcript Tail');

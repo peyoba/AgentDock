@@ -98,13 +98,18 @@ export function summarizeRestoreMemory({
   return '未找到可恢复记忆';
 }
 
-export function buildRestoreInstruction(contextFile: string): string {
+export function buildRestoreInstruction(contextFile: string, restoredMemory: string): string {
   return [
-    'Read the AgentDock restore context file and use it as background memory.',
+    'Use the AgentDock restored memory below as background memory.',
+    'The restored memory is embedded below. Do not claim that you cannot access the file.',
     "Reply with one short memory-restored sentence, then wait for the user's next instruction.",
     'Do not continue previous tasks unless the user explicitly asks.',
-    contextFile,
-  ].join(' ') + '\r';
+    `Source file: ${contextFile}`,
+    '',
+    '<agentdock-restored-memory>',
+    restoredMemory,
+    '</agentdock-restored-memory>',
+  ].join('\n') + '\r';
 }
 
 export function createRestoreContextStore(): RestoreContextStore {
@@ -170,7 +175,7 @@ export function createRestoreContextStore(): RestoreContextStore {
         status: 'loaded',
         summary,
         contextFile,
-        instruction: buildRestoreInstruction(contextFile),
+        instruction: buildRestoreInstruction(contextFile, content),
       };
     },
   };
