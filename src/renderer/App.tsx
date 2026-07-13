@@ -400,6 +400,7 @@ export default function App(): React.JSX.Element {
   const [pendingMemoryRestoreSessionIds, setPendingMemoryRestoreSessionIds] = React.useState<
     ReadonlySet<string>
   >(() => new Set<string>());
+  const pendingRestartSessionIdsRef = React.useRef(new Set<string>());
   const [sessionMenuOpen, setSessionMenuOpen] = React.useState(false);
   const [dismissedRestoreSessionIds, setDismissedRestoreSessionIds] = React.useState<ReadonlySet<string>>(
     () => new Set<string>(),
@@ -730,9 +731,10 @@ export default function App(): React.JSX.Element {
     sourceSession: AgentSession,
     strategy: RestartSessionRequest['strategy'],
   ): Promise<AgentSession | undefined> => {
-    if (!api) {
+    if (!api || pendingRestartSessionIdsRef.current.has(sourceSession.id)) {
       return undefined;
     }
+    pendingRestartSessionIdsRef.current.add(sourceSession.id);
 
     setPendingLaunchCount((current) => current + 1);
     setLaunchError(null);
@@ -754,9 +756,11 @@ export default function App(): React.JSX.Element {
       setActionStatus('会话已重新启动');
       return session;
     } catch (error) {
+      setActionStatus(null);
       setLaunchError(safeLaunchError(error));
       return undefined;
     } finally {
+      pendingRestartSessionIdsRef.current.delete(sourceSession.id);
       setPendingMemoryRestoreSessionIds((current) => {
         const nextSessionIds = new Set(current);
         nextSessionIds.delete(sourceSession.id);

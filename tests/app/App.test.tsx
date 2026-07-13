@@ -1348,6 +1348,71 @@ describe('AgentDock session launch flow', () => {
     });
   });
 
+  it('deduplicates repeated restart requests for the same session', async () => {
+    const restart = deferred<AgentSession>();
+    const api = installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Codex A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'codex',
+          status: 'interrupted',
+          startedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ]),
+      restartSession: vi.fn().mockReturnValue(restart.promise),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('会话已中断 · 可重新启动')).toBeInTheDocument();
+    const restartButton = screen.getByRole('button', { name: '继续上次对话' });
+    fireEvent.click(restartButton);
+    fireEvent.click(restartButton);
+
+    expect(api.restartSession).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      restart.resolve({
+        id: 'session-1',
+        title: 'Codex A · AgentDock',
+        profileId: 'profile-a',
+        workspaceId: 'workspace-a',
+        command: 'codex',
+        status: 'running',
+        startedAt: '2026-07-02T00:02:00.000Z',
+      });
+    });
+  });
+
+  it('clears the restarting status when restart fails', async () => {
+    installAgentDockApi({
+      listSessions: vi.fn().mockResolvedValue([
+        {
+          id: 'session-1',
+          title: 'Codex A · AgentDock',
+          profileId: 'profile-a',
+          workspaceId: 'workspace-a',
+          command: 'codex',
+          status: 'interrupted',
+          startedAt: '2026-07-02T00:00:00.000Z',
+        },
+      ]),
+      restartSession: vi.fn().mockRejectedValue(new Error('会话仍在运行，无法重启')),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('会话已中断 · 可重新启动')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '继续上次对话' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('会话仍在运行，无法重启');
+    expect(screen.queryByText('正在重新启动会话...')).not.toBeInTheDocument();
+    expect(screen.queryByText('会话已重新启动')).not.toBeInTheDocument();
+  });
+
   it('shows one-sentence memory restore summary after restarting a session', async () => {
     let resolveRestart: ((session: AgentSession) => void) | undefined;
     const api = installAgentDockApi({

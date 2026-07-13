@@ -26,6 +26,52 @@ describe('createInitialPromptInjector', () => {
     expect(write).toHaveBeenCalledWith('test Codex restored memory\r');
   });
 
+  it('skips a chunk-split Codex update prompt before restoring memory once', async () => {
+    const write = vi.fn();
+    const injector = createInitialPromptInjector({
+      tool: 'codex',
+      prompt: 'test Codex restored memory',
+      write,
+    });
+
+    injector.acceptOutput('╭─ >_ OpenAI Codex\nUpdate avail');
+    injector.acceptOutput('able\n  1. Update now\n  2. Sk');
+    injector.acceptOutput('ip\n');
+    injector.acceptOutput('Update available\n  1. Update now\n  2. Skip\n');
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledWith('2\r');
+
+    injector.acceptOutput('\n› ');
+    injector.acceptOutput('\n› ');
+
+    await expect(injector.completion).resolves.toBeUndefined();
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(write).toHaveBeenNthCalledWith(2, 'test Codex restored memory\r');
+  });
+
+  it('keeps the default Codex readiness window open beyond fifteen seconds', async () => {
+    vi.useFakeTimers();
+    const write = vi.fn();
+    const injector = createInitialPromptInjector({
+      tool: 'codex',
+      prompt: 'test slow Codex restored memory',
+      write,
+    });
+    let outcome = 'pending';
+    void injector.completion.then(
+      () => { outcome = 'resolved'; },
+      () => { outcome = 'rejected'; },
+    );
+
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(outcome).toBe('pending');
+
+    injector.acceptOutput('╭─ >_ OpenAI Codex\n› ');
+    await expect(injector.completion).resolves.toBeUndefined();
+    expect(write).toHaveBeenCalledWith('test slow Codex restored memory\r');
+  });
+
   it('waits for a Claude input prompt before writing once', async () => {
     const write = vi.fn();
     const injector = createInitialPromptInjector({

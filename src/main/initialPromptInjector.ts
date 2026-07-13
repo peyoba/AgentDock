@@ -1,3 +1,5 @@
+import { terminalOutputToPlainText } from '../shared/terminalText.js';
+
 export type InitialPromptTool = 'claude' | 'codex';
 
 type InitialPromptInjector = {
@@ -8,22 +10,26 @@ type InitialPromptInjector = {
 };
 
 const MAX_STARTUP_OUTPUT_LENGTH = 32 * 1024;
+const DEFAULT_READINESS_TIMEOUT_MS = 60_000;
+const codexUpdatePromptPattern = /\bUpdate available\b[\s\S]*?\b2\.\s*Skip\b/i;
 
-function isReady(tool: InitialPromptTool, startupOutput: string): boolean {
+function isReady(
+  tool: InitialPromptTool,
+  startupOutput: string,
+  bannerSeen: boolean,
+): boolean {
   if (tool === 'codex') {
-    const bannerIndex = startupOutput.indexOf('>_ OpenAI Codex');
-    return bannerIndex >= 0 && startupOutput.indexOf('›', bannerIndex) >= 0;
+    return bannerSeen && startupOutput.includes('›');
   }
 
-  const bannerIndex = startupOutput.indexOf('Claude Code');
-  return bannerIndex >= 0 && startupOutput.indexOf('❯', bannerIndex) >= 0;
+  return bannerSeen && startupOutput.includes('❯');
 }
 
 export function createInitialPromptInjector({
   tool,
   prompt,
   write,
-  timeoutMs = 15_000,
+  timeoutMs = DEFAULT_READINESS_TIMEOUT_MS,
 }: {
   tool: InitialPromptTool;
   prompt: string;
@@ -32,6 +38,8 @@ export function createInitialPromptInjector({
 }): InitialPromptInjector {
   const initialPrompt = prompt.trim();
   let startupOutput = '';
+  let bannerSeen = false;
+  let codexUpdatePromptSkipped = false;
   let settled = false;
   let resolveCompletion!: () => void;
   let rejectCompletion!: (error: Error) => void;
@@ -81,8 +89,30 @@ export function createInitialPromptInjector({
         return;
       }
 
-      startupOutput = `${startupOutput}${data}`.slice(-MAX_STARTUP_OUTPUT_LENGTH);
-      if (!isReady(tool, startupOutput)) {
+      startupOutput = terminalOutputToPlainText(
+        `${startupOutput}${data}`.slice(-MAX_STARTUP_OUTPUT_LENGTH),
+      );
+      bannerSeen = bannerSeen || (
+        tool === 'codex'
+          ? startupOutput.includes('>_ OpenAI Codex')
+          : startupOutput.includes('Claude Code')
+      );
+
+      if (tool === 'codex' && codexUpdatePromptPattern.test(startupOutput)) {
+        if (!codexUpdatePromptSkipped) {
+          codexUpdatePromptSkipped = true;
+          try {
+            write('2\r');
+          } catch {
+            rejectOnce(new Error('Codex update prompt skip failed'));
+            return;
+          }
+        }
+        startupOutput = '';
+        return;
+      }
+
+      if (!isReady(tool, startupOutput, bannerSeen)) {
         return;
       }
 
