@@ -25,6 +25,13 @@ AgentDock 是一个面向 Claude CLI / Codex CLI 的多配置内嵌终端工作�
 https://github.com/peyoba/AgentDock/releases
 ```
 
+`v0.1.1` 安装包 SHA-256：
+
+```text
+AgentDock-v0.1.1-macos-arm64.zip   a9c9d88d3a3cef15d2fd739fe617f51412da44bc5cd1f7767d4d6761bf8e8f9e
+AgentDock-v0.1.1-windows-x64.zip   d362be42e85ad54cea6a00bd169bd1af1a782c34f7d0ca645f2f48f92e1b2534
+```
+
 ### macOS 安装
 
 1. 下载 `AgentDock-v0.1.1-macos-arm64.zip`。
