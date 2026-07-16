@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import {
   DEFAULT_OUTPUT_ROOT,
@@ -37,7 +37,7 @@ run('npx', [
   `--out=${outputDirectory}`,
   '--prune=true',
   '--asar.unpack=**/{*.node,*.exe}',
-  '--ignore=^/node_modules/@cometix/ccline-darwin-arm64(/|$)|^/(src|tests|docs|scripts|release|\\.agent-workflow|\\.agentdock|\\.claude|\\.git|\\.pytest_cache)(/|$)|^/\\.env(?:\\..*)?$|^/.*\\.log$',
+  '--ignore=^.*@cometix/ccline-darwin-arm64.*$|^/(src|tests|docs|scripts|release|\\.agent-workflow|\\.agentdock|\\.claude|\\.git|\\.pytest_cache)(/|$)|^/\\.env(?:\\..*)?$|^/.*\\.log$',
 ]);
 
 const buildInfo = createBuildInfo({
@@ -48,6 +48,17 @@ const buildInfo = createBuildInfo({
   dirty: gitDirty(),
 });
 writeBuildInfo(path.join(resourcesDirectory, 'build-info.json'), buildInfo);
+
+// npm prune 保留 optionalDependencies 的空目录；Windows 归档不得包含 macOS ccline 路径。
+const asarPath = path.join(resourcesDirectory, 'app.asar');
+const asarExtractDirectory = path.join(outputDirectory, '.asar-win-clean');
+run('npx', ['--no-install', 'asar', 'extract', asarPath, asarExtractDirectory]);
+rmSync(path.join(asarExtractDirectory, 'node_modules', '@cometix'), {
+  recursive: true,
+  force: true,
+});
+run('npx', ['--no-install', 'asar', 'pack', asarExtractDirectory, asarPath]);
+rmSync(asarExtractDirectory, { recursive: true, force: true });
 
 for (const requiredPath of [
   path.join(appDirectory, 'AgentDock.exe'),
