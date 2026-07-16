@@ -107,7 +107,7 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
             >
               <option value="lite">轻量 Agent · 内置工具 / 空 MCP</option>
               <option value="full">完整 Agent · 内置工具 + MCP</option>
-              <option value="local-shell">本地终端 · zsh</option>
+              <option value="local-shell">本地终端</option>
             </select>
           </label>
         ) : null}
@@ -123,7 +123,7 @@ export const CommandBar = React.forwardRef<HTMLElement, CommandBarProps>(functio
             >
               <option value="newapi-tool-compatible">完整工具 · NewAPI 兼容</option>
               <option value="native-responses">原生 Codex · Responses</option>
-              <option value="local-shell">本地终端 · zsh</option>
+              <option value="local-shell">本地终端</option>
             </select>
           </label>
         ) : null}

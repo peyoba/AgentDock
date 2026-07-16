@@ -12,6 +12,11 @@ import { TerminalPane } from './components/TerminalPane';
 import { defaultApiProfiles } from '../shared/defaultApiProfiles';
 import { sessionStatusLabel } from '../shared/sessionStatusLabels';
 import { readableSessionHistory, terminalOutputToPlainText } from '../shared/terminalText';
+import {
+  LOCAL_SHELL_COMMAND,
+  commandExecutableName,
+  isLocalShellCommand,
+} from '../shared/sessionCommands';
 import type {
   AgentSession,
   AppBuildInfo,
@@ -70,7 +75,7 @@ const fallbackSessions: AgentSession[] = [
 ];
 
 const fallbackBuildInfo: AppBuildInfo = {
-  version: '0.1.0',
+  version: '0.1.1',
   buildId: 'preview',
   buildTime: '2026-07-08T00:00:00.000Z',
   commit: 'unknown',
@@ -172,11 +177,6 @@ function inactiveSessionLabel(session: AgentSession): string {
 
 function isLiveSession(session: AgentSession | undefined): boolean {
   return session?.status === 'running' || session?.status === 'starting';
-}
-
-function commandExecutableName(command: string): string {
-  const executable = command.trim().split(/\s+/)[0] ?? '';
-  return executable.split('/').pop() ?? executable;
 }
 
 function compactCommandLabel(command: string): string {
@@ -652,7 +652,9 @@ export default function App(): React.JSX.Element {
       return undefined;
     }
 
-    const command = launchMode === 'local-shell' ? 'zsh' : defaultCommandFor(selectedProfile);
+    const command = launchMode === 'local-shell'
+      ? LOCAL_SHELL_COMMAND
+      : defaultCommandFor(selectedProfile);
     const launchRequest: LaunchRequest = {
       profileId: selectedProfile.id,
       workspaceId: selectedWorkspace.id,
@@ -1339,7 +1341,7 @@ export default function App(): React.JSX.Element {
                 ) : null}
                 <TerminalPane
                   sessionId={activeSessionId}
-                  preserveHistory={activeSession ? !['zsh', 'bash'].includes(commandExecutableName(activeSession.command)) : true}
+                  preserveHistory={activeSession ? !isLocalShellCommand(activeSession.command) : true}
                   readOnly={activeSession ? !isLiveSession(activeSession) : false}
                 />
                 {isRecoverableSession(activeSession) ? (

@@ -14,17 +14,20 @@ AgentDock 是一个面向 Claude CLI / Codex CLI 的多配置内嵌终端工作�
 
 ## 下载与安装
 
-当前 GitHub Release 为 macOS Apple Silicon 预发布版本，适用于 M1、M2、M3、M4 等 ARM 架构 Mac，不支持 Intel Mac。
+`v0.1.1` 双平台 Pre-release 使用以下固定资产名称：
 
-下载地址：
+- macOS Apple Silicon：`AgentDock-v0.1.1-macos-arm64.zip`，适用于 M1、M2、M3、M4 等 ARM 架构 Mac，不支持 Intel Mac。
+- Windows 10/11 x64：`AgentDock-v0.1.1-windows-x64.zip`，适用于常见的 64 位 Intel/AMD 电脑，是首次便携验证包。
+
+下载请进入仓库的 GitHub Releases 页面：
 
 ```text
-https://github.com/peyoba/AgentDock/releases/tag/v0.1.0
+https://github.com/peyoba/AgentDock/releases
 ```
 
-安装步骤：
+### macOS 安装
 
-1. 下载 `AgentDock-v0.1.0-macos-arm64.zip`。
+1. 下载 `AgentDock-v0.1.1-macos-arm64.zip`。
 2. 解压 ZIP，将 `AgentDock.app` 拖入“应用程序”目录。
 3. 在 Finder 的“应用程序”中右键 AgentDock，选择“打开”。
 4. 如果 macOS 仍阻止启动，前往“系统设置 → 隐私与安全性”，找到 AgentDock 被阻止的提示，点击“仍要打开”，再确认一次。
@@ -32,16 +35,10 @@ https://github.com/peyoba/AgentDock/releases/tag/v0.1.0
 
 当前版本使用稳定的本机自签名证书，尚未使用 Apple Developer ID 签名和 Apple notarization。因此，首次在其他 Mac 上启动时需要执行上述手动确认。这不代表应用包已损坏。
 
-如果系统提示“应用已损坏”或下载不完整，请先校验 ZIP：
+如果系统提示“应用已损坏”或下载不完整，请先校验 ZIP，并与 `v0.1.1` Release notes 中的 SHA-256 对比：
 
 ```bash
-shasum -a 256 ~/Downloads/AgentDock-v0.1.0-macos-arm64.zip
-```
-
-`v0.1.0` 的 SHA-256 应为：
-
-```text
-a2fba33b0a9954e2b61b944f8e3b4b86cd3ad1159717d2198b3779ca430bdb64
+shasum -a 256 ~/Downloads/AgentDock-v0.1.1-macos-arm64.zip
 ```
 
 仅当文件来自本仓库的 GitHub Release 且 SHA-256 一致，但 Gatekeeper 仍错误阻止时，技术用户可移除该 App 的下载隔离属性：
@@ -51,6 +48,30 @@ xattr -dr com.apple.quarantine "/Applications/AgentDock.app"
 ```
 
 不要对来源不明或校验不一致的应用执行该命令。
+
+### Windows 安装
+
+1. 下载 `AgentDock-v0.1.1-windows-x64.zip`，将 ZIP 完整解压到一个普通目录。
+2. 不要只复制 `AgentDock.exe`，也不要直接在 ZIP 压缩包内运行；程序依赖同目录中的 `resources` 和 Electron 运行文件。
+3. 如果要启动 Claude/Codex 会话，请先确认相应 CLI 已能在普通 PowerShell 中直接运行。
+4. 双击解压目录中的 `AgentDock.exe`。
+5. Windows 包没有代码签名。若 Microsoft Defender SmartScreen 显示未知发布者提示，请先确认文件来自本仓库 GitHub Release，并将 SHA-256 与 `v0.1.1` Release notes 对比；确认一致后再决定是否选择“更多信息 → 仍要运行”。
+
+Windows 包无安装向导、无代码签名，不会创建开始菜单或桌面快捷方式。当前 macOS 交叉构建与静态包检查不能替代 Windows 真机验收；Windows GUI、PowerShell/ConPTY、Ctrl+C、中文输入、粘贴、resize、真实 Claude/Codex CLI 和 vault 重启矩阵仍为 `PARTIAL`，因此本版本定位为 Windows x64 便携验证包，而不是正式 Windows 支持声明。
+
+### 保留的 v0.1.0 版本
+
+原有 `v0.1.0` macOS Apple Silicon Release 和 tag 保持不变，仍可从以下地址下载：
+
+```text
+https://github.com/peyoba/AgentDock/releases/tag/v0.1.0
+```
+
+`AgentDock-v0.1.0-macos-arm64.zip` 的 SHA-256 为：
+
+```text
+a2fba33b0a9954e2b61b944f8e3b4b86cd3ad1159717d2198b3779ca430bdb64
+```
 
 ## 首次使用与个人 API 配置
 
@@ -70,16 +91,17 @@ GitHub Release **不包含任何开发者私有 endpoint、API Key、登录状�
 4. 填写自己的服务地址（endpoint）、API Key 和模型配置，然后保存。
 5. 返回终端工作台，选择 Workspace 和刚保存的 Profile，再启动会话。
 
-API Key 只写入当前 Mac 上的本机加密 Vault。默认界面、IPC、日志、Session history、Workspace context 和 GitHub Release 都不会携带完整 API Key。只有用户主动点击查看某个已保存 Profile 时，应用才会临时读取并显示该 Key。
+API Key 只写入当前电脑上的本机加密 Vault。默认界面、IPC、日志、Session history、Workspace context 和 GitHub Release 都不会携带完整 API Key。只有用户主动点击查看某个已保存 Profile 时，应用才会临时读取并显示该 Key。
 
-新 Mac 不会自动继承另一台 Mac 的 API Profile、API Key、Claude/Codex 登录状态或 Codex Home。需要在每台设备上分别配置。
+新设备不会自动继承另一台设备的 API Profile、API Key、Claude/Codex 登录状态或 Codex Home。需要在每台设备上分别配置。
 
 如果 AgentDock 可以打开但会话无法启动，请依次检查：
 
-- 对应的 `claude` 或 `codex` 命令是否已安装并能在终端运行；
+- 对应的 `claude` 或 `codex` 命令是否已安装，并能在 macOS Terminal 或 Windows PowerShell 中直接运行；
 - 当前 Profile 是否填写了有效的个人 endpoint 和 API Key；
 - 网络、代理和 DNS 是否能够访问所配置的服务；
-- macOS 是否已允许 AgentDock 访问所选 Workspace。
+- macOS 是否已允许 AgentDock 访问所选 Workspace；
+- Windows 是否已完整解压 ZIP，而不是只复制或直接运行 `AgentDock.exe`。
 
 ## Codex 运行模式
 
@@ -100,7 +122,7 @@ Codex Profile 可设置默认运行模式，启动会话时也可在顶部启动
 
 ## 当前阶段
 
-核心 MVP 已完成，当前处于 macOS arm64 本地 Beta 稳定性与真实端到端验收阶段。
+核心 MVP 已完成，当前处于 macOS arm64 Beta 与 Windows x64 便携预览发布阶段。Windows 真机验证仍为 `PARTIAL`。
 
 已完成：
 
@@ -122,15 +144,17 @@ Codex Profile 可设置默认运行模式，启动会话时也可在顶部启动
 - 完成分层记忆恢复：原生 resume 探针优先，不可用时读取脱敏 summary 与 transcript tail。
 - 完成右侧只读项目文件树、构建版本信息和 Claude Profile 会话级兼容改写代理。
 - 完成 Codex 两种可见运行模式、NewAPI 单字段模型兼容层、兼容模式单 Session 临时 `CODEX_HOME` 与恢复正文 argv 隔离；真实 NewAPI/node-pty 的 `pwd` / `uname -a` 工具闭环已通过，详见 `.agent-workflow/verification/2026-07-13-codex-newapi-full-tool-capability.md`。
+- 完成平台无关本地终端合同、Windows PowerShell/ConPTY 启动分支、Windows 原生标题栏和 macOS 专属 ccline 隔离。
+- 完成 Windows x64 便携目录与版本化 ZIP 打包脚本；不引入安装器、签名或新的 npm 依赖。
 
 本地可复测包不会提交到 Git。请从干净工作区执行：
 
 ```bash
 npm run package:mac
+npm run package:win
 ```
 
-命令会在 `release/packages/<buildId>/AgentDock-darwin-arm64/AgentDock.app` 生成新包；
-具体 commit、buildId 和 dirty 状态以包内 `Contents/Resources/build-info.json` 为准。
+命令会在 `release/packages/<buildId>/` 下生成对应平台的便携目录和版本化 ZIP；具体 commit、buildId 和 dirty 状态以包内 `build-info.json` 为准。
 
 下一批计划：
 
@@ -149,22 +173,32 @@ npm run dev
 npm run workflow:doctor
 npm run test:workflow
 npm run package:mac
+npm run package:win
 ```
 
-## macOS 打包
+## 双平台打包
 
-`npm run package:mac` 会构建并输出到新的时间戳目录，例如：
+`npm run package:mac` 会构建、签名并输出新的 macOS 时间戳目录与版本化 ZIP，例如：
 
 ```text
 release/packages/20260704-153000/AgentDock-darwin-arm64/AgentDock.app
+release/packages/20260704-153000/AgentDock-v0.1.1-macos-arm64.zip
 ```
 
-默认不会覆盖 `release/AgentDock-darwin-arm64/AgentDock.app`。
+`npm run package:win` 会交叉构建 Windows x64 便携目录与版本化 ZIP，例如：
+
+```text
+release/packages/20260704-153000/AgentDock-win32-x64/AgentDock.exe
+release/packages/20260704-153000/AgentDock-v0.1.1-windows-x64.zip
+```
+
+两个命令默认都不会覆盖旧产物。Windows 包必须完整保留解压后的目录结构；macOS 只能完成交叉构建和静态检查，真实 Windows 运行验收仍需 Windows 10/11 x64 真机或 Windows CI runner。
 
 每个包会写入对应的构建信息：
 
 ```text
-AgentDock.app/Contents/Resources/build-info.json
+AgentDock-darwin-arm64/AgentDock.app/Contents/Resources/build-info.json
+AgentDock-win32-x64/resources/build-info.json
 ```
 
 应用左侧会话库顶部会显示 `v版本 · buildId`，悬浮可查看 commit、构建时间和 dirty 状态，方便区分本地连续打出来的不同包。

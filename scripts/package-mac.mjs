@@ -1,46 +1,18 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import {
+  DEFAULT_OUTPUT_ROOT,
+  createBuildInfo,
+  gitCommit,
+  gitDirty,
+  packageVersion,
+  run,
+  timestamp,
+  writeBuildInfo,
+} from './package-support.mjs';
 
-const DEFAULT_OUTPUT_ROOT = 'release/packages';
-
-function timestamp(now = new Date()) {
-  const pad = (value) => String(value).padStart(2, '0');
-
-  return [
-    now.getFullYear(),
-    pad(now.getMonth() + 1),
-    pad(now.getDate()),
-    '-',
-    pad(now.getHours()),
-    pad(now.getMinutes()),
-    pad(now.getSeconds()),
-  ].join('');
-}
-
-export function createBuildInfo({
-  version,
-  buildId,
-  buildTime,
-  commit,
-  dirty,
-}) {
-  return {
-    version,
-    buildId,
-    buildTime: buildTime.toISOString(),
-    commit,
-    commitShort: commit === 'unknown' ? 'unknown' : commit.slice(0, 7),
-    dirty,
-  };
-}
-
-function run(command, args) {
-  const result = spawnSync(command, args, { stdio: 'inherit' });
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
-}
+// DEFAULT_OUTPUT_ROOT keeps macOS packages under release/packages.
 
 // ad-hoc 签名（"-"）每次打包 cdhash 都不同，macOS TCC 会把每个新包当成新应用，
 // 桌面/文稿等文件夹授权反复弹窗。优先使用本机固定证书（钥匙串里创建一次即可），
@@ -69,34 +41,13 @@ function defaultListIdentities() {
   return result.status === 0 ? result.stdout : '';
 }
 
-function packageVersion() {
-  const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
-  if (typeof packageJson.version !== 'string' || !packageJson.version) {
-    throw new Error('package.json version is missing');
-  }
-  return packageJson.version;
-}
-
-function gitCommit() {
-  const result = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
-  return result.status === 0 ? result.stdout.trim() : 'unknown';
-}
-
-function gitDirty() {
-  const result = spawnSync(
-    'git',
-    ['status', '--porcelain', '--untracked-files=all'],
-    { encoding: 'utf8' },
-  );
-  return result.status === 0 && result.stdout.trim().length > 0;
-}
-
 const isDirectRun = process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1]));
 
 if (isDirectRun) {
   const outputRoot = process.env.AGENTDOCK_PACKAGE_OUT || DEFAULT_OUTPUT_ROOT;
   const buildTime = new Date();
   const buildId = timestamp(buildTime);
+  const version = packageVersion();
   const outputDirectory = path.join(outputRoot, buildId);
   const appPath = path.join(outputDirectory, 'AgentDock-darwin-arm64', 'AgentDock.app');
 
@@ -120,14 +71,14 @@ if (isDirectRun) {
   ]);
 
   const buildInfo = createBuildInfo({
-    version: packageVersion(),
+    version,
     buildId,
     buildTime,
     commit: gitCommit(),
     dirty: gitDirty(),
   });
   const buildInfoPath = path.join(appPath, 'Contents', 'Resources', 'build-info.json');
-  writeFileSync(buildInfoPath, `${JSON.stringify(buildInfo, null, 2)}\n`);
+  writeBuildInfo(buildInfoPath, buildInfo);
   console.log(
     `[package-mac] Build info: v${buildInfo.version} · ${buildInfo.buildId} · ${buildInfo.commitShort}${buildInfo.dirty ? ' dirty' : ''}`,
   );
@@ -143,5 +94,10 @@ if (isDirectRun) {
   }
   run('codesign', ['--force', '--deep', '--sign', signingIdentity, appPath]);
 
-  console.log(`AgentDock app packaged at: ${appPath}`);
+  const archivePath = path.join(
+    outputDirectory,
+    `AgentDock-v${version}-macos-arm64.zip`,
+  );
+  run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', appPath, archivePath]);
+  console.log(`AgentDock macOS package: ${archivePath}`);
 }

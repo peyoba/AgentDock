@@ -13,7 +13,10 @@ describe('macOS window chrome behavior', () => {
     const mainSource = readFileSync('src/main/main.ts', 'utf8');
     const styles = readFileSync('src/renderer/styles.css', 'utf8');
 
-    expect(mainSource).toMatch(/titleBarStyle:\s*'hidden'/);
+    expect(mainSource).toMatch(
+      /\.\.\.\(process\.platform === 'darwin' \? \{ titleBarStyle: 'hidden' \} : \{\}\)/,
+    );
+    expect(mainSource).not.toMatch(/^\s*titleBarStyle:\s*'hidden',/m);
     expect(styles).toMatch(/\.app-shell\s*\{[^}]*padding:\s*34px 0 0/s);
     expect(styles).toMatch(/\.titlebar-spacer\s*\{[^}]*position:\s*fixed/s);
     expect(styles).toMatch(/\.titlebar-spacer\s*\{[^}]*top:\s*0/s);

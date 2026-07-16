@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('package-mac build info', () => {
   it('creates package build metadata with the package timestamp as build id', async () => {
-    const { createBuildInfo } = await import('../../scripts/package-mac.mjs');
+    const { createBuildInfo } = await import('../../scripts/package-support.mjs');
 
     expect(createBuildInfo({
       version: '0.2.0',

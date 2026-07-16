@@ -335,7 +335,7 @@ describe('sessionService terminal controls', () => {
 
 
 
-  it('launches a local zsh shell without reading API secrets', async () => {
+  it('launches local-shell without reading API secrets', async () => {
     let readSecretCalled = false;
     const spawnedCommands: string[] = [];
     const spawnedEnvironments: Array<Record<string, string>> = [];
@@ -381,11 +381,11 @@ describe('sessionService terminal controls', () => {
         name: 'AgentDock',
         path: '/Users/example/Desktop/web/AgentDock',
       },
-      command: 'zsh',
+      command: 'local-shell',
     });
 
     expect(readSecretCalled).toBe(false);
-    expect(spawnedCommands).toEqual(['zsh']);
+    expect(spawnedCommands).toEqual(['local-shell']);
     expect(spawnedEnvironments[0]).toMatchObject({
       AGENTDOCK_CONTEXT_DIR: '/Users/example/Desktop/web/AgentDock/.agentdock/context',
       AGENTDOCK_SHARED_CONTEXT_FILE: '/Users/example/Desktop/web/AgentDock/.agentdock/context/shared-context.md',

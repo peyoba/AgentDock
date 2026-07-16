@@ -32,6 +32,11 @@ import { createWorkspaceFromPath, mergeWorkspaces } from './workspaceService.js'
 import { normalizeClaudeProfileDefaults } from '../shared/claudeProfileDefaults.js';
 import { defaultApiProfiles, isDefaultApiProfileId } from '../shared/defaultApiProfiles.js';
 import { defaultWorkspaces } from '../shared/defaultWorkspaces.js';
+import {
+  commandExecutableName,
+  isLocalShellCommand,
+  isSupportedSessionCommand,
+} from '../shared/sessionCommands.js';
 import type {
   ApiProfile,
   CloseSessionViewRequest,
@@ -247,11 +252,6 @@ function validCodexLaunchMode(value: unknown): CodexLaunchMode | undefined {
     : undefined;
 }
 
-function isLocalShellCommand(command: string): boolean {
-  const executable = command.trim().split(/\s+/)[0]?.split('/').pop();
-  return executable === 'zsh' || executable === 'bash';
-}
-
 function normalizedLaunchModes(
   profile: ApiProfile,
   command: string,
@@ -356,12 +356,9 @@ async function requireProfileSecretSlot(
 
 // 纵深防御：会话命令只允许受支持的 CLI/shell，且带引号参数外不允许 shell 控制字符，
 // 防止 renderer 被注入后升级为任意本机命令执行。
-const SESSION_COMMAND_EXECUTABLES = new Set(['claude', 'codex', 'zsh', 'bash']);
-
 function validateSessionCommand(command: string): void {
-  const executable = command.trim().split(/\s+/)[0]?.split('/').pop() ?? '';
-  if (!SESSION_COMMAND_EXECUTABLES.has(executable)) {
-    throw new Error(`不支持的会话命令: ${executable || '(空)'}`);
+  if (!isSupportedSessionCommand(command)) {
+    throw new Error(`不支持的会话命令: ${commandExecutableName(command) || '(空)'}`);
   }
   const outsideQuotes = command.replace(/'[^']*'/g, "''");
   if (/[;&|`<>\n]|\$\(/.test(outsideQuotes)) {
@@ -670,7 +667,7 @@ function createMainWindow({
     minHeight: 480,
     resizable: true,
     title: 'AgentDock 代理坞',
-    titleBarStyle: 'hidden',
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' } : {}),
     backgroundColor: '#f6f7fb',
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.cjs'),

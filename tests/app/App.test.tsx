@@ -620,7 +620,8 @@ describe('AgentDock shell', () => {
     expect(screen.getByLabelText('Claude 启动模式')).toHaveTextContent(
       '轻量 Agent · 内置工具 / 空 MCP',
     );
-    expect(screen.getByLabelText('Claude 启动模式')).toHaveTextContent('本地终端 · zsh');
+    expect(screen.getByLabelText('Claude 启动模式')).toHaveTextContent('本地终端');
+    expect(screen.getByLabelText('Claude 启动模式')).not.toHaveTextContent('zsh');
   });
 
   it('renders a workspace-grouped session library with a single new session action', async () => {
@@ -1117,7 +1118,7 @@ describe('AgentDock session launch flow', () => {
     });
   });
 
-  it('can launch a local zsh terminal command for manual terminal verification', async () => {
+  it('can launch a platform-neutral local terminal command for manual verification', async () => {
     const api = installAgentDockApi();
 
     render(<App />);
@@ -1131,7 +1132,7 @@ describe('AgentDock session launch flow', () => {
       expect(api.launchSession).toHaveBeenCalledWith({
         profileId: 'profile-a',
         workspaceId: 'workspace-a',
-        command: 'zsh',
+        command: 'local-shell',
       });
     });
   });
@@ -1902,7 +1903,7 @@ describe('AgentDock session launch flow', () => {
     });
   });
 
-  it('launches local zsh from a Codex profile without an agent launch mode', async () => {
+  it('launches a platform-neutral local shell from a Codex profile without an agent launch mode', async () => {
     const api = installAgentDockApi({
       listProfiles: vi.fn().mockResolvedValue([
         {
@@ -1928,7 +1929,7 @@ describe('AgentDock session launch flow', () => {
       expect(api.launchSession).toHaveBeenCalledWith({
         profileId: 'codex-b',
         workspaceId: 'workspace-a',
-        command: 'zsh',
+        command: 'local-shell',
       });
     });
   });

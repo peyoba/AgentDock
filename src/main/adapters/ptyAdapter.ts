@@ -1,6 +1,11 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import {
+  LOCAL_SHELL_COMMAND,
+  commandExecutableName,
+  isLocalShellCommand,
+} from '../../shared/sessionCommands.js';
 
 const require = createRequire(import.meta.url);
 
@@ -52,6 +57,7 @@ export type NodePtyLike = {
 
 export type NodePtyAdapterOptions = {
   module?: NodePtyLike;
+  platform?: NodeJS.Platform;
   shell?: string;
   baseEnv?: Record<string, string | undefined>;
   ensureHelper?: boolean;
@@ -112,19 +118,51 @@ export function ensureNodePtySpawnHelperExecutable({
   }
 }
 
-function defaultShell(): string {
-  return process.env.SHELL ?? (process.platform === 'win32' ? 'powershell.exe' : '/bin/zsh');
+function defaultShell(platform: NodeJS.Platform): string {
+  return platform === 'win32'
+    ? 'powershell.exe'
+    : process.env.SHELL ?? '/bin/zsh';
 }
 
-function interactiveShellSpawn(command: string): { file: string; args: string[] } | undefined {
-  const trimmedCommand = command.trim();
-  const shellName = path.basename(trimmedCommand);
-
-  if (shellName === 'zsh' || shellName === 'bash') {
-    return { file: trimmedCommand, args: ['-l'] };
+function pathEnvironmentKey(
+  env: Record<string, string | undefined>,
+  platform: NodeJS.Platform,
+): string {
+  if (platform !== 'win32') {
+    return 'PATH';
   }
 
-  return undefined;
+  return [...Object.keys(env)].reverse().find((key) => key.toLowerCase() === 'path') ?? 'Path';
+}
+
+function pathDelimiter(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? ';' : path.delimiter;
+}
+
+function commonCliPaths(platform: NodeJS.Platform): string[] {
+  return platform === 'win32' ? [] : COMMON_CLI_PATHS;
+}
+
+function shellSpawn(
+  command: string,
+  shell: string,
+  platform: NodeJS.Platform,
+  env: Record<string, string | undefined>,
+): { file: string; args: string[] } {
+  if (isLocalShellCommand(command)) {
+    const localShell = commandExecutableName(command) === LOCAL_SHELL_COMMAND
+      ? shell
+      : command.trim().split(/\s+/)[0] ?? shell;
+    return platform === 'win32'
+      ? { file: localShell, args: ['-NoLogo'] }
+      : { file: localShell, args: ['-l'] };
+  }
+
+  if (platform === 'win32') {
+    return { file: shell, args: ['-NoLogo', '-NoProfile', '-Command', command] };
+  }
+
+  return { file: shell, args: ['-lc', commandWithPathExport(command, env)] };
 }
 
 export function uniquePathEntries(entries: Array<string | undefined>): string[] {
@@ -164,6 +202,7 @@ export function userCliPaths(homeDir: string | undefined): string[] {
 function buildPtyEnvironment(
   baseEnv: Record<string, string | undefined>,
   env: Record<string, string>,
+  platform: NodeJS.Platform,
 ): Record<string, string | undefined> {
   const mergedEnv = {
     ...baseEnv,
@@ -174,13 +213,20 @@ function buildPtyEnvironment(
       delete mergedEnv[key];
     }
   }
-  const originalPath = mergedEnv.PATH ?? '';
-  const homeDir = mergedEnv.HOME;
-  mergedEnv.PATH = uniquePathEntries([
-    ...userCliPaths(homeDir),
-    ...originalPath.split(path.delimiter),
-    ...COMMON_CLI_PATHS,
-  ]).join(path.delimiter);
+  const pathKey = pathEnvironmentKey(mergedEnv, platform);
+  const originalPath = mergedEnv[pathKey] ?? '';
+  const homeDir = mergedEnv.HOME ?? mergedEnv.USERPROFILE;
+  for (const key of Object.keys(mergedEnv)) {
+    if (key !== pathKey && key.toLowerCase() === 'path') {
+      delete mergedEnv[key];
+    }
+  }
+  const delimiter = pathDelimiter(platform);
+  mergedEnv[pathKey] = uniquePathEntries([
+    ...(platform === 'win32' ? [] : userCliPaths(homeDir)),
+    ...originalPath.split(delimiter),
+    ...commonCliPaths(platform),
+  ]).join(delimiter);
 
   return mergedEnv;
 }
@@ -200,7 +246,8 @@ function commandWithPathExport(
 
 export function createNodePtyAdapter({
   module = loadNodePty(),
-  shell = defaultShell(),
+  platform = process.platform,
+  shell = defaultShell(platform),
   baseEnv = process.env,
   ensureHelper = true,
 }: NodePtyAdapterOptions = {}): PtyAdapter {
@@ -210,10 +257,9 @@ export function createNodePtyAdapter({
 
   return {
     async spawn({ sessionId, command, cwd, env }: PtySpawnRequest): Promise<PtySession> {
-      const interactiveShell = interactiveShellSpawn(command);
-      const ptyEnv = buildPtyEnvironment(baseEnv, env);
-      const ptyArgs = interactiveShell?.args ?? ['-lc', commandWithPathExport(command, ptyEnv)];
-      const pty = module.spawn(interactiveShell?.file ?? shell, ptyArgs, {
+      const ptyEnv = buildPtyEnvironment(baseEnv, env, platform);
+      const spawnRequest = shellSpawn(command, shell, platform, ptyEnv);
+      const pty = module.spawn(spawnRequest.file, spawnRequest.args, {
         name: 'xterm-256color',
         cwd,
         env: ptyEnv,

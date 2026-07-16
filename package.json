@@ -1,6 +1,6 @@
 {
   "name": "agentdock",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "AgentDock 代理坞：Claude/Codex 多配置内嵌终端工作台。",
   "main": "dist/main/main.js",
@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "workflow:doctor": "python3 scripts/workflow.py doctor",
     "test:workflow": "python3 -m pytest tests/test_workflow_cli.py -v",
-    "package:mac": "npm run build && node scripts/package-mac.mjs"
+    "package:mac": "npm run build && node scripts/package-mac.mjs",
+    "package:win": "npm run build && node scripts/package-win.mjs"
   },
   "dependencies": {
     "@xterm/xterm": "^5.5.0",

@@ -17,6 +17,7 @@ export type CclineFileStats = {
 };
 
 export type ResolveCclineCommandInput = {
+  platform?: NodeJS.Platform;
   homeDir?: string;
   envPath?: string;
   fileStats?: (filePath: string) => CclineFileStats | undefined;
@@ -57,12 +58,17 @@ function defaultBundledPackageRoot(): string | undefined {
  * 3. 两者都缺失时保持旧行为，返回裸命令名交给运行时 PATH 解析。
  */
 export function resolveCclineCommand({
+  platform = process.platform,
   homeDir = process.env.HOME,
   envPath = process.env.PATH ?? '',
   fileStats = defaultFileStats,
   makeExecutable = defaultMakeExecutable,
   bundledPackageRoot = defaultBundledPackageRoot(),
-}: ResolveCclineCommandInput = {}): string {
+}: ResolveCclineCommandInput = {}): string | undefined {
+  if (platform !== 'darwin') {
+    return undefined;
+  }
+
   const searchDirectories = uniquePathEntries([
     ...userCliPaths(homeDir),
     ...envPath.split(path.delimiter),

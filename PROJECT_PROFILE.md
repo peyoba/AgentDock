@@ -11,7 +11,7 @@
 | 主要语言 | TypeScript |
 | 主要框架 | Electron + React + Vite |
 | 终端技术 | xterm.js + node-pty（真实 PTY 已接入） |
-| 运行环境 | macOS first；后续可扩展 Windows/Linux |
+| 运行环境 | macOS arm64；Windows 10/11 x64 便携预览（真机验证 `PARTIAL`） |
 
 ## 2. 包管理器
 
@@ -32,6 +32,7 @@
 | Typecheck | `npm run typecheck` | TypeScript 类型检查 |
 | Build | `npm run build` | 构建 renderer 和 main/preload |
 | macOS 打包 | `npm run package:mac` | 输出到 `release/packages/<timestamp>/...`，默认不覆盖固定 App |
+| Windows x64 打包 | `npm run package:win` | 输出便携目录与版本化 ZIP；不生成安装器 |
 | Lint | 无 | 后续引入 ESLint 前需用户确认 |
 | Format | 无 | 后续引入 Prettier 前需用户确认 |
 
@@ -77,14 +78,16 @@
 - 持续真实验证：实际启动 Claude/Codex PTY 会话，确认 endpoint/API key/CODEX_HOME 隔离；Codex 兼容模式还必须验证真实工具闭环、并发 Session 和生命周期清理
 - 允许 mock：Profile/Workspace metadata、secret adapter 测试替身
 - 必须真实验证：node-pty 启动、键盘输入、Ctrl+C、中文输入、Codex 原生 Profile `CODEX_HOME`、兼容模式单 Session 运行目录、本机加密 vault 读写，以及恢复正文不进入进程 argv
+- Windows 真实验证边界：macOS 交叉构建只能验证 PE/ZIP 结构和 win32-x64 原生文件；Windows GUI、PowerShell/ConPTY、Ctrl+C、中文输入、粘贴、resize、真实 Claude/Codex CLI 和 vault 重启矩阵必须在 Windows 10/11 x64 真机或 Windows CI runner 补验，完成前结论为 `PARTIAL`
 
 ## 8. 部署信息
 
 | 项目 | 内容 |
 |------|------|
-| 打包方式 | `npm run package:mac`，当前使用 electron-packager 输出本地时间戳目录 |
+| 打包方式 | `npm run package:mac` 输出 macOS arm64 App + ZIP；`npm run package:win` 输出 Windows x64 便携目录 + ZIP |
 | CI/CD | 暂无；GitHub repo 创建后可增加 GitHub Actions |
-| 生产环境入口 | macOS Desktop App |
+| 发布范围 | macOS arm64 + Windows x64 Preview；Windows 无安装器、无代码签名，真机验证 `PARTIAL` |
+| 产物路径 | `release/packages/<buildId>/AgentDock-v0.1.1-macos-arm64.zip` 与 `release/packages/<buildId>/AgentDock-v0.1.1-windows-x64.zip` |
 | 回滚方式 | Git tag / GitHub release 回滚 |
 
 ## 9. 项目约束

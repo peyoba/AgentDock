@@ -22,6 +22,7 @@ import type {
   TerminalWriteRequest,
   Workspace,
 } from '../shared/agentdockTypes.js';
+import { isLocalShellCommand } from '../shared/sessionCommands.js';
 import type { KeychainAdapter } from './adapters/keychainAdapter.js';
 import { createUnavailableKeychainAdapter } from './adapters/keychainAdapter.js';
 import type { PtyAdapter, PtySession } from './adapters/ptyAdapter.js';
@@ -130,7 +131,7 @@ type CreateSessionServiceOptions = {
   runtimeOwnerId?: string;
   runtimeOwnerRegistry?: RuntimeOwnerRegistry;
   /** 解析 statusLine 使用的 ccline 命令；默认 PATH 已安装版本优先、内嵌二进制兜底 */
-  resolveCclineCommand?: () => string;
+  resolveCclineCommand?: () => string | undefined;
   summaryJob?: SummaryJobDelegate;
   startClaudeCompatProxy?: ClaudeCompatProxyFactory;
   startCodexToolCompatibilityProxy?: CodexToolCompatibilityProxyFactory;
@@ -353,7 +354,7 @@ function claudeSettingsModel(profile: ApiProfile): string | undefined {
 
 function buildClaudeSettings(
   profile: ApiProfile,
-  resolveCclineCommand: () => string,
+  resolveCclineCommand: () => string | undefined,
 ): ClaudeSettings | undefined {
   const settings: ClaudeSettings = {};
   const model = claudeSettingsModel(profile);
@@ -377,11 +378,14 @@ function buildClaudeSettings(
   }
 
   if (profile.claudeCclineStatusLineEnabled === true) {
-    settings.statusLine = {
-      type: 'command',
-      command: shellSafeStatusLineCommand(resolveCclineCommand()),
-      padding: 0,
-    };
+    const cclineCommand = resolveCclineCommand();
+    if (cclineCommand) {
+      settings.statusLine = {
+        type: 'command',
+        command: shellSafeStatusLineCommand(cclineCommand),
+        padding: 0,
+      };
+    }
   }
 
   return Object.keys(settings).length > 0 ? settings : undefined;
@@ -427,7 +431,7 @@ function normalizeOptions(
   optionsOrClock: Clock | CreateSessionServiceOptions = {},
 ): NormalizedSessionServiceOptions {
   if ('now' in optionsOrClock && typeof optionsOrClock.now === 'function') {
-    const homeDir = process.env.HOME ?? process.cwd();
+    const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? process.cwd();
     return {
       clock: optionsOrClock,
       keychain: createUnavailableKeychainAdapter(),
@@ -446,7 +450,10 @@ function normalizeOptions(
       sessionIdPrefix: '',
       runtimeOwnerId: 'default-window',
       runtimeOwnerRegistry: createRuntimeOwnerRegistry(),
-      resolveCclineCommand: () => locateCclineCommand({ homeDir }),
+      resolveCclineCommand: () => locateCclineCommand({
+        homeDir,
+        platform: process.platform,
+      }),
       summaryJob: undefined,
       startClaudeCompatProxy: startDefaultClaudeCompatProxy,
       startCodexToolCompatibilityProxy: startDefaultCodexToolCompatibilityProxy,
@@ -454,7 +461,7 @@ function normalizeOptions(
   }
 
   const options = optionsOrClock as CreateSessionServiceOptions;
-  const homeDir = options.homeDir ?? process.env.HOME ?? process.cwd();
+  const homeDir = options.homeDir ?? process.env.HOME ?? process.env.USERPROFILE ?? process.cwd();
 
   return {
     clock: options.clock ?? defaultClock,
@@ -477,7 +484,10 @@ function normalizeOptions(
     runtimeOwnerId: options.runtimeOwnerId ?? 'default-window',
     runtimeOwnerRegistry: options.runtimeOwnerRegistry ?? createRuntimeOwnerRegistry(),
     resolveCclineCommand:
-      options.resolveCclineCommand ?? (() => locateCclineCommand({ homeDir })),
+      options.resolveCclineCommand ?? (() => locateCclineCommand({
+        homeDir,
+        platform: process.platform,
+      })),
     summaryJob: options.summaryJob,
     startClaudeCompatProxy: options.startClaudeCompatProxy ?? startDefaultClaudeCompatProxy,
     startCodexToolCompatibilityProxy:
@@ -550,12 +560,6 @@ function nativeResumeCommandForSession(
     command: `codex resume ${sessionId}`,
     summary: '原生恢复已验证：使用 Codex thread id 恢复。',
   };
-}
-
-function isLocalShellCommand(command: string): boolean {
-  const normalizedCommand = command.trim().split(/\s+/)[0] ?? '';
-  const shellName = path.basename(normalizedCommand);
-  return shellName === 'zsh' || shellName === 'bash';
 }
 
 function assertSessionCommandHasNoSensitiveValues(command: string): void {

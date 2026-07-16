@@ -15,7 +15,77 @@ type SpawnCall = {
   };
 };
 
+function fakeNodePty(spawnCalls: SpawnCall[]) {
+  return {
+    spawn(file: string, args: string[], options: SpawnCall['options']) {
+      spawnCalls.push({ file, args, options });
+      return {
+        write() {},
+        resize() {},
+        kill() {},
+        onData() {
+          return { dispose() {} };
+        },
+        onExit() {
+          return { dispose() {} };
+        },
+      };
+    },
+  };
+}
+
 describe('createNodePtyAdapter', () => {
+  it('spawns agent commands through PowerShell on Windows without Unix syntax', async () => {
+    const spawnCalls: SpawnCall[] = [];
+    const adapter = createNodePtyAdapter({
+      platform: 'win32',
+      shell: 'powershell.exe',
+      baseEnv: { Path: 'C:\\Windows\\System32', USERPROFILE: 'C:\\Users\\example' },
+      ensureHelper: false,
+      module: fakeNodePty(spawnCalls),
+    });
+
+    await adapter.spawn({
+      sessionId: 'session-win-claude',
+      command: 'claude --dangerously-skip-permissions',
+      cwd: 'C:\\work\\AgentDock',
+      env: {},
+    });
+
+    expect(spawnCalls[0]?.file).toBe('powershell.exe');
+    expect(spawnCalls[0]?.args).toEqual([
+      '-NoLogo',
+      '-NoProfile',
+      '-Command',
+      'claude --dangerously-skip-permissions',
+    ]);
+    expect(spawnCalls[0]?.args.join(' ')).not.toContain('-lc');
+    expect(spawnCalls[0]?.args.join(' ')).not.toContain('export PATH');
+    expect(spawnCalls[0]?.options.env.Path).toBe('C:\\Windows\\System32');
+    expect(spawnCalls[0]?.options.env.PATH).toBeUndefined();
+  });
+
+  it('opens the default PowerShell directly for local-shell on Windows', async () => {
+    const spawnCalls: SpawnCall[] = [];
+    const adapter = createNodePtyAdapter({
+      platform: 'win32',
+      shell: 'powershell.exe',
+      baseEnv: { Path: 'C:\\Windows\\System32' },
+      ensureHelper: false,
+      module: fakeNodePty(spawnCalls),
+    });
+
+    await adapter.spawn({
+      sessionId: 'session-win-shell',
+      command: 'local-shell',
+      cwd: 'C:\\work\\AgentDock',
+      env: {},
+    });
+
+    expect(spawnCalls[0]?.file).toBe('powershell.exe');
+    expect(spawnCalls[0]?.args).toEqual(['-NoLogo']);
+  });
+
   it('spawns a shell command through a node-pty-compatible module and bridges IO', async () => {
     const dataListeners = new Set<PtyDataHandler>();
     const writes: string[] = [];

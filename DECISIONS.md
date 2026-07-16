@@ -27,6 +27,7 @@
 | 2026-07-12 | 恢复 Codex/Claude 用户可见运行模式选择，并禁止恢复正文通过 CLI argv 传递 | 自动命令选择隐藏了实际运行能力；进程检查证明 argv 可能暴露恢复正文 | CommandBar、Session metadata、恢复注入、安全验证 |
 | 2026-07-13 | Codex 兼容模式使用单 Session 临时运行时 `CODEX_HOME`；原生模式继续使用每 Profile 独立目录 | 同一 Profile 的并发兼容 Session 若共享配置目录会互相覆盖 loopback/模型运行配置；临时目录还能随 Session 生命周期清理 | SessionService、Codex 配置生成、并发隔离、清理与安全验收 |
 | 2026-07-13 | Codex 功能回滚采用用户显式选择“原生 Codex · Responses”，不做自动 fallback | 自动切换会隐藏真实失败、改变历史 Session 网络行为并越过“非 API gateway”产品边界；旧 Profile/Session 缺字段时固定原生模式 | Profile 默认值、启动/恢复行为、错误展示、回滚说明 |
+| 2026-07-16 | v0.1.1 采用 macOS arm64 + Windows x64 便携 ZIP 双平台 Pre-release；Windows 不引入安装器依赖或签名 | 用户要求两个平台都上传且越简单越好；新 tag 保证新包不混入旧 v0.1.0 commit | 版本、打包、README、GitHub Release |
 
 ## 已拒绝/避免方向
 
@@ -38,4 +39,4 @@
 
 ## 待确认决策
 
-当前无阻塞开发的待确认架构决策。外部分发前仍需单独决定 Developer ID、notarization、安装包格式和自动更新方案。
+当前无阻塞开发的待确认架构决策。正式发行前仍需单独决定 Developer ID、notarization、Windows 安装器/签名和自动更新方案。

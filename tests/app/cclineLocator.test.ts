@@ -11,8 +11,23 @@ function statsFor(
 const EXECUTABLE: CclineFileStats = { isFile: true, isExecutable: true };
 
 describe('cclineLocator', () => {
+  it('disables the macOS bundled fallback on Windows', () => {
+    const command = resolveCclineCommand({
+      platform: 'win32',
+      homeDir: 'C:\\Users\\example',
+      envPath: 'C:\\Tools',
+      bundledPackageRoot: '/app/node_modules/@cometix/ccline-darwin-arm64',
+      fileStats: statsFor({
+        '/app/node_modules/@cometix/ccline-darwin-arm64/ccline': EXECUTABLE,
+      }),
+    });
+
+    expect(command).toBeUndefined();
+  });
+
   it('prefers a user-installed ccline over the bundled binary', () => {
     const command = resolveCclineCommand({
+      platform: 'darwin',
       homeDir: '/Users/example',
       envPath: '/opt/homebrew/bin',
       bundledPackageRoot: '/app/node_modules/@cometix/ccline-darwin-arm64',
@@ -27,6 +42,7 @@ describe('cclineLocator', () => {
 
   it('searches env PATH entries when user-level directories miss', () => {
     const command = resolveCclineCommand({
+      platform: 'darwin',
       homeDir: '/Users/example',
       envPath: ['/custom/tools/bin', '/opt/homebrew/bin'].join(':'),
       bundledPackageRoot: '/app/node_modules/@cometix/ccline-darwin-arm64',
@@ -40,6 +56,7 @@ describe('cclineLocator', () => {
 
   it('falls back to the bundled binary and rewrites the asar path to the unpacked location', () => {
     const command = resolveCclineCommand({
+      platform: 'darwin',
       homeDir: '/Users/example',
       envPath: '/opt/homebrew/bin',
       bundledPackageRoot:
@@ -59,6 +76,7 @@ describe('cclineLocator', () => {
     const chmodCalls: string[] = [];
     const bundledBinary = '/app/node_modules/@cometix/ccline-darwin-arm64/ccline';
     const command = resolveCclineCommand({
+      platform: 'darwin',
       homeDir: '/Users/example',
       envPath: '',
       bundledPackageRoot: '/app/node_modules/@cometix/ccline-darwin-arm64',
@@ -76,6 +94,7 @@ describe('cclineLocator', () => {
 
   it('returns the bare command when neither an installed nor a bundled binary exists', () => {
     const command = resolveCclineCommand({
+      platform: 'darwin',
       homeDir: '/Users/example',
       envPath: '/opt/homebrew/bin',
       bundledPackageRoot: undefined,
@@ -87,6 +106,7 @@ describe('cclineLocator', () => {
 
   it('ignores non-executable PATH entries such as plain files', () => {
     const command = resolveCclineCommand({
+      platform: 'darwin',
       homeDir: '/Users/example',
       envPath: '/custom/tools/bin',
       bundledPackageRoot: '/app/node_modules/@cometix/ccline-darwin-arm64',
