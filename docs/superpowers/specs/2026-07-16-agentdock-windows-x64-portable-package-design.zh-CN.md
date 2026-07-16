@@ -1,8 +1,8 @@
-# AgentDock Windows x64 便携包设计
+# AgentDock Windows x64 便携包与 v0.1.1 双平台预发布设计
 
 ## 状态
 
-等待用户审阅。本文档尚未进入实现阶段。
+用户已确认设计。本文档尚未进入实现阶段，仍需先完成实施计划和任务清单评审。
 
 本文档定义 AgentDock 首个 Windows 版本的最小交付范围。后续实施计划、测试拆分、代码修改和打包验证必须以本文档的用户确认版本为准。
 
@@ -26,7 +26,7 @@ AgentDock 当前以 macOS Apple Silicon 为首发平台，已有稳定的时间�
 - 内置 CCometixLine 二进制固定为 macOS arm64 包，不能进入 Windows 运行路径。
 - macOS 打包脚本只处理 `spawn-helper`、`ccline` 和代码签名，不覆盖 Windows ConPTY 所需的 `.exe` 文件。
 
-用户确认首个 Windows 版本以“越简单越好”为原则：先交付 Windows x64 便携 ZIP，不制作安装向导，不新增 npm 依赖，不做 Windows 代码签名。
+用户确认首个 Windows 版本以“越简单越好”为原则：先交付 Windows x64 便携 ZIP，不制作安装向导，不新增 npm 依赖，不做 Windows 代码签名。同时新建 `v0.1.1` GitHub 预发布版本，上传基于同一提交生成的最新 macOS arm64 ZIP 和 Windows x64 ZIP，保留原有 `v0.1.0` Release 不变。
 
 ## 方案比较
 
@@ -67,7 +67,7 @@ AgentDock 当前以 macOS Apple Silicon 为首发平台，已有稳定的时间�
 
 采用方案 A：Windows x64 便携 ZIP。
 
-首包只面向常见的 64 位 Intel/AMD Windows 10/11。Windows arm64、32 位 Windows、安装器、签名和自动更新均不在本次范围内。
+首包只面向常见的 64 位 Intel/AMD Windows 10/11。Windows arm64、32 位 Windows、安装器、签名和自动更新均不在本次范围内。发布版本从 `0.1.0` 升级为 `0.1.1`，`package.json` 与 `package-lock.json` 必须保持一致。
 
 ## 目标
 
@@ -80,6 +80,8 @@ AgentDock 当前以 macOS Apple Silicon 为首发平台，已有稳定的时间�
 7. 包内写入版本、build id、commit 和 dirty 状态，保持与 macOS 包一致的可追溯能力。
 8. Windows 使用系统原生窗口标题栏，具备最小化、最大化和关闭操作。
 9. 不改变 macOS 现有行为和 `npm run package:mac` 的输出。
+10. 从同一个干净的 `v0.1.1` 提交生成最新 macOS arm64 ZIP 和 Windows x64 ZIP。
+11. 创建 Git tag `v0.1.1` 和 GitHub Pre-release，上传两个包及可核验的 SHA-256。
 
 ## 非目标
 
@@ -87,7 +89,7 @@ AgentDock 当前以 macOS Apple Silicon 为首发平台，已有稳定的时间�
 - 不增加桌面、开始菜单或任务栏快捷方式。
 - 不实现自动更新。
 - 不做 Windows 代码签名。
-- 不发布到 GitHub Release。
+- 不覆盖、删除或移动现有 `v0.1.0` Release 和 tag。
 - 不支持 Windows arm64 或 x86。
 - 不内置 Windows 版 Claude CLI、Codex CLI 或 CCometixLine。
 - 不修改 API Profile、Workspace、Session Record 或 vault 数据模型。
@@ -96,7 +98,7 @@ AgentDock 当前以 macOS Apple Silicon 为首发平台，已有稳定的时间�
 
 ## 交付产物
 
-打包命令建议为：
+打包命令为：
 
 ```text
 npm run package:win
@@ -106,7 +108,14 @@ npm run package:win
 
 ```text
 release/packages/<buildId>/AgentDock-win32-x64/
-release/packages/<buildId>/AgentDock-v0.1.0-windows-x64.zip
+release/packages/<buildId>/AgentDock-v0.1.1-windows-x64.zip
+```
+
+同一发布提交还需重新生成 macOS arm64 包，并输出：
+
+```text
+release/packages/<buildId>/AgentDock-darwin-arm64/AgentDock.app
+release/packages/<buildId>/AgentDock-v0.1.1-macos-arm64.zip
 ```
 
 便携目录至少包含：
@@ -187,6 +196,31 @@ Windows 专属参数：
 
 压缩步骤使用系统已有命令完成，不引入 ZIP npm 依赖。压缩失败必须保留已生成的便携目录并明确报错，不得伪装成完整交付成功。
 
+macOS 包继续使用现有 `npm run package:mac`、稳定本机签名身份和时间戳目录。发布用 macOS ZIP 必须从本次 `v0.1.1` 干净提交重新生成，不能复用旧 `v0.1.0` ZIP 或其他 commit 的本地产物。
+
+## 版本与 GitHub Release
+
+实现阶段将项目版本从 `0.1.0` 升级到 `0.1.1`。版本升级只修改 `package.json` 和 `package-lock.json` 的项目版本字段，不新增或升级依赖。
+
+发布顺序：
+
+1. 所有代码、测试、文档和打包修改合并到干净的 `main`。
+2. 运行完整验证并生成同源 macOS/Windows ZIP。
+3. 分别计算 SHA-256，并记录文件大小、build id、commit 和 dirty 状态。
+4. 创建并推送 annotated tag `v0.1.1`，tag 必须指向两个包的 `build-info.json` 中记录的 commit。
+5. 创建 GitHub Pre-release `AgentDock v0.1.1 (macOS arm64 + Windows x64 Preview)`。
+6. 上传两个 ZIP；Release notes 写明 Windows 为首次便携验证包、无安装向导、无签名且仍需 Windows 真机复验。
+7. 通过 GitHub API 复查 asset 名称、大小、上传状态和下载 URL。
+
+Release assets 固定为：
+
+```text
+AgentDock-v0.1.1-macos-arm64.zip
+AgentDock-v0.1.1-windows-x64.zip
+```
+
+SHA-256 可写入 Release notes；本次不增加独立 checksum 文件，避免扩展产物类型。
+
 ## 构建信息
 
 Windows `build-info.json` 与 macOS 保持相同字段：
@@ -248,11 +282,14 @@ AgentDock-win32-x64/resources/build-info.json
 - `npm run typecheck`
 - `npm run build`
 - `npm run package:win`
+- `npm run package:mac`
 - Windows 目录和 ZIP 存在且非空。
 - `AgentDock.exe` 为 Windows PE 文件。
 - `resources/build-info.json` 指向当前 commit，并记录正确 dirty 状态。
 - `app.asar.unpacked` 包含 win32-x64 node-pty `.node` 和所需 `.exe`。
 - 包内没有 API Key、vault、`.env`、本机 Profile/Workspace/Session 数据和开发机绝对路径。
+- macOS ZIP 与 Windows ZIP 的 `build-info.json` 均记录同一个 `v0.1.1` commit，且 `dirty` 为 `false`。
+- 两个 ZIP 的 SHA-256 已计算并与 GitHub Release notes 一致。
 
 ### Windows 真机验证
 
@@ -271,23 +308,29 @@ AgentDock-win32-x64/resources/build-info.json
 
 ## 验收标准
 
-1. `npm run package:win` 能从干净工作区生成新的时间戳目录。
-2. 产物同时包含可运行目录和 `AgentDock-v0.1.0-windows-x64.zip`。
-3. ZIP 中存在 `AgentDock.exe`、`resources/app.asar` 和 `resources/build-info.json`。
-4. Windows node-pty win32-x64 `.node` 与必要 `.exe` 位于可执行的 unpacked 路径。
-5. Windows 本地终端使用 PowerShell；macOS 本地终端行为不回归。
-6. Windows Claude/Codex 启动不使用 Unix shell 语法。
-7. Windows 不调用 macOS arm64 ccline fallback。
-8. Windows 使用系统原生标题栏，最小化、最大化和关闭按钮可用。
-9. 包内不包含 secret、本地 vault、`.env` 或用户数据。
-10. `npm run workflow:doctor`、`npm test`、`npm run typecheck` 和 `npm run build` 全部通过。
-11. macOS 交叉打包验证结果与未完成的 Windows 真机项目分别记录，不把静态包检查等同于真机可用。
+1. `package.json` 与 `package-lock.json` 的项目版本均为 `0.1.1`，依赖版本没有变化。
+2. `npm run package:win` 能从干净工作区生成新的时间戳目录。
+3. Windows 产物同时包含可运行目录和 `AgentDock-v0.1.1-windows-x64.zip`。
+4. Windows ZIP 中存在 `AgentDock.exe`、`resources/app.asar` 和 `resources/build-info.json`。
+5. Windows node-pty win32-x64 `.node` 与必要 `.exe` 位于可执行的 unpacked 路径。
+6. Windows 本地终端使用 PowerShell；macOS 本地终端行为不回归。
+7. Windows Claude/Codex 启动不使用 Unix shell 语法。
+8. Windows 不调用 macOS arm64 ccline fallback。
+9. Windows 使用系统原生标题栏，最小化、最大化和关闭按钮可用。
+10. `npm run package:mac` 生成 `AgentDock-v0.1.1-macos-arm64.zip`，签名验证通过。
+11. 两个平台的 `build-info.json` 指向同一个干净 commit。
+12. 包内不包含 secret、本地 vault、`.env` 或用户数据。
+13. `npm run workflow:doctor`、`npm test`、`npm run typecheck` 和 `npm run build` 全部通过。
+14. annotated tag `v0.1.1` 已推送并指向构建 commit。
+15. GitHub Pre-release 已上传两个固定名称的 ZIP，asset 状态为 uploaded。
+16. Release notes 包含两个 SHA-256 和 Windows 真机未验证说明。
+17. macOS 交叉打包验证结果与未完成的 Windows 真机项目分别记录，不把静态包检查等同于真机可用。
 
 ## 文档更新
 
 实现阶段需要同步：
 
-- `README.md`：增加 Windows x64 便携验证包说明、解压运行方式、CLI 前置条件和未签名提示。
+- `README.md`：更新 `v0.1.1` 双平台下载说明、两个 SHA-256、Windows 解压运行方式、CLI 前置条件和未签名提示。
 - `PROJECT_PROFILE.md`：增加 `npm run package:win`、Windows x64 输出路径和真实验证边界。
 - `DECISIONS.md`：记录首个 Windows 版本采用便携 ZIP、不引入安装器依赖的决策。
 - `.agent-workflow/state.md`：记录 L3 角色、测试、构建和真机未验证项。
@@ -299,9 +342,10 @@ AgentDock-win32-x64/resources/build-info.json
 Windows 支持采用独立脚本和平台分支实现。出现问题时：
 
 1. 停止分发 Windows ZIP。
-2. 保留 macOS `package:mac` 和运行路径不变。
-3. 回滚 Windows 打包脚本、平台 shell 适配和对应文档/tests。
-4. 不迁移或修改用户已有 Profile、Workspace、Session history 和 vault 数据。
+2. 将 GitHub `v0.1.1` Pre-release 标记为 draft 或删除该 Release；只有用户明确要求时才删除远端 tag。
+3. 保留原有 `v0.1.0` macOS Release 和 macOS `package:mac` 运行路径不变。
+4. 回滚 Windows 打包脚本、平台 shell 适配、版本号和对应文档/tests。
+5. 不迁移或修改用户已有 Profile、Workspace、Session history 和 vault 数据。
 
 ## 后续方向
 
