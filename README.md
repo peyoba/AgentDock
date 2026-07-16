@@ -2,6 +2,8 @@
 
 AgentDock 是一个面向 Claude CLI / Codex CLI 的多配置内嵌终端工作台。
 
+社区友链：[LINUX DO](https://linux.do)
+
 核心目标：
 
 - 在一个窗口中同时运行多个 Claude / Codex 终端会话。
