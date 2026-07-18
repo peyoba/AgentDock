@@ -5,6 +5,7 @@ import {
   normalizeAnthropicBetas,
   normalizeProxyUrl,
 } from '../shared/claudeProfileDefaults.js';
+import { isDefaultGrokBaseUrl } from '../shared/grokProfileDefaults.js';
 
 type BuildLaunchEnvironmentInput = {
   profile: ApiProfile;
@@ -24,6 +25,21 @@ function expandHomePath(pathValue: string, homeDir: string): string {
   }
 
   return pathValue;
+}
+
+function resolveGrokHome({
+  profile,
+  appDataPath,
+  homeDir,
+}: {
+  profile: ApiProfile;
+  appDataPath: string;
+  homeDir: string;
+}): string {
+  return expandHomePath(
+    profile.grokHome ?? path.join(appDataPath, 'grok-profiles', profile.id),
+    homeDir,
+  );
 }
 
 function resolveCodexHome({
@@ -138,6 +154,24 @@ export function buildLaunchEnvironment({
       OPENAI_API_KEY: secret,
       CODEX_HOME: resolveCodexHome({ profile, appDataPath, homeDir }),
     };
+  }
+
+  if (profile.toolType === 'grok') {
+    const env: Record<string, string> = {
+      GROK_HOME: resolveGrokHome({ profile, appDataPath, homeDir }),
+    };
+
+    if (profile.grokAuthMode !== 'oauth') {
+      env.XAI_API_KEY = secret;
+    }
+
+    if (!isDefaultGrokBaseUrl(profile.baseUrl)) {
+      const normalizedBaseUrl = profile.baseUrl.trim().replace(/\/+$/, '');
+      env.GROK_CLI_CHAT_PROXY_BASE_URL = normalizedBaseUrl;
+      env.GROK_MODELS_BASE_URL = normalizedBaseUrl;
+    }
+
+    return env;
   }
 
   return {};

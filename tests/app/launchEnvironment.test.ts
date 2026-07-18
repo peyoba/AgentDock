@@ -156,4 +156,67 @@ describe('buildLaunchEnvironment', () => {
 
     expect(env.CODEX_HOME).toBe('/Users/example/.agentdock/codex-profiles/codex-openai');
   });
+
+  it('builds grok api-key launch env with isolated GROK_HOME', () => {
+    const env = buildLaunchEnvironment({
+      profile: {
+        id: 'grok-a',
+        name: 'Grok A',
+        toolType: 'grok',
+        baseUrl: 'https://api.x.ai/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'grok-a',
+        grokAuthMode: 'api-key',
+        grokHome: '~/.agentdock/grok-profiles/grok-a',
+      },
+      secret: 'xai-test-secret',
+      appDataPath: '/tmp/agentdock-app',
+      homeDir: '/Users/demo',
+    });
+
+    expect(env.XAI_API_KEY).toBe('xai-test-secret');
+    expect(env.GROK_HOME).toBe('/Users/demo/.agentdock/grok-profiles/grok-a');
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.GROK_CLI_CHAT_PROXY_BASE_URL).toBeUndefined();
+  });
+
+  it('builds grok oauth launch env without API key injection', () => {
+    const env = buildLaunchEnvironment({
+      profile: {
+        id: 'grok-oauth',
+        name: 'Grok OAuth',
+        toolType: 'grok',
+        baseUrl: 'https://api.x.ai/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'grok-oauth',
+        grokAuthMode: 'oauth',
+      },
+      secret: 'should-not-inject',
+      appDataPath: '/tmp/agentdock-app',
+      homeDir: '/Users/demo',
+    });
+
+    expect(env.XAI_API_KEY).toBeUndefined();
+    expect(env.GROK_HOME).toBe('/tmp/agentdock-app/grok-profiles/grok-oauth');
+  });
+
+  it('injects proxy base url overrides for custom grok endpoint', () => {
+    const env = buildLaunchEnvironment({
+      profile: {
+        id: 'grok-proxy',
+        name: 'Grok Proxy',
+        toolType: 'grok',
+        baseUrl: 'https://proxy.example/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'grok-proxy',
+        grokAuthMode: 'api-key',
+      },
+      secret: 'xai-test-secret',
+      appDataPath: '/tmp/agentdock-app',
+      homeDir: '/Users/demo',
+    });
+
+    expect(env.GROK_CLI_CHAT_PROXY_BASE_URL).toBe('https://proxy.example/v1');
+    expect(env.GROK_MODELS_BASE_URL).toBe('https://proxy.example/v1');
+  });
 });
