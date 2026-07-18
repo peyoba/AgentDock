@@ -507,7 +507,7 @@ function extractClaudeResumeCommand(output: string): string | undefined {
 
 const SAFE_NATIVE_RESUME_ID_PATTERN = /^[A-Za-z0-9._:-]+$/;
 
-function safeResumeCommand(command: string | undefined, tool: 'claude' | 'codex'): string | undefined {
+function safeResumeCommand(command: string | undefined, tool: 'claude' | 'codex' | 'grok'): string | undefined {
   const trimmedCommand = command?.trim();
   if (!trimmedCommand || /[\r\n]/.test(trimmedCommand)) {
     return undefined;
@@ -517,6 +517,13 @@ function safeResumeCommand(command: string | undefined, tool: 'claude' | 'codex'
     return trimmedCommand;
   }
   if (tool === 'codex' && /^codex\s+(?:exec\s+)?resume\b/.test(trimmedCommand)) {
+    return trimmedCommand;
+  }
+  if (
+    tool === 'grok' &&
+    /^grok\b/.test(trimmedCommand) &&
+    /(?:\s--continue\b|\s--resume\s+\S+)/.test(trimmedCommand)
+  ) {
     return trimmedCommand;
   }
   return undefined;
@@ -539,9 +546,12 @@ function nativeResumeCommandForSession(
   if (explicitCommand) {
     return {
       command: explicitCommand,
-      summary: nativeResume.tool === 'claude'
-        ? '原生恢复已验证：使用 Claude 会话 ID 恢复。'
-        : '原生恢复已验证：使用 Codex thread id 恢复。',
+      summary:
+        nativeResume.tool === 'claude'
+          ? '原生恢复已验证：使用 Claude 会话 ID 恢复。'
+          : nativeResume.tool === 'codex'
+            ? '原生恢复已验证：使用 Codex thread id 恢复。'
+            : '原生恢复已验证：使用 Grok session id 恢复。',
     };
   }
 
@@ -554,6 +564,13 @@ function nativeResumeCommandForSession(
     return {
       command: `claude --resume ${sessionId}`,
       summary: '原生恢复已验证：使用 Claude 会话 ID 恢复。',
+    };
+  }
+
+  if (nativeResume.tool === 'grok') {
+    return {
+      command: `grok --no-alt-screen --resume ${sessionId}`,
+      summary: '原生恢复已验证：使用 Grok session id 恢复。',
     };
   }
 

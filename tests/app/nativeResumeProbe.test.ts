@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildClaudeNativeSessionCommand,
+  buildGrokContinueCommand,
+  buildGrokResumeCommand,
   detectClaudeResumeCapabilityFromHelp,
   detectCodexResumeCapabilityFromHelp,
+  detectGrokResumeCapabilityFromHelp,
+  resolveGrokNativeResumeState,
 } from '../../src/main/nativeResumeProbe';
 
 describe('nativeResumeProbe', () => {
@@ -54,5 +58,46 @@ describe('nativeResumeProbe', () => {
       supportsProvidedSessionId: false,
       supportsResumeById: true,
     });
+  });
+
+  it('detects Grok continue/resume support from help output', () => {
+    const result = detectGrokResumeCapabilityFromHelp(`
+      -c, --continue Continue the most recent session for the current working directory
+      -r, --resume [SESSION_ID] Resume a session by ID
+    `);
+    expect(result).toEqual({
+      tool: 'grok',
+      status: 'verified-capability',
+      supportsContinue: true,
+      supportsResumeById: true,
+    });
+  });
+
+  it('builds Grok continue and resume commands', () => {
+    expect(buildGrokContinueCommand()).toBe('grok --no-alt-screen --continue');
+    expect(buildGrokResumeCommand('sess-123')).toBe('grok --no-alt-screen --resume sess-123');
+  });
+
+  it('resolves Grok native resume metadata from home/session hints', () => {
+    expect(
+      resolveGrokNativeResumeState({
+        grokHomeExists: true,
+        sessionId: 'sess-123',
+        checkedAt: '2026-07-19T00:00:00.000Z',
+      }),
+    ).toEqual({
+      tool: 'grok',
+      status: 'verified',
+      sessionId: 'sess-123',
+      resumeCommand: 'grok --no-alt-screen --resume sess-123',
+      checkedAt: '2026-07-19T00:00:00.000Z',
+    });
+
+    expect(
+      resolveGrokNativeResumeState({
+        grokHomeExists: true,
+        checkedAt: '2026-07-19T00:00:00.000Z',
+      }).status,
+    ).toBe('partial');
   });
 });

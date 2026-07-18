@@ -34,6 +34,16 @@ function isReady(
   if (tool === 'codex') {
     return bannerSeen && startupOutput.includes('›');
   }
+  if (tool === 'grok') {
+    // Grok TUI prompt varies by theme; accept common prompt markers after banner.
+    return (
+      bannerSeen &&
+      (startupOutput.includes('›') ||
+        startupOutput.includes('❯') ||
+        startupOutput.includes('> ') ||
+        /(?:^|\n)\s*\/\s*$/m.test(startupOutput))
+    );
+  }
 
   return bannerSeen && startupOutput.includes('❯');
 }
@@ -108,7 +118,9 @@ export function createInitialPromptInjector({
       bannerSeen = bannerSeen || (
         tool === 'codex'
           ? startupOutput.includes('>_ OpenAI Codex')
-          : startupOutput.includes('Claude Code')
+          : tool === 'grok'
+            ? /Grok/i.test(startupOutput) || startupOutput.includes('grok')
+            : startupOutput.includes('Claude Code')
       );
 
       if (tool === 'codex' && hasCodexUpdateHeading(rawStartupOutput)) {
