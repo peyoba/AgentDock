@@ -137,4 +137,75 @@ describe('modelFetchService', () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
+
+  it('fetches grok models with bearer auth only', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ data: [{ id: 'grok-build' }] }), { status: 200 }),
+    );
+    const secretAdapter: KeychainAdapter = {
+      async readSecret(service, account) {
+        expect(service).toBe('AgentDock');
+        expect(account).toBe('grok-a');
+        return secret;
+      },
+      async writeSecret() {},
+      async deleteSecret() {},
+    };
+
+    await expect(
+      fetchProfileModels({
+        profile: {
+          id: 'grok-a',
+          name: 'Grok A',
+          toolType: 'grok',
+          baseUrl: 'https://api.x.ai/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'grok-a',
+          grokAuthMode: 'api-key',
+        },
+        secretAdapter,
+        fetchImpl,
+      }),
+    ).resolves.toEqual(['grok-build']);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.x.ai/v1/models',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: `Bearer ${secret}`,
+        }),
+      }),
+    );
+    const headers = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(headers['anthropic-version']).toBeUndefined();
+    expect(headers['x-api-key']).toBeUndefined();
+  });
+
+  it('rejects grok oauth without vault key with a clear Chinese error', async () => {
+    const fetchImpl = vi.fn();
+    const secretAdapter: KeychainAdapter = {
+      async readSecret() {
+        throw new Error('Keychain secret was not found for account "grok-oauth"');
+      },
+      async writeSecret() {},
+      async deleteSecret() {},
+    };
+
+    await expect(
+      fetchProfileModels({
+        profile: {
+          id: 'grok-oauth',
+          name: 'Grok OAuth',
+          toolType: 'grok',
+          baseUrl: 'https://api.x.ai/v1',
+          keychainService: 'AgentDock',
+          keychainAccount: 'grok-oauth',
+          grokAuthMode: 'oauth',
+        },
+        secretAdapter,
+        fetchImpl,
+      }),
+    ).rejects.toThrow('OAuth 模式未配置 API Key，无法从 AgentDock 拉取模型列表');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

@@ -105,7 +105,27 @@ export async function fetchProfileModels({
   secretAdapter,
   fetchImpl = fetch,
 }: FetchProfileModelsInput): Promise<string[]> {
-  const secret = await secretAdapter.readSecret(profile.keychainService, profile.keychainAccount);
+  let secret: string;
+  try {
+    secret = await secretAdapter.readSecret(profile.keychainService, profile.keychainAccount);
+  } catch (error) {
+    if (
+      profile.toolType === 'grok' &&
+      profile.grokAuthMode === 'oauth' &&
+      error instanceof Error &&
+      /Keychain secret was not found for account|local API key vault entry was not found/i.test(
+        error.message,
+      )
+    ) {
+      throw new Error('OAuth 模式未配置 API Key，无法从 AgentDock 拉取模型列表');
+    }
+    throw error;
+  }
+
+  if (!secret.trim() && profile.toolType === 'grok' && profile.grokAuthMode === 'oauth') {
+    throw new Error('OAuth 模式未配置 API Key，无法从 AgentDock 拉取模型列表');
+  }
+
   const endpoints = buildModelEndpointCandidates(profile.baseUrl);
   const headers = buildHeaders(profile, secret);
 
