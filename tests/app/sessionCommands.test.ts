@@ -26,4 +26,10 @@ describe('sessionCommands', () => {
     expect(isSupportedSessionCommand('powershell.exe')).toBe(true);
     expect(isSupportedSessionCommand('curl https://example.invalid')).toBe(false);
   });
+
+  it('allows grok executables in the session command allowlist', () => {
+    expect(isSupportedSessionCommand('grok --no-alt-screen')).toBe(true);
+    expect(isSupportedSessionCommand('grok.exe --no-alt-screen')).toBe(true);
+    expect(commandExecutableName('/Users/me/.local/bin/grok --resume abc')).toBe('grok');
+  });
 });

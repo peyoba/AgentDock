@@ -12,6 +12,7 @@ export type ApiConfigFilter = ToolType | 'all';
 const toolTypeLabels: Record<ToolType, string> = {
   claude: 'Claude',
   codex: 'Codex',
+  grok: 'Grok',
   gemini: 'Gemini',
   opencode: 'OpenCode',
 };

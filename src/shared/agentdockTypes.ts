@@ -1,4 +1,5 @@
-export type ToolType = 'claude' | 'codex' | 'gemini' | 'opencode';
+export type ToolType = 'claude' | 'codex' | 'grok' | 'gemini' | 'opencode';
+export type GrokAuthMode = 'api-key' | 'oauth';
 export type ClaudeLaunchMode = 'lite' | 'full';
 export type CodexLaunchMode = 'native-responses' | 'newapi-tool-compatible';
 export type ClaudeDefaultLaunchMode = 'default' | 'opus' | 'sonnet' | 'haiku' | 'custom';
@@ -13,6 +14,8 @@ export type ApiProfile = {
   keychainService: string;
   keychainAccount: string;
   codexHome?: string;
+  grokHome?: string;
+  grokAuthMode?: GrokAuthMode;
   codexDefaultLaunchMode?: CodexLaunchMode;
   skipPermissions?: boolean;
   bypassApprovals?: boolean;
@@ -83,7 +86,7 @@ export type MemoryRestoreState = {
 };
 
 export type NativeResumeState = {
-  tool: 'claude' | 'codex';
+  tool: 'claude' | 'codex' | 'grok';
   status: 'verified' | 'partial' | 'unavailable';
   sessionId?: string;
   resumeCommand?: string;

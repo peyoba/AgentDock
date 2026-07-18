@@ -15,6 +15,8 @@ const SUPPORTED_SESSION_EXECUTABLES = new Set([
   'claude.exe',
   'codex',
   'codex.exe',
+  'grok',
+  'grok.exe',
   ...LOCAL_SHELL_EXECUTABLES,
 ]);
 

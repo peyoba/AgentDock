@@ -1,6 +1,6 @@
 import { terminalOutputToPlainText } from '../shared/terminalText.js';
 
-export type InitialPromptTool = 'claude' | 'codex';
+export type InitialPromptTool = 'claude' | 'codex' | 'grok';
 
 type InitialPromptInjector = {
   acceptOutput(data: string): void;
