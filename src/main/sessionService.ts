@@ -64,6 +64,7 @@ import {
   buildClaudeOptionalEnvironment,
   buildLaunchEnvironment,
 } from './launchEnvironment.js';
+import { prepareGrokHome } from './grokHomePrep.js';
 import type {
   WorkspaceContextFiles,
   WorkspaceContextStore,
@@ -1014,7 +1015,9 @@ export function createSessionService(
       const contextFiles = await workspaceContext?.startSession({ workspace, session });
       const secret = isLocalShellCommand(command)
         ? undefined
-        : await keychain.readSecret(profile.keychainService, profile.keychainAccount);
+        : profile.toolType === 'grok' && profile.grokAuthMode === 'oauth'
+          ? await keychain.readSecret(profile.keychainService, profile.keychainAccount).catch(() => undefined)
+          : await keychain.readSecret(profile.keychainService, profile.keychainAccount);
       registerKnownSecret(secret ?? undefined);
       const compatProxy =
         !isLocalShellCommand(command) &&
@@ -1112,6 +1115,26 @@ export function createSessionService(
           } else {
             await writeTextFile(codexConfigPath, codexConfig);
           }
+        }
+      }
+
+      if (!isLocalShellCommand(command) && profile.toolType === 'grok' && env.GROK_HOME) {
+        const prepared = await prepareGrokHome({
+          grokHome: env.GROK_HOME,
+          authMode: profile.grokAuthMode ?? 'api-key',
+          defaultModel: profile.defaultModel,
+        });
+        if (prepared.notice) {
+          const notice = `\r\n\u001b[2m${prepared.notice}\u001b[0m\r\n`;
+          publishTerminalOutput({
+            sessionId: session.id,
+            data: notice,
+          });
+          queueCanonicalPersistenceOutput(
+            session.id,
+            workspace,
+            persistenceSanitizer.push(notice),
+          );
         }
       }
 
@@ -1228,7 +1251,7 @@ export function createSessionService(
       });
       if (
         initialPrompt?.trim() &&
-        (profile.toolType === 'claude' || profile.toolType === 'codex')
+        (profile.toolType === 'claude' || profile.toolType === 'codex' || profile.toolType === 'grok')
       ) {
         initialPromptInjector = createInitialPromptInjector({
           tool: profile.toolType,
@@ -1315,7 +1338,7 @@ export function createSessionService(
     workspace: Workspace;
     command: string;
   }): Promise<RestoreContextResult | undefined> {
-    if (isLocalShellCommand(command) || !['claude', 'codex'].includes(profile.toolType)) {
+    if (isLocalShellCommand(command) || !['claude', 'codex', 'grok'].includes(profile.toolType)) {
       return undefined;
     }
 

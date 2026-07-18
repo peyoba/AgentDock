@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -91,7 +91,105 @@ async function createPendingClaudeRestore(tempDir: string) {
   return { historyStore, restartPromise, runtime, service, session };
 }
 
+
+async function fsWriteAuth(grokHome: string): Promise<void> {
+  await mkdir(grokHome, { recursive: true });
+  await writeFile(path.join(grokHome, 'auth.json'), '{"access_token":"secret-token"}\n', 'utf8');
+}
+
 describe('sessionService', () => {
+  it('launches grok api-key sessions with GROK_HOME prep and XAI_API_KEY', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-grok-launch-'));
+    const runtime = createFakeRuntime();
+    runtime.keychain.readSecret = async (service, account) => {
+      expect(service).toBe('AgentDock');
+      expect(account).toBe('grok-a');
+      return 'xai-test-secret';
+    };
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-19T00:00:00.000Z') },
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: tempDir,
+      homeDir: tempDir,
+    });
+    try {
+      const profile = {
+        id: 'grok-a',
+        name: 'Grok A',
+        toolType: 'grok' as const,
+        baseUrl: 'https://api.x.ai/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'grok-a',
+        grokAuthMode: 'api-key' as const,
+        grokHome: path.join(tempDir, 'grok-profiles', 'grok-a'),
+        defaultModel: 'grok-build',
+      };
+      const workspace = {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: tempDir,
+      };
+      await fsWriteAuth(profile.grokHome);
+      const session = await service.launch({
+        profile,
+        workspace,
+        command: 'grok --no-alt-screen',
+      });
+      expect(session.status).toBe('running');
+      expect(runtime.spawnRequests[0]?.env.GROK_HOME).toBe(profile.grokHome);
+      expect(runtime.spawnRequests[0]?.env.XAI_API_KEY).toBe('xai-test-secret');
+      const config = await readFile(path.join(profile.grokHome, 'config.toml'), 'utf8');
+      expect(config).toContain('default = "grok-build"');
+      await expect(readFile(path.join(profile.grokHome, 'auth.json'), 'utf8')).rejects.toThrow();
+    } finally {
+      await service.dispose();
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  });
+
+  it('launches grok oauth sessions without requiring a vault secret', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-grok-oauth-'));
+    const runtime = createFakeRuntime();
+    runtime.keychain.readSecret = async () => {
+      throw new Error('Keychain secret was not found for account "grok-oauth"');
+    };
+    const service = createSessionService({
+      clock: { now: () => new Date('2026-07-19T00:00:00.000Z') },
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: tempDir,
+      homeDir: tempDir,
+    });
+    try {
+      const profile = {
+        id: 'grok-oauth',
+        name: 'Grok OAuth',
+        toolType: 'grok' as const,
+        baseUrl: 'https://api.x.ai/v1',
+        keychainService: 'AgentDock',
+        keychainAccount: 'grok-oauth',
+        grokAuthMode: 'oauth' as const,
+      };
+      const workspace = {
+        id: 'workspace-a',
+        name: 'AgentDock',
+        path: tempDir,
+      };
+      const session = await service.launch({
+        profile,
+        workspace,
+        command: 'grok --no-alt-screen',
+      });
+      expect(session.status).toBe('running');
+      expect(runtime.spawnRequests[0]?.env.GROK_HOME).toContain('grok-profiles/grok-oauth');
+      expect(runtime.spawnRequests[0]?.env.XAI_API_KEY).toBeUndefined();
+    } finally {
+      await service.dispose();
+      await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  });
+
   it('cancels a pending restore on kill without writing or reporting loaded memory', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-cancel-restore-kill-'));
     const fixture = await createPendingClaudeRestore(tempDir);
