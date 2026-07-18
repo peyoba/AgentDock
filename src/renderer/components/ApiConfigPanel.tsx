@@ -1,5 +1,10 @@
 import React from 'react';
-import type { ApiProfile, ToolType } from '../../shared/agentdockTypes';
+import type { ApiProfile, GrokAuthMode, ToolType } from '../../shared/agentdockTypes';
+import {
+  DEFAULT_GROK_BASE_URL,
+  DEFAULT_GROK_MODEL,
+  defaultGrokHomePath,
+} from '../../shared/grokProfileDefaults';
 import {
   ANYROUTER_CLAUDE_HAIKU_MODEL,
   ANYROUTER_CLAUDE_OPUS_MODEL,
@@ -21,12 +26,14 @@ const toolTypeLabels: Record<ToolType, string> = {
 const toolTypes: Array<{ label: string; value: ApiConfigFilter }> = [
   { label: 'Claude', value: 'claude' },
   { label: 'Codex', value: 'codex' },
+  { label: 'Grok', value: 'grok' },
   { label: '全部', value: 'all' },
 ];
 
 const editableToolTypes: Array<{ label: string; value: ToolType }> = [
   { label: 'Claude', value: 'claude' },
   { label: 'Codex', value: 'codex' },
+  { label: 'Grok', value: 'grok' },
 ];
 
 const claudeLaunchModes = [
@@ -159,8 +166,13 @@ function createNewProfileDraft({
     id,
     name: `${label} 自定义 ${id.split('-').at(-1) ?? '1'}`,
     toolType,
-    baseUrl: '',
-    defaultModel: toolType === 'claude' ? ANYROUTER_CLAUDE_PRIMARY_MODEL : undefined,
+    baseUrl: toolType === 'grok' ? DEFAULT_GROK_BASE_URL : '',
+    defaultModel:
+      toolType === 'claude'
+        ? ANYROUTER_CLAUDE_PRIMARY_MODEL
+        : toolType === 'grok'
+          ? DEFAULT_GROK_MODEL
+          : undefined,
     claudeHaikuModel: toolType === 'claude' ? ANYROUTER_CLAUDE_HAIKU_MODEL : undefined,
     claudeSonnetModel: toolType === 'claude' ? ANYROUTER_CLAUDE_SONNET_MODEL : undefined,
     claudeOpusModel: toolType === 'claude' ? ANYROUTER_CLAUDE_OPUS_MODEL : undefined,
@@ -170,6 +182,8 @@ function createNewProfileDraft({
     keychainService: selectedProfile?.keychainService || 'AgentDock',
     keychainAccount: id,
     codexHome: toolType === 'codex' ? `~/.agentdock/codex-profiles/${id}` : undefined,
+    grokHome: toolType === 'grok' ? defaultGrokHomePath(id) : undefined,
+    grokAuthMode: toolType === 'grok' ? 'api-key' : undefined,
   };
 }
 
@@ -278,8 +292,7 @@ export function ApiConfigPanel({
     setDraft((current) => (current ? { ...current, [key]: value } : current));
   };
 
-  // 切换工具类型时同步派生 codexHome：Codex 必须有独立 CODEX_HOME（项目隔离约束），
-  // Claude 则不应残留。
+  // 切换工具类型时同步派生独立 home：Codex/Grok 必须隔离运行目录，其他类型不应残留。
   const updateToolType = (toolType: ToolType): void => {
     setDraft((current) => {
       if (!current || current.toolType === toolType) {
@@ -288,6 +301,14 @@ export function ApiConfigPanel({
       return {
         ...current,
         toolType,
+        baseUrl:
+          toolType === 'grok'
+            ? current.baseUrl || DEFAULT_GROK_BASE_URL
+            : current.baseUrl,
+        defaultModel:
+          toolType === 'grok'
+            ? current.defaultModel || DEFAULT_GROK_MODEL
+            : current.defaultModel,
         codexHome:
           toolType === 'codex'
             ? current.codexHome || `~/.agentdock/codex-profiles/${current.id}`
@@ -296,6 +317,12 @@ export function ApiConfigPanel({
           toolType === 'codex'
             ? current.codexDefaultLaunchMode ?? 'native-responses'
             : undefined,
+        grokHome:
+          toolType === 'grok'
+            ? current.grokHome || defaultGrokHomePath(current.id)
+            : undefined,
+        grokAuthMode:
+          toolType === 'grok' ? current.grokAuthMode ?? 'api-key' : undefined,
       };
     });
   };
@@ -499,7 +526,13 @@ export function ApiConfigPanel({
         availableModels: availableModels.length > 0 ? availableModels : undefined,
         keychainService: draft.keychainService.trim(),
         keychainAccount: draft.keychainAccount.trim(),
-        codexHome: draft.codexHome?.trim() || undefined,
+        codexHome: draft.toolType === 'codex' ? draft.codexHome?.trim() || undefined : undefined,
+        grokHome:
+          draft.toolType === 'grok'
+            ? draft.grokHome?.trim() || defaultGrokHomePath(draft.id)
+            : undefined,
+        grokAuthMode:
+          draft.toolType === 'grok' ? draft.grokAuthMode ?? 'api-key' : undefined,
         codexDefaultLaunchMode:
           draft.toolType === 'codex'
             ? draft.codexDefaultLaunchMode ?? 'native-responses'
@@ -775,6 +808,29 @@ export function ApiConfigPanel({
                   </div>
                 ) : null}
               </div>
+
+              {draft.toolType === 'grok' ? (
+                <label className="wide-field">
+                  <span>认证方式</span>
+                  <select
+                    aria-label="Grok 认证方式"
+                    value={draft.grokAuthMode ?? 'api-key'}
+                    onChange={(event) =>
+                      updateDraft('grokAuthMode', event.target.value as GrokAuthMode)
+                    }
+                  >
+                    <option value="api-key">API Key</option>
+                    <option value="oauth">OAuth（终端登录）</option>
+                  </select>
+                </label>
+              ) : null}
+              {draft.toolType === 'grok' ? (
+                <p className="field-hint wide-field">
+                  {draft.grokAuthMode === 'oauth'
+                    ? '此 Profile 使用独立 GROK_HOME。首次请在终端完成 Grok 登录；AgentDock 不会共用本机 ~/.grok。'
+                    : 'API Key 将注入 XAI_API_KEY，并使用独立 GROK_HOME，不修改本机 ~/.grok。'}
+                </p>
+              ) : null}
               {draft.toolType === 'codex' ? (
                 <label className="wide-field">
                   <span>默认运行模式</span>

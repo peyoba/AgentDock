@@ -104,6 +104,10 @@ function defaultCommandFor(profile?: ApiProfile): string {
     return skip ? 'claude --dangerously-skip-permissions' : 'claude';
   }
 
+  if (profile?.toolType === 'grok') {
+    return 'grok --no-alt-screen';
+  }
+
   return profile?.toolType ?? 'claude --dangerously-skip-permissions';
 }
 
@@ -118,7 +122,11 @@ function launchModeMatchesProfile(
   profile: ApiProfile | undefined,
 ): boolean {
   if (launchMode === 'local-shell') {
-    return profile?.toolType === 'claude' || profile?.toolType === 'codex';
+    return (
+      profile?.toolType === 'claude' ||
+      profile?.toolType === 'codex' ||
+      profile?.toolType === 'grok'
+    );
   }
   if (profile?.toolType === 'claude') {
     return launchMode === 'lite' || launchMode === 'full';
@@ -199,7 +207,8 @@ function isSummarySupportedAgentSession(
   const executable = commandExecutableName(session.command);
   return (
     (profile.toolType === 'claude' && executable === 'claude') ||
-    (profile.toolType === 'codex' && executable === 'codex')
+    (profile.toolType === 'codex' && executable === 'codex') ||
+    (profile.toolType === 'grok' && executable === 'grok')
   );
 }
 

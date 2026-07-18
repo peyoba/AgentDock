@@ -106,6 +106,14 @@ export function SessionDetailsDrawer({
           <dd>{session.command}</dd>
           <dt>Endpoint</dt>
           <dd>{profile.baseUrl}</dd>
+          {profile.toolType === 'grok' ? (
+            <>
+              <dt>认证方式</dt>
+              <dd>{profile.grokAuthMode === 'oauth' ? 'OAuth（Profile 独立）' : 'API Key'}</dd>
+              <dt>GROK_HOME</dt>
+              <dd>{profile.grokHome ?? '（启动时按 Profile 生成）'}</dd>
+            </>
+          ) : null}
           <dt>Workspace</dt>
           <dd>{workspace.name}</dd>
           <dt>路径</dt>

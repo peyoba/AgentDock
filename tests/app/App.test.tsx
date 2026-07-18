@@ -1044,6 +1044,19 @@ describe('AgentDock shell', () => {
     expect(screen.getByRole('button', { name: '全部' })).toBeInTheDocument();
   });
 
+  it('shows Grok in API config filters and seeds grok draft defaults', async () => {
+    render(<App />);
+
+    await openApiConfigPage();
+
+    expect(screen.getByRole('button', { name: 'Grok' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Grok' }));
+    fireEvent.click(screen.getByRole('button', { name: '新增配置' }));
+    expect(await screen.findByDisplayValue('https://api.x.ai/v1')).toBeInTheDocument();
+    expect(screen.getByLabelText('Grok 认证方式')).toHaveValue('api-key');
+    expect(screen.getByDisplayValue('grok-build')).toBeInTheDocument();
+  });
+
   it('keeps Keychain references out of default API config cards', async () => {
     render(<App />);
 
@@ -1783,6 +1796,7 @@ describe('AgentDock session launch flow', () => {
     ).rejects.toThrow();
     expect(screen.queryByRole('button', { name: '总结并续开' })).not.toBeInTheDocument();
   });
+
 
   it('does not show summary actions for non Claude/Codex agent sessions', async () => {
     installAgentDockApi({
