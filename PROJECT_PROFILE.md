@@ -75,10 +75,10 @@
 - 类型检查：`npm run typecheck`
 - 构建验证：`npm run build`
 - MVP UI 验证：`npm run dev` 手动打开 Electron 窗口
-- 持续真实验证：实际启动 Claude/Codex PTY 会话，确认 endpoint/API key/CODEX_HOME 隔离；Codex 兼容模式还必须验证真实工具闭环、并发 Session 和生命周期清理
+- 持续真实验证：实际启动 Claude/Codex/Grok PTY 会话，确认 endpoint/API key/CODEX_HOME 隔离；Codex 兼容模式还必须验证真实工具闭环、并发 Session 和生命周期清理
 - 允许 mock：Profile/Workspace metadata、secret adapter 测试替身
 - 必须真实验证：node-pty 启动、键盘输入、Ctrl+C、中文输入、Codex 原生 Profile `CODEX_HOME`、兼容模式单 Session 运行目录、本机加密 vault 读写，以及恢复正文不进入进程 argv
-- Windows 真实验证边界：macOS 交叉构建只能验证 PE/ZIP 结构和 win32-x64 原生文件；Windows GUI、PowerShell/ConPTY、Ctrl+C、中文输入、粘贴、resize、真实 Claude/Codex CLI 和 vault 重启矩阵必须在 Windows 10/11 x64 真机或 Windows CI runner 补验，完成前结论为 `PARTIAL`
+- Windows 真实验证边界：macOS 交叉构建只能验证 PE/ZIP 结构和 win32-x64 原生文件；Windows GUI、PowerShell/ConPTY、Ctrl+C、中文输入、粘贴、resize、真实 Claude/Codex/Grok CLI 和 vault 重启矩阵必须在 Windows 10/11 x64 真机或 Windows CI runner 补验，完成前结论为 `PARTIAL`
 
 ## 8. 部署信息
 
@@ -101,7 +101,7 @@
 - Codex 提供“原生 Codex · Responses”和“完整工具 · NewAPI 兼容”两种显式模式；旧 Profile/Session 缺少模式时固定走原生路径，不得自动改变历史网络行为。
 - NewAPI 兼容层仅限 loopback、单 Session 生命周期和 `model` 字段精确重写；不得改写 tools/input/instructions、解析 SSE 工具事件、记录请求正文，或扩展成自动路由/fallback/API gateway。
 - NewAPI 兼容模式必须使用单 Session 临时运行时 `CODEX_HOME`，不得让同一 Profile 的并发 Session 共享并覆盖运行配置；Profile 独立目录仍保留给原生模式和持久配置。
-- Claude/Codex 恢复正文不得进入 CLI argv、Session command、日志或错误；只能在 TUI 就绪后通过 PTY 注入一次，超时或提前退出必须显式失败。
+- Claude/Codex/Grok 恢复正文不得进入 CLI argv、Session command、日志或错误；只能在 TUI 就绪后通过 PTY 注入一次，超时或提前退出必须显式失败。
 - Renderer / preload / IPC 默认不得返回完整 secret，也不得返回完整环境变量对象；仅当用户明确点击查看某个已保存 Profile 的 API Key 时，专用 IPC 可按需返回该单个 secret，且不得广播、记录日志或持久化到前端状态。
 - API Key 不得明文写入代码、文档、测试 fixture、日志或前端状态持久化；只进入本机加密 vault，配置中只保存脱敏状态和引用信息。
 - 不做全局 provider 切换，不修改正在运行的其他终端会话。

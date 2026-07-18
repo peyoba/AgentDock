@@ -2,11 +2,11 @@
 
 ## 1. 一句话定义
 
-AgentDock 是一个可视化的 Claude/Codex 多配置内嵌终端工作台，让用户可以同时运行多个互不干扰的 AI CLI 实例，每个实例拥有独立 endpoint/API key，同时可自由进入同一个或不同项目目录。
+AgentDock 是一个可视化的 Claude/Codex/Grok 多配置内嵌终端工作台，让用户可以同时运行多个互不干扰的 AI CLI 实例，每个实例拥有独立 endpoint/API key，同时可自由进入同一个或不同项目目录。
 
 ## 2. 核心用户需求
 
-用户需要同时开多个 Claude/Codex：
+用户需要同时开多个 Claude/Codex/Grok：
 
 ```text
 Claude A -> Endpoint A -> Key A -> 项目 X
@@ -29,13 +29,14 @@ Codex D  -> Endpoint D -> Key D -> 项目 Y
 必须实现：
 
 1. API Profile 管理：新增、编辑、删除、测试连接（测试连接可后置到第二小版本）。
-2. API 配置按当前正式支持的工具类型分类：Claude / Codex / 全部。Gemini / OpenCode 保留为后续方向，在启动环境和凭证注入实现前不显示入口。
+2. API 配置按当前正式支持的工具类型分类：Claude / Codex / Grok / 全部。Gemini / OpenCode 保留为后续方向，在启动环境和凭证注入实现前不显示入口。
 3. API Key 安全保存：本机加密 vault，不明文落盘；旧 Keychain 数据仅用于迁移/适配。
 4. Workspace 管理：保存项目名称和本地目录。
 5. 启动器：选择 Profile + Workspace + 命令 + 启动模式。
 6. 长期会话库与内嵌终端视图：Session Record、打开视图和 PTY Process 分离，关闭视图不自动删除历史记录。
 7. Claude 会话隔离：每个 PTY 注入独立 `ANTHROPIC_BASE_URL` 和 Key。
 8. Codex 会话隔离：每个会话注入独立 endpoint/key；原生模式每 Profile 使用独立 `CODEX_HOME`，NewAPI 兼容模式每 Session 使用临时运行目录。
+8b. Grok 会话隔离：每个会话注入独立 `GROK_HOME`；支持 API Key（`XAI_API_KEY`）与 OAuth（Profile 内终端登录）双认证。
 9. 当前会话详情：默认收起，可展开，显示 endpoint/key 来源/workspace/操作。
 10. 共享目录提示：轻提示，不作为错误。
 
@@ -69,11 +70,12 @@ Codex D  -> Endpoint D -> Key D -> 项目 Y
 
 要求：
 
-- 参考 CC Switch，顶部按当前支持范围分组：Claude / Codex / 全部；Gemini / OpenCode 在具备完整启动能力后再启用。
+- 参考 CC Switch，顶部按当前支持范围分组：Claude / Codex / Grok / 全部；Gemini / OpenCode 在具备完整启动能力后再启用。
 - 左侧只显示当前工具类型下的配置。
 - 右侧表单根据工具类型显示不同字段。
 - Claude 类型展示：Base URL、模型、Anthropic 协议、API Key、本机密钥存储状态、环境变量预览。
 - Codex 类型展示：OpenAI base URL、model_provider、默认模型、独立 `CODEX_HOME`、默认运行模式、Responses 适配方式、API Key。
+- Grok 类型展示：Base URL、默认模型、认证方式（API Key / OAuth）、独立 `GROK_HOME`、API Key（按模式）、环境变量预览。
 - API Key 默认脱敏，只能通过用户操作显示/替换。
 - Renderer / preload / IPC 的默认查询和事件不得返回完整 secret 或完整环境变量对象；环境变量只能以脱敏预览或最小必要字段展示。只有用户明确点击查看某个已保存 Profile 的 API Key 时，专用 IPC 才可按需返回该单个 secret。
 

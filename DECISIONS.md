@@ -40,3 +40,13 @@
 ## 待确认决策
 
 当前无阻塞开发的待确认架构决策。正式发行前仍需单独决定 Developer ID、notarization、Windows 安装器/签名和自动更新方案。
+
+## 2026-07-19 Grok Build CLI
+
+| 日期 | 决策 | 原因 | 影响范围 |
+|------|------|------|----------|
+| 2026-07-19 | 将本机 Grok Build TUI（`grok`）作为与 Claude/Codex 同级的正式工具类型 | 用户需要在 AgentDock 内并发管理 Grok 配置与终端会话 | ToolType、API 配置、启动环境、会话恢复/摘要 |
+| 2026-07-19 | 每 Profile 独立 `GROK_HOME`，OAuth 也独立登录，不共用本机 `~/.grok` | 对齐 Codex 隔离模型，避免多配置互相污染 | launchEnvironment、grokHomePrep |
+| 2026-07-19 | 同时支持 API Key（`XAI_API_KEY`）与 OAuth；Key 模式启动前停用冲突的 `auth.json` | Grok session token 优先于 API Key，否则 Key 模式会被登录态覆盖 | grokHomePrep、认证 UX |
+| 2026-07-19 | 默认启动命令为 `grok --no-alt-screen`，不默认自动批准工具 | 嵌入 xterm 需避免 alt-screen；权限在 Grok TUI 内处理 | CommandBar / defaultCommandFor |
+| 2026-07-19 | 不做 Grok gateway / 自动路由 / 把 Grok 伪装成 Codex | 保持终端优先产品边界 | 架构边界 |
