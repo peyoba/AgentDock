@@ -273,4 +273,66 @@ describe('createProfileSummaryRunner', () => {
     await expect(resultPromise).rejects.not.toThrow('secret-value-that-must-not-appear');
     await expect(resultPromise).rejects.not.toThrow('raw failure');
   });
+
+  it('runs Grok single-turn summary with XAI_API_KEY and GROK_HOME', async () => {
+    const runtime = createRuntime('xai-summary-secret');
+    const profile: ApiProfile = {
+      id: 'grok-a',
+      name: 'Grok A',
+      toolType: 'grok',
+      baseUrl: 'https://api.x.ai/v1',
+      defaultModel: 'grok-build',
+      keychainService: 'AgentDock',
+      keychainAccount: 'grok-a',
+      grokAuthMode: 'api-key',
+      grokHome: '~/.agentdock/grok-profiles/grok-a',
+    };
+    const runSummary = createProfileSummaryRunner({
+      profile,
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      homeDir: '/Users/example',
+    });
+
+    const resultPromise = runSummary(runnerInput());
+    const spawnRequest = await runtime.waitForSpawn();
+    runtime.emitData(validSummary());
+    runtime.emitExit({ exitCode: 0 });
+
+    await expect(resultPromise).resolves.toContain('## Next Steps');
+    expect(spawnRequest.command).toContain('grok --no-alt-screen --single');
+    expect(spawnRequest.env).toMatchObject({
+      XAI_API_KEY: 'xai-summary-secret',
+      GROK_HOME: '/Users/example/.agentdock/grok-profiles/grok-a',
+    });
+    expect(spawnRequest.command).not.toContain('xai-summary-secret');
+  });
+
+  it('rejects grok oauth summary without API key', async () => {
+    const runtime = createRuntime();
+    runtime.readSecret.mockRejectedValue(
+      new Error('Keychain secret was not found for account "grok-oauth"'),
+    );
+    const profile: ApiProfile = {
+      id: 'grok-oauth',
+      name: 'Grok OAuth',
+      toolType: 'grok',
+      baseUrl: 'https://api.x.ai/v1',
+      keychainService: 'AgentDock',
+      keychainAccount: 'grok-oauth',
+      grokAuthMode: 'oauth',
+    };
+    const runSummary = createProfileSummaryRunner({
+      profile,
+      keychain: runtime.keychain,
+      pty: runtime.pty,
+      appDataPath: '/tmp/agentdock-test-data',
+      homeDir: '/Users/example',
+    });
+
+    await expect(runSummary(runnerInput())).rejects.toThrow(
+      'OAuth 模式未配置 API Key，Grok 自动摘要不可用',
+    );
+  });
 });

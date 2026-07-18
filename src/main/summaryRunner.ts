@@ -153,6 +153,15 @@ function codexSummaryCommand(prompt: string, workspace: Workspace): string {
   ].join(' ');
 }
 
+function grokSummaryCommand(prompt: string): string {
+  return [
+    'grok',
+    '--no-alt-screen',
+    '--single',
+    shellQuote(prompt),
+  ].join(' ');
+}
+
 function commandForProfile(
   profile: ApiProfile,
   input: SummaryRunnerInput,
@@ -168,6 +177,10 @@ function commandForProfile(
 
   if (profile.toolType === 'codex') {
     return codexSummaryCommand(prompt, input.workspace);
+  }
+
+  if (profile.toolType === 'grok') {
+    return grokSummaryCommand(prompt);
   }
 
   throw new Error('当前工具类型暂不支持自动总结');
@@ -316,11 +329,17 @@ export function createProfileSummaryRunner({
   timeoutMs = DEFAULT_TIMEOUT_MS,
 }: CreateProfileSummaryRunnerOptions): SummaryRunner {
   return async (input: SummaryRunnerInput): Promise<string> => {
-    let secret: string;
+    let secret = '';
     try {
       secret = await keychain.readSecret(profile.keychainService, profile.keychainAccount);
     } catch {
-      throw rejectSummaryCli('无法读取摘要 Profile 的 API Key');
+      if (!(profile.toolType === 'grok' && profile.grokAuthMode === 'oauth')) {
+        throw rejectSummaryCli('无法读取摘要 Profile 的 API Key');
+      }
+    }
+
+    if (!secret && profile.toolType === 'grok' && profile.grokAuthMode === 'oauth') {
+      throw rejectSummaryCli('OAuth 模式未配置 API Key，Grok 自动摘要不可用');
     }
 
     const env = buildLaunchEnvironment({ profile, secret, appDataPath, homeDir });
