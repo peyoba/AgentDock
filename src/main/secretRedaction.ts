@@ -16,7 +16,8 @@ export function redactSecrets(value: string): string {
     .replace(/local-development-secret/g, '[REDACTED]')
     .replace(/sk-ant-[A-Za-z0-9_-]{16,}/g, '[REDACTED]')
     .replace(/sk-[A-Za-z0-9_-]{16,}/g, '[REDACTED]')
-    .replace(/\b(ANTHROPIC_AUTH_TOKEN|ANTHROPIC_API_KEY|OPENAI_API_KEY)=\S*/g, '$1=[REDACTED]');
+    .replace(/\bxai-[A-Za-z0-9_-]{8,}/g, '[REDACTED]')
+    .replace(/\b(ANTHROPIC_AUTH_TOKEN|ANTHROPIC_API_KEY|OPENAI_API_KEY|XAI_API_KEY|GROK_CODE_XAI_API_KEY)=\S*/g, '$1=[REDACTED]');
 
   for (const secret of knownSecrets) {
     if (result.includes(secret)) {

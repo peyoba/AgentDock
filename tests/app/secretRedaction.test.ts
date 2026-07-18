@@ -19,4 +19,9 @@ describe('secretRedaction', () => {
     registerKnownSecret('short');
     expect(redactSecrets('short text')).toBe('short text');
   });
+
+  it('redacts XAI/Grok API key material', () => {
+    expect(redactSecrets('XAI_API_KEY=xai-abcdefghijklmnop')).toBe('XAI_API_KEY=[REDACTED]');
+    expect(redactSecrets('token xai-abcdefghijklmnop done')).toBe('token [REDACTED] done');
+  });
 });
