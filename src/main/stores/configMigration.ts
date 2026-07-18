@@ -65,6 +65,8 @@ export function migrateProfile(data: unknown): ApiProfile {
       keychainService: profile.keychainService as string,
       keychainAccount: profile.keychainAccount as string,
       codexHome: profile.codexHome as string | undefined,
+      grokHome: profile.grokHome as string | undefined,
+      grokAuthMode: profile.grokAuthMode as ApiProfile['grokAuthMode'],
       codexDefaultLaunchMode:
         version === 5 || version === 6
           ? codexLaunchMode(profile.codexDefaultLaunchMode)
@@ -111,6 +113,8 @@ function migrateProfileToCurrent(profile: Record<string, unknown>): ApiProfile {
     keychainService: profile.keychainService as string,
     keychainAccount: profile.keychainAccount as string,
     codexHome: profile.codexHome as string | undefined,
+    grokHome: profile.grokHome as string | undefined,
+    grokAuthMode: profile.grokAuthMode as ApiProfile['grokAuthMode'],
     codexDefaultLaunchMode: undefined,
     skipPermissions: profile.skipPermissions as boolean | undefined,
     bypassApprovals: profile.bypassApprovals as boolean | undefined,

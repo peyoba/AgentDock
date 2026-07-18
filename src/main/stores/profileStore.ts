@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { ApiProfile, CodexLaunchMode } from '../../shared/agentdockTypes.js';
+import type { ApiProfile, CodexLaunchMode, GrokAuthMode } from '../../shared/agentdockTypes.js';
 import { normalizeClaudeProfileDefaults } from '../../shared/claudeProfileDefaults.js';
 import { migrateProfile, addVersionToProfile } from './configMigration.js';
 import { createJsonStore } from './jsonStore.js';
@@ -23,6 +23,10 @@ function codexLaunchMode(value: unknown): CodexLaunchMode | undefined {
     : undefined;
 }
 
+function grokAuthMode(value: unknown): GrokAuthMode | undefined {
+  return value === 'api-key' || value === 'oauth' ? value : undefined;
+}
+
 function sanitizeProfile(profile: ApiProfile): ApiProfile {
   const normalizedProfile = normalizeClaudeProfileDefaults(profile);
   const sanitized: ApiProfile = {
@@ -42,6 +46,14 @@ function sanitizeProfile(profile: ApiProfile): ApiProfile {
   }
   if (normalizedProfile.codexHome) {
     sanitized.codexHome = normalizedProfile.codexHome;
+  }
+  if (normalizedProfile.toolType === 'grok') {
+    const home = optionalTrimmedString(normalizedProfile.grokHome);
+    if (home) {
+      sanitized.grokHome = home;
+    }
+    const authMode = grokAuthMode(normalizedProfile.grokAuthMode) ?? 'api-key';
+    sanitized.grokAuthMode = authMode;
   }
   const codexDefaultLaunchMode = codexLaunchMode(normalizedProfile.codexDefaultLaunchMode);
   if (normalizedProfile.toolType === 'codex' && codexDefaultLaunchMode) {

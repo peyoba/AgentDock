@@ -19,6 +19,36 @@ afterEach(async () => {
 });
 
 describe('metadata stores', () => {
+  it('persists grok profile home and auth mode without secrets', async () => {
+    const store = createProfileStore(tempDir);
+
+    await store.save({
+      id: 'grok-a',
+      name: 'Grok A',
+      toolType: 'grok',
+      baseUrl: 'https://api.x.ai/v1',
+      defaultModel: 'grok-build',
+      keychainService: 'AgentDock',
+      keychainAccount: 'grok-a',
+      grokHome: '~/.agentdock/grok-profiles/grok-a',
+      grokAuthMode: 'oauth',
+    });
+
+    await expect(store.list()).resolves.toEqual([
+      {
+        id: 'grok-a',
+        name: 'Grok A',
+        toolType: 'grok',
+        baseUrl: 'https://api.x.ai/v1',
+        defaultModel: 'grok-build',
+        keychainService: 'AgentDock',
+        keychainAccount: 'grok-a',
+        grokHome: '~/.agentdock/grok-profiles/grok-a',
+        grokAuthMode: 'oauth',
+      },
+    ]);
+  });
+
   it('saves profile metadata without secret values or raw env snapshots', async () => {
     const store = createProfileStore(tempDir);
     const profileWithAccidentalSecret = {
