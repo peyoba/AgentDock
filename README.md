@@ -15,10 +15,10 @@ AgentDock 是一个面向 Claude CLI / Codex CLI / Grok Build CLI 的多配置�
 
 ## 下载与安装
 
-`v0.1.2` 双平台 Pre-release 使用以下固定资产名称：
+`v0.1.3` 双平台 Pre-release 使用以下固定资产名称：
 
-- macOS Apple Silicon：`AgentDock-v0.1.2-macos-arm64.zip`，适用于 M1、M2、M3、M4 等 ARM 架构 Mac，不支持 Intel Mac。
-- Windows 10/11 x64：`AgentDock-v0.1.2-windows-x64.zip`，适用于常见的 64 位 Intel/AMD 电脑，是首次便携验证包。
+- macOS Apple Silicon：`AgentDock-v0.1.3-macos-arm64.zip`，适用于 M1、M2、M3、M4 等 ARM 架构 Mac，不支持 Intel Mac。
+- Windows 10/11 x64：`AgentDock-v0.1.3-windows-x64.zip`，适用于常见的 64 位 Intel/AMD 电脑，是首次便携验证包。
 
 下载请进入仓库的 GitHub Releases 页面：
 
@@ -26,16 +26,16 @@ AgentDock 是一个面向 Claude CLI / Codex CLI / Grok Build CLI 的多配置�
 https://github.com/peyoba/AgentDock/releases
 ```
 
-`v0.1.2` 安装包 SHA-256：
+`v0.1.3` 安装包 SHA-256：
 
 ```text
-AgentDock-v0.1.2-macos-arm64.zip   9f137df8671d4205603e71658b65c6e1c5ae5d7f737d625268b67c8eb876cb08
-AgentDock-v0.1.2-windows-x64.zip   aeeccaa52fb1fa392cde8985038c6b237e80139abf049e6dae5bbaad15c27614
+AgentDock-v0.1.3-macos-arm64.zip   b4471e1966c1150e34e1226073aec46d745b47f9953a5d3ff98f6d3b9193790d
+AgentDock-v0.1.3-windows-x64.zip   2244d4b306ee206cf3ec415661ef9d7e7dcf524d66fe389d8e6ad33c6dbd7e3f
 ```
 
 ### macOS 安装
 
-1. 下载 `AgentDock-v0.1.2-macos-arm64.zip`。
+1. 下载 `AgentDock-v0.1.3-macos-arm64.zip`。
 2. 解压 ZIP，将 `AgentDock.app` 拖入“应用程序”目录。
 3. 在 Finder 的“应用程序”中右键 AgentDock，选择“打开”。
 4. 如果 macOS 仍阻止启动，前往“系统设置 → 隐私与安全性”，找到 AgentDock 被阻止的提示，点击“仍要打开”，再确认一次。
@@ -43,10 +43,10 @@ AgentDock-v0.1.2-windows-x64.zip   aeeccaa52fb1fa392cde8985038c6b237e80139abf049
 
 当前版本使用稳定的本机自签名证书，尚未使用 Apple Developer ID 签名和 Apple notarization。因此，首次在其他 Mac 上启动时需要执行上述手动确认。这不代表应用包已损坏。
 
-如果系统提示“应用已损坏”或下载不完整，请先校验 ZIP，并与 `v0.1.2` Release notes 中的 SHA-256 对比：
+如果系统提示“应用已损坏”或下载不完整，请先校验 ZIP，并与 `v0.1.3` Release notes 中的 SHA-256 对比：
 
 ```bash
-shasum -a 256 ~/Downloads/AgentDock-v0.1.2-macos-arm64.zip
+shasum -a 256 ~/Downloads/AgentDock-v0.1.3-macos-arm64.zip
 ```
 
 仅当文件来自本仓库的 GitHub Release 且 SHA-256 一致，但 Gatekeeper 仍错误阻止时，技术用户可移除该 App 的下载隔离属性：
@@ -59,11 +59,11 @@ xattr -dr com.apple.quarantine "/Applications/AgentDock.app"
 
 ### Windows 安装
 
-1. 下载 `AgentDock-v0.1.2-windows-x64.zip`，将 ZIP 完整解压到一个普通目录。
+1. 下载 `AgentDock-v0.1.3-windows-x64.zip`，将 ZIP 完整解压到一个普通目录。
 2. 不要只复制 `AgentDock.exe`，也不要直接在 ZIP 压缩包内运行；程序依赖同目录中的 `resources` 和 Electron 运行文件。
 3. 如果要启动 Claude/Codex/Grok 会话，请先确认相应 CLI 已能在普通 PowerShell 中直接运行。
 4. 双击解压目录中的 `AgentDock.exe`。
-5. Windows 包没有代码签名。若 Microsoft Defender SmartScreen 显示未知发布者提示，请先确认文件来自本仓库 GitHub Release，并将 SHA-256 与 `v0.1.2` Release notes 对比；确认一致后再决定是否选择“更多信息 → 仍要运行”。
+5. Windows 包没有代码签名。若 Microsoft Defender SmartScreen 显示未知发布者提示，请先确认文件来自本仓库 GitHub Release，并将 SHA-256 与 `v0.1.3` Release notes 对比；确认一致后再决定是否选择“更多信息 → 仍要运行”。
 
 Windows 包无安装向导、无代码签名，不会创建开始菜单或桌面快捷方式。当前 macOS 交叉构建与静态包检查不能替代 Windows 真机验收；Windows GUI、PowerShell/ConPTY、Ctrl+C、中文输入、粘贴、resize、真实 Claude/Codex/Grok CLI 和 vault 重启矩阵仍为 `PARTIAL`，因此本版本定位为 Windows x64 便携验证包，而不是正式 Windows 支持声明。
 
@@ -191,14 +191,14 @@ npm run package:win
 
 ```text
 release/packages/20260704-153000/AgentDock-darwin-arm64/AgentDock.app
-release/packages/20260704-153000/AgentDock-v0.1.2-macos-arm64.zip
+release/packages/20260704-153000/AgentDock-v0.1.3-macos-arm64.zip
 ```
 
 `npm run package:win` 会交叉构建 Windows x64 便携目录与版本化 ZIP，例如：
 
 ```text
 release/packages/20260704-153000/AgentDock-win32-x64/AgentDock.exe
-release/packages/20260704-153000/AgentDock-v0.1.2-windows-x64.zip
+release/packages/20260704-153000/AgentDock-v0.1.3-windows-x64.zip
 ```
 
 两个命令默认都不会覆盖旧产物。Windows 包必须完整保留解压后的目录结构；macOS 只能完成交叉构建和静态检查，真实 Windows 运行验收仍需 Windows 10/11 x64 真机或 Windows CI runner。
