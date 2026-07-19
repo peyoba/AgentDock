@@ -1055,6 +1055,16 @@ describe('AgentDock shell', () => {
     expect(await screen.findByDisplayValue('https://api.x.ai/v1')).toBeInTheDocument();
     expect(screen.getByLabelText('Grok 认证方式')).toHaveValue('api-key');
     expect(screen.getByDisplayValue('grok-build')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '显示高级设置' }));
+    expect(screen.getByLabelText('GROK_HOME')).toHaveValue(
+      '~/.agentdock/grok-profiles/grok-custom-1',
+    );
+
+    fireEvent.change(screen.getByLabelText('Grok 认证方式'), { target: { value: 'oauth' } });
+    expect(
+      screen.getByText('OAuth 模式可不填 Key；若填写则仅用于模型拉取，不会注入启动环境。'),
+    ).toBeInTheDocument();
   });
 
   it('keeps Keychain references out of default API config cards', async () => {

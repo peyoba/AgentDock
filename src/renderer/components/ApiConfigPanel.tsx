@@ -1168,6 +1168,16 @@ export function ApiConfigPanel({
                               <input value={draft.codexHome ?? ''} readOnly />
                             </label>
                           ) : null}
+                          {draft.toolType === 'grok' ? (
+                            <label>
+                              <span>GROK_HOME</span>
+                              <input
+                                aria-label="GROK_HOME"
+                                value={draft.grokHome ?? ''}
+                                readOnly
+                              />
+                            </label>
+                          ) : null}
                         </fieldset>
                       </fieldset>
                     </>
@@ -1178,7 +1188,9 @@ export function ApiConfigPanel({
                 <label>
                   <span>API Key（本机加密保存）</span>
                   <small className="field-help">
-                    填写后本机加密保存；留空则保留当前 Key。
+                    {draft?.toolType === 'grok' && draft.grokAuthMode === 'oauth'
+                      ? 'OAuth 模式可不填 Key；若填写则仅用于模型拉取，不会注入启动环境。'
+                      : '填写后本机加密保存；留空则保留当前 Key。'}
                   </small>
                   <small className="field-help">点击显示才会读取当前配置的 Key。</small>
                   <span className="secret-input-wrap">
