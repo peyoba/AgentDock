@@ -62,7 +62,7 @@ function restartSessionRequestPayload(request: RestartSessionRequest): RestartSe
 }
 
 const api: AgentDockApi = {
-  version: '0.1.2',
+  version: '0.1.3',
   getBuildInfo: () => ipcRenderer.invoke('app:buildInfo'),
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
   openUpdateDownload: (releaseUrl) => ipcRenderer.invoke('app:openUpdateDownload', { releaseUrl }),
