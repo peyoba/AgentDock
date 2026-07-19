@@ -1,23 +1,24 @@
 # AgentDock 代理坞
 
-AgentDock 是一个面向 Claude CLI / Codex CLI 的多配置内嵌终端工作台。
+AgentDock 是一个面向 Claude CLI / Codex CLI / Grok Build CLI 的多配置内嵌终端工作台。
 
 社区友链：[LINUX DO](https://linux.do)
 
 核心目标：
 
-- 在一个窗口中同时运行多个 Claude / Codex 终端会话。
+- 在一个窗口中同时运行多个 Claude / Codex / Grok 终端会话。
 - 每个会话拥有独立 endpoint、API Key、环境变量和运行状态。
 - Codex 原生模式按 Profile 使用独立 `CODEX_HOME`；NewAPI 兼容模式再为每个 Session 创建临时运行目录，避免并发会话互相覆盖配置。
+- Grok 按 Profile 使用独立 `GROK_HOME`，支持 API Key（`XAI_API_KEY`）与 OAuth 终端登录；默认命令为 `grok --no-alt-screen`。
 - API Profile 与 Workspace 解耦：不同端点可进入同一个项目，也可进入不同项目。
 - API Key 保存到本机加密 vault，不明文落盘；旧 Keychain 数据仅用于迁移/适配。
 
 ## 下载与安装
 
-`v0.1.1` 双平台 Pre-release 使用以下固定资产名称：
+`v0.1.2` 双平台 Pre-release 使用以下固定资产名称：
 
-- macOS Apple Silicon：`AgentDock-v0.1.1-macos-arm64.zip`，适用于 M1、M2、M3、M4 等 ARM 架构 Mac，不支持 Intel Mac。
-- Windows 10/11 x64：`AgentDock-v0.1.1-windows-x64.zip`，适用于常见的 64 位 Intel/AMD 电脑，是首次便携验证包。
+- macOS Apple Silicon：`AgentDock-v0.1.2-macos-arm64.zip`，适用于 M1、M2、M3、M4 等 ARM 架构 Mac，不支持 Intel Mac。
+- Windows 10/11 x64：`AgentDock-v0.1.2-windows-x64.zip`，适用于常见的 64 位 Intel/AMD 电脑，是首次便携验证包。
 
 下载请进入仓库的 GitHub Releases 页面：
 
@@ -25,16 +26,16 @@ AgentDock 是一个面向 Claude CLI / Codex CLI 的多配置内嵌终端工作�
 https://github.com/peyoba/AgentDock/releases
 ```
 
-`v0.1.1` 安装包 SHA-256：
+`v0.1.2` 安装包 SHA-256：
 
 ```text
-AgentDock-v0.1.1-macos-arm64.zip   a9c9d88d3a3cef15d2fd739fe617f51412da44bc5cd1f7767d4d6761bf8e8f9e
-AgentDock-v0.1.1-windows-x64.zip   d362be42e85ad54cea6a00bd169bd1af1a782c34f7d0ca645f2f48f92e1b2534
+AgentDock-v0.1.2-macos-arm64.zip   9f137df8671d4205603e71658b65c6e1c5ae5d7f737d625268b67c8eb876cb08
+AgentDock-v0.1.2-windows-x64.zip   aeeccaa52fb1fa392cde8985038c6b237e80139abf049e6dae5bbaad15c27614
 ```
 
 ### macOS 安装
 
-1. 下载 `AgentDock-v0.1.1-macos-arm64.zip`。
+1. 下载 `AgentDock-v0.1.2-macos-arm64.zip`。
 2. 解压 ZIP，将 `AgentDock.app` 拖入“应用程序”目录。
 3. 在 Finder 的“应用程序”中右键 AgentDock，选择“打开”。
 4. 如果 macOS 仍阻止启动，前往“系统设置 → 隐私与安全性”，找到 AgentDock 被阻止的提示，点击“仍要打开”，再确认一次。
@@ -42,10 +43,10 @@ AgentDock-v0.1.1-windows-x64.zip   d362be42e85ad54cea6a00bd169bd1af1a782c34f7d0c
 
 当前版本使用稳定的本机自签名证书，尚未使用 Apple Developer ID 签名和 Apple notarization。因此，首次在其他 Mac 上启动时需要执行上述手动确认。这不代表应用包已损坏。
 
-如果系统提示“应用已损坏”或下载不完整，请先校验 ZIP，并与 `v0.1.1` Release notes 中的 SHA-256 对比：
+如果系统提示“应用已损坏”或下载不完整，请先校验 ZIP，并与 `v0.1.2` Release notes 中的 SHA-256 对比：
 
 ```bash
-shasum -a 256 ~/Downloads/AgentDock-v0.1.1-macos-arm64.zip
+shasum -a 256 ~/Downloads/AgentDock-v0.1.2-macos-arm64.zip
 ```
 
 仅当文件来自本仓库的 GitHub Release 且 SHA-256 一致，但 Gatekeeper 仍错误阻止时，技术用户可移除该 App 的下载隔离属性：
@@ -58,13 +59,13 @@ xattr -dr com.apple.quarantine "/Applications/AgentDock.app"
 
 ### Windows 安装
 
-1. 下载 `AgentDock-v0.1.1-windows-x64.zip`，将 ZIP 完整解压到一个普通目录。
+1. 下载 `AgentDock-v0.1.2-windows-x64.zip`，将 ZIP 完整解压到一个普通目录。
 2. 不要只复制 `AgentDock.exe`，也不要直接在 ZIP 压缩包内运行；程序依赖同目录中的 `resources` 和 Electron 运行文件。
-3. 如果要启动 Claude/Codex 会话，请先确认相应 CLI 已能在普通 PowerShell 中直接运行。
+3. 如果要启动 Claude/Codex/Grok 会话，请先确认相应 CLI 已能在普通 PowerShell 中直接运行。
 4. 双击解压目录中的 `AgentDock.exe`。
-5. Windows 包没有代码签名。若 Microsoft Defender SmartScreen 显示未知发布者提示，请先确认文件来自本仓库 GitHub Release，并将 SHA-256 与 `v0.1.1` Release notes 对比；确认一致后再决定是否选择“更多信息 → 仍要运行”。
+5. Windows 包没有代码签名。若 Microsoft Defender SmartScreen 显示未知发布者提示，请先确认文件来自本仓库 GitHub Release，并将 SHA-256 与 `v0.1.2` Release notes 对比；确认一致后再决定是否选择“更多信息 → 仍要运行”。
 
-Windows 包无安装向导、无代码签名，不会创建开始菜单或桌面快捷方式。当前 macOS 交叉构建与静态包检查不能替代 Windows 真机验收；Windows GUI、PowerShell/ConPTY、Ctrl+C、中文输入、粘贴、resize、真实 Claude/Codex CLI 和 vault 重启矩阵仍为 `PARTIAL`，因此本版本定位为 Windows x64 便携验证包，而不是正式 Windows 支持声明。
+Windows 包无安装向导、无代码签名，不会创建开始菜单或桌面快捷方式。当前 macOS 交叉构建与静态包检查不能替代 Windows 真机验收；Windows GUI、PowerShell/ConPTY、Ctrl+C、中文输入、粘贴、resize、真实 Claude/Codex/Grok CLI 和 vault 重启矩阵仍为 `PARTIAL`，因此本版本定位为 Windows x64 便携验证包，而不是正式 Windows 支持声明。
 
 ### 保留的 v0.1.0 版本
 
@@ -82,7 +83,7 @@ a2fba33b0a9954e2b61b944f8e3b4b86cd3ad1159717d2198b3779ca430bdb64
 
 ## 首次使用与个人 API 配置
 
-GitHub Release **不包含任何开发者私有 endpoint、API Key、登录状态或本机 Vault 数据**。每位用户必须使用自己的 Claude/Codex 账号或 API 服务配置；不要共享或提交个人 API Key。
+GitHub Release **不包含任何开发者私有 endpoint、API Key、登录状态或本机 Vault 数据**。每位用户必须使用自己的 Claude/Codex/Grok 账号或 API 服务配置；不要共享或提交个人 API Key。
 
 首次使用步骤：
 
@@ -91,10 +92,11 @@ GitHub Release **不包含任何开发者私有 endpoint、API Key、登录状�
    ```bash
    claude --version
    codex --version
+   grok --version
    ```
 
 2. 启动 AgentDock，打开“接口配置”。
-3. 新建或编辑属于你自己的 Claude/Codex API Profile。
+3. 新建或编辑属于你自己的 Claude/Codex/Grok API Profile。
 4. 填写自己的服务地址（endpoint）、API Key 和模型配置，然后保存。
 5. 返回终端工作台，选择 Workspace 和刚保存的 Profile，再启动会话。
 
@@ -136,7 +138,7 @@ Codex Profile 可设置默认运行模式，启动会话时也可在顶部启动
 - 导入 Obsidian 中的需求、UI 调研、效果图和技术架构文档。
 - 实现 Electron + React + TypeScript + xterm.js 的终端优先工作台。
 - 接入真实 `node-pty`，密钥读取走本机加密 vault adapter。
-- 支持 Claude/Codex API Profile、Workspace、内嵌终端会话和独立启动环境。
+- 支持 Claude/Codex/Grok API Profile、Workspace、内嵌终端会话和独立启动环境。
 - 支持 Codex 每 Profile 独立 `CODEX_HOME`。
 - 支持 API 配置独立页面、多 Profile 新增/编辑和按工具类型分类。
 - 完成 Batch A：Claude 模型映射、多窗口 Session 隔离、时间戳 macOS 打包。
@@ -189,14 +191,14 @@ npm run package:win
 
 ```text
 release/packages/20260704-153000/AgentDock-darwin-arm64/AgentDock.app
-release/packages/20260704-153000/AgentDock-v0.1.1-macos-arm64.zip
+release/packages/20260704-153000/AgentDock-v0.1.2-macos-arm64.zip
 ```
 
 `npm run package:win` 会交叉构建 Windows x64 便携目录与版本化 ZIP，例如：
 
 ```text
 release/packages/20260704-153000/AgentDock-win32-x64/AgentDock.exe
-release/packages/20260704-153000/AgentDock-v0.1.1-windows-x64.zip
+release/packages/20260704-153000/AgentDock-v0.1.2-windows-x64.zip
 ```
 
 两个命令默认都不会覆盖旧产物。Windows 包必须完整保留解压后的目录结构；macOS 只能完成交叉构建和静态检查，真实 Windows 运行验收仍需 Windows 10/11 x64 真机或 Windows CI runner。

@@ -50,3 +50,9 @@
 | 2026-07-19 | 同时支持 API Key（`XAI_API_KEY`）与 OAuth；Key 模式启动前停用冲突的 `auth.json` | Grok session token 优先于 API Key，否则 Key 模式会被登录态覆盖 | grokHomePrep、认证 UX |
 | 2026-07-19 | 默认启动命令为 `grok --no-alt-screen`，不默认自动批准工具 | 嵌入 xterm 需避免 alt-screen；权限在 Grok TUI 内处理 | CommandBar / defaultCommandFor |
 | 2026-07-19 | 不做 Grok gateway / 自动路由 / 把 Grok 伪装成 Codex | 保持终端优先产品边界 | 架构边界 |
+
+## 2026-07-19 发布 v0.1.2
+
+| 日期 | 决策 | 原因 | 影响范围 |
+|------|------|------|----------|
+| 2026-07-19 | 发布 AgentDock v0.1.2 双平台 Pre-release | 包含 Grok Build CLI 一等公民接入 | 版本号、Release、README 校验和 |
