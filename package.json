@@ -1,8 +1,8 @@
 {
   "name": "agentdock",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
-  "description": "AgentDock 代理坞：Claude/Codex 多配置内嵌终端工作台。",
+  "description": "AgentDock 代理坞：Claude/Codex/Grok 多配置内嵌终端工作台。",
   "main": "dist/main/main.js",
   "type": "module",
   "scripts": {

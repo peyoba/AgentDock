@@ -75,7 +75,7 @@ const fallbackSessions: AgentSession[] = [
 ];
 
 const fallbackBuildInfo: AppBuildInfo = {
-  version: '0.1.1',
+  version: '0.1.2',
   buildId: 'preview',
   buildTime: '2026-07-08T00:00:00.000Z',
   commit: 'unknown',
