@@ -11,6 +11,7 @@ export type RestoreContextInput = {
   workspacePath: string;
   session: AgentSession;
   summaryMarkdown?: string;
+  clearRecordText?: string;
   transcriptTail: string;
 };
 
@@ -24,10 +25,9 @@ export type RestoreContextStore = {
 };
 
 const RESTORE_DIR_PARTS = ['.agentdock', 'context', 'restores'];
-const MAX_SUMMARY_SENTENCE_CHARS = 160;
 const MAX_CONTEXT_TRANSCRIPT_CHARS = 20_000;
 const MAX_EMBEDDED_MEMORY_CHARS = 8_000;
-const RESTORED_BACKGROUND_SUMMARY = '记忆已恢复：已加载最近会话背景，等待你的下一步指令。';
+const RESTORED_SUMMARY = '记忆已恢复';
 
 function safeRestoreFileName(sessionId: string): string {
   return `${sessionId.replace(/[^A-Za-z0-9._-]/g, '_')}.md`;
@@ -47,33 +47,6 @@ function hasSecretAssignment(line: string): boolean {
 
 function sanitizeRestoreCommand(command: string): string {
   return redactCommandSecrets(command).trim();
-}
-
-function isIgnoredMemoryLine(line: string): boolean {
-  return (
-    /^agentdock session summary$/i.test(line) ||
-    /^\[AgentDock\]/.test(line) ||
-    /^(current goal|instructions|discoveries|accomplished|next steps|relevant files)$/i.test(line) ||
-    hasSecretAssignment(line) ||
-    line === '[REDACTED]'
-  );
-}
-
-function firstReadableLines(value: string, limit: number): string[] {
-  return value
-    .split('\n')
-    .map((line) => line.replace(/^#+\s*/, '').trim())
-    .filter(Boolean)
-    .filter((line) => !isIgnoredMemoryLine(line))
-    .slice(0, limit);
-}
-
-function compactSentencePart(value: string): string {
-  return value
-    .replace(/\s+/g, ' ')
-    .replace(/[。；;,.，]+$/g, '')
-    .slice(0, MAX_SUMMARY_SENTENCE_CHARS)
-    .trim();
 }
 
 function boundedTail(value: string, maxChars: number): string {
@@ -97,26 +70,19 @@ function boundedMemory(value: string): string {
 
 export function summarizeRestoreMemory({
   summaryMarkdown,
+  clearRecordText,
   transcriptTail,
 }: {
   summaryMarkdown?: string;
+  clearRecordText?: string;
   transcriptTail: string;
 }): string {
   const summaryText = normalizeReadableText(summaryMarkdown);
+  const clearRecord = normalizeReadableText(clearRecordText);
   const transcriptText = normalizeReadableText(transcriptTail);
-  const parts = firstReadableLines(summaryText, 2)
-    .map(compactSentencePart)
-    .filter(Boolean);
-
-  if (parts.length > 0) {
-    return `记忆已恢复：${parts.join('；')}。`;
-  }
-
-  if (transcriptText) {
-    return RESTORED_BACKGROUND_SUMMARY;
-  }
-
-  return '未找到可恢复记忆';
+  return summaryText || clearRecord || transcriptText
+    ? RESTORED_SUMMARY
+    : '未找到可恢复记忆';
 }
 
 export function buildRestoreInstruction(contextFile: string, restoredMemory: string): string {
@@ -146,10 +112,16 @@ export function createRestoreContextStore(): RestoreContextStore {
       workspacePath,
       session,
       summaryMarkdown,
+      clearRecordText,
       transcriptTail,
     }: RestoreContextInput): Promise<RestoreContextResult> {
       const safeSummary = normalizeReadableText(summaryMarkdown);
+      const safeClearRecord = normalizeReadableText(clearRecordText);
       const safeTranscriptTail = normalizeReadableText(transcriptTail);
+      const contextClearRecord = boundedTail(
+        safeClearRecord,
+        MAX_CONTEXT_TRANSCRIPT_CHARS,
+      );
       const contextTranscriptTail = boundedTail(
         safeTranscriptTail,
         MAX_CONTEXT_TRANSCRIPT_CHARS,
@@ -157,10 +129,11 @@ export function createRestoreContextStore(): RestoreContextStore {
       const safeCommand = sanitizeRestoreCommand(session.command);
       const summary = summarizeRestoreMemory({
         summaryMarkdown: safeSummary,
+        clearRecordText: safeClearRecord,
         transcriptTail: safeTranscriptTail,
       });
 
-      if (!safeSummary && !safeTranscriptTail) {
+      if (!safeSummary && !safeClearRecord && !safeTranscriptTail) {
         return { status: 'empty', summary };
       }
 
@@ -181,8 +154,15 @@ export function createRestoreContextStore(): RestoreContextStore {
         '## Long-Term Summary',
         safeSummary || 'No long-term summary is available for this session.',
         '',
-        '## Recent Transcript Tail',
-        contextTranscriptTail || 'No recent transcript tail is available for this session.',
+        ...(contextClearRecord
+          ? [
+              '## Trusted Session Record',
+              contextClearRecord,
+            ]
+          : [
+              '## Recent Transcript Tail',
+              contextTranscriptTail || 'No recent transcript tail is available for this session.',
+            ]),
         '',
         '## Restore Behavior',
         "Reply with one short memory-restored sentence, then wait for the user's next instruction.",
@@ -205,7 +185,11 @@ export function createRestoreContextStore(): RestoreContextStore {
           contextFile,
           [
             safeSummary ? `## Long-Term Summary\n${safeSummary}` : '',
-            contextTranscriptTail ? `## Recent Transcript Tail\n${contextTranscriptTail}` : '',
+            contextClearRecord
+              ? `## Trusted Session Record\n${contextClearRecord}`
+              : contextTranscriptTail
+                ? `## Recent Transcript Tail\n${contextTranscriptTail}`
+                : '',
           ].filter(Boolean).join('\n\n'),
         ),
       };

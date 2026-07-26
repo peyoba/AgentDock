@@ -19,6 +19,10 @@ const modelMetadataWarningContinuationPattern = /^\s*degrade performance and cau
 const restoreExploredHeadingPattern = /^\s*[•*]\s*Explored\s*$/i;
 const restoreFileReadPattern = /^\s*[└├│]?\s*Read\s+session-[A-Za-z0-9._:-]+\.md\s*$/i;
 const agentDockProcessMarkerPattern = /^\s*\[AgentDock]\s+进程已退出（exit code [^)]+），会话已结束.*$/;
+const grokShortcutChromePattern =
+  /Ctrl\+x:shortcuts|Space:prompt|Ctrl\+o:always-approve|Ctrl\+c:cancel\d{4,}/i;
+const mostlyBoxDrawingPattern = /^[\s┌┐└┘─│├┤┬┴┼╭╮╰╯━┃═║╔╗╚╝╠╣╦╩╬▀▄█▌▐░▒▓╱╲╳]+$/;
+const boxDrawingCharPattern = /[┌┐└┘─│├┤┬┴┼╭╮╰╯━┃═║╔╗╚╝╠╣╦╩╬]/g;
 
 function collapseCarriageReturnRedraws(data: string): string {
   return data
@@ -63,6 +67,41 @@ function collapseBlankLines(lines: string[]): string[] {
   return collapsedLines;
 }
 
+
+function isMostlyBoxDrawingLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (mostlyBoxDrawingPattern.test(trimmed) || boxDrawingOnlyPattern.test(line)) {
+    return true;
+  }
+  const boxCount = (trimmed.match(boxDrawingCharPattern) ?? []).length;
+  return boxCount >= 8 && boxCount / trimmed.length >= 0.45;
+}
+
+function isGrokUiChromeLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (grokShortcutChromePattern.test(trimmed)) {
+    return true;
+  }
+  if (isMostlyBoxDrawingLine(trimmed)) {
+    return true;
+  }
+  // Fragmented redraw rows often mix box edges with sparse text.
+  const boxCount = (trimmed.match(boxDrawingCharPattern) ?? []).length;
+  if (boxCount >= 6 && trimmed.length > 40) {
+    const textish = trimmed.replace(boxDrawingCharPattern, '').replace(/\s+/g, '');
+    if (textish.length > 0 && textish.length / trimmed.length < 0.35) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Produces the user-facing transcript for exited sessions without modifying the
  * raw persisted terminal history used for recovery and diagnostics.
@@ -105,6 +144,7 @@ export function readableSessionHistory(data: string): string {
 
     if (
       boxDrawingOnlyPattern.test(line) ||
+      isGrokUiChromeLine(line) ||
       terminalCharacterSetArtifactPattern.test(line) ||
       codexStartupHeadingPattern.test(line) ||
       codexStartupFieldPattern.test(line) ||

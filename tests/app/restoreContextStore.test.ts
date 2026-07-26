@@ -89,11 +89,12 @@ describe('restoreContextStore', () => {
           command: `OPENAI_API_KEY=${fakeCommandKey} claude`,
         },
         summaryMarkdown: '# AgentDock Session Summary\n\n## Current Goal\n修复 AgentDock 会话恢复。',
+        clearRecordText: '   ',
         transcriptTail: `OPENAI_API_KEY=${fakeTranscriptKey}\n用户确认采用分层记忆恢复。`,
       });
 
       expect(result.status).toBe('loaded');
-      expect(result.summary).toBe('记忆已恢复：修复 AgentDock 会话恢复。');
+      expect(result.summary).toBe('记忆已恢复');
       expect(result.contextFile).toBe(path.join(workspacePath, '.agentdock/context/restores/session-w1-12.md'));
       expect(result.instruction).toContain('The restored memory is embedded below. Do not claim that you cannot access the file.');
       expect(result.instruction).toContain(`Source file: ${result.contextFile}`);
@@ -155,11 +156,35 @@ describe('restoreContextStore', () => {
     }
   });
 
+  it('uses a trusted clear record without embedding transcript fallback text', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-restore-clear-record-'));
+    try {
+      const store = createRestoreContextStore();
+      const result = await store.writeRestoreContext({
+        workspacePath: tempDir,
+        session,
+        summaryMarkdown: '已确认恢复清晰记录。',
+        clearRecordText: '用户：继续 Task 6。\nAgent：正在接入恢复优先级。',
+        transcriptTail: 'TRANSCRIPT-FALLBACK-MUST-STAY-HIDDEN',
+      });
+
+      const content = await readFile(result.contextFile as string, 'utf-8');
+      expect(result.summary).toBe('记忆已恢复');
+      expect(content).toContain('## Trusted Session Record');
+      expect(content).toContain('用户：继续 Task 6。');
+      expect(content).not.toContain('TRANSCRIPT-FALLBACK-MUST-STAY-HIDDEN');
+      expect(result.instruction).toContain('用户：继续 Task 6。');
+      expect(result.instruction).not.toContain('TRANSCRIPT-FALLBACK-MUST-STAY-HIDDEN');
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('builds one-sentence summaries deterministically', () => {
     expect(summarizeRestoreMemory({
       summaryMarkdown: '# AgentDock Session Summary\n\n## Current Goal\n整理分层记忆恢复设计。\n\n## Next Steps\n实现短指令注入。',
       transcriptTail: '用户要求摘要只用一句话。',
-    })).toBe('记忆已恢复：整理分层记忆恢复设计；实现短指令注入。');
+    })).toBe('记忆已恢复');
   });
 
   it('uses a generic short restore summary when only transcript tail exists', () => {
@@ -169,7 +194,7 @@ describe('restoreContextStore', () => {
         'diff --git a/tests/app/TerminalPane.test.tsx b/tests/app/TerminalPane.test.tsx',
         '用户刚刚说明恢复内容太长。',
       ].join('\n'),
-    })).toBe('记忆已恢复：已加载最近会话背景，等待你的下一步指令。');
+    })).toBe('记忆已恢复');
   });
 
   it('embeds restored memory so recovery does not depend on filesystem tool access', () => {

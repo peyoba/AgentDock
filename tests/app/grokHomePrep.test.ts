@@ -35,6 +35,8 @@ describe('prepareGrokHome', () => {
     expect(config).toContain('default = "grok-build"');
     expect(config).toContain('[terminal]');
     expect(config).toContain('alt_screen = "never"');
+    expect(config).toContain('[ui]');
+    expect(config).toContain('screen_mode = "minimal"');
     expect(config.toLowerCase()).not.toContain('xai-');
     expect(config.toLowerCase()).not.toContain('api_key');
   });

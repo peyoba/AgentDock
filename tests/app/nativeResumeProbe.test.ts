@@ -74,8 +74,8 @@ describe('nativeResumeProbe', () => {
   });
 
   it('builds Grok continue and resume commands', () => {
-    expect(buildGrokContinueCommand()).toBe('grok --no-alt-screen --continue');
-    expect(buildGrokResumeCommand('sess-123')).toBe('grok --no-alt-screen --resume sess-123');
+    expect(buildGrokContinueCommand()).toBe('grok --no-alt-screen --minimal --continue');
+    expect(buildGrokResumeCommand('sess-123')).toBe('grok --no-alt-screen --minimal --resume sess-123');
   });
 
   it('resolves Grok native resume metadata from home/session hints', () => {
@@ -89,7 +89,7 @@ describe('nativeResumeProbe', () => {
       tool: 'grok',
       status: 'verified',
       sessionId: 'sess-123',
-      resumeCommand: 'grok --no-alt-screen --resume sess-123',
+      resumeCommand: 'grok --no-alt-screen --minimal --resume sess-123',
       checkedAt: '2026-07-19T00:00:00.000Z',
     });
 

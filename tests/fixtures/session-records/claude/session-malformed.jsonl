@@ -1,0 +1,4 @@
+{"type":"user","sessionId":"claude-malformed","uuid":"claude-malformed-user","sequence":1,"timestamp":"2026-07-25T08:10:01.000Z","cwd":"__WORKSPACE__","message":{"role":"user","content":"损坏前的可信消息"}}
+{"type":"assistant","sessionId":"claude-malformed","uuid":"broken","message":{"role":"assistant","content":"fixture-secret-value"
+{"type":"progress","sessionId":"claude-malformed","sequence":3,"timestamp":"2026-07-25T08:10:03.000Z","data":"Working fixture-secret-value"}
+{"type":"unknown","sessionId":"claude-malformed","sequence":4,"timestamp":"2026-07-25T08:10:04.000Z","raw":"fixture-secret-value"}

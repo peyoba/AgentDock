@@ -194,19 +194,21 @@ describe('sessionService', () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-cancel-restore-kill-'));
     const fixture = await createPendingClaudeRestore(tempDir);
     try {
+      const restarted = await fixture.restartPromise;
+      expect(restarted.status).toBe('running');
       await fixture.service.killTerminal({ sessionId: fixture.session.id });
       fixture.runtime.dataHandlers.get(fixture.session.id)?.('╭─── Claude Code v-test\n❯ ');
-      const restarted = await fixture.restartPromise;
 
       expect(fixture.runtime.writes).toEqual([]);
-      expect(restarted.memoryRestore?.status).not.toBe('loaded');
-      await expect(fixture.service.list()).resolves.toEqual([
-        expect.objectContaining({
-          id: fixture.session.id,
-          status: 'stopped',
-          memoryRestore: expect.not.objectContaining({ status: 'loaded' }),
-        }),
-      ]);
+      await vi.waitFor(async () => {
+        await expect(fixture.service.list()).resolves.toEqual([
+          expect.objectContaining({
+            id: fixture.session.id,
+            status: 'stopped',
+            memoryRestore: expect.not.objectContaining({ status: 'loaded' }),
+          }),
+        ]);
+      });
     } finally {
       await fixture.service.dispose();
       await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
@@ -236,15 +238,17 @@ describe('sessionService', () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'agentdock-cancel-restore-dispose-'));
     const fixture = await createPendingClaudeRestore(tempDir);
     try {
+      const restarted = await fixture.restartPromise.catch(() => undefined);
+      expect(restarted?.status).toBe('running');
       await fixture.service.dispose();
       fixture.runtime.dataHandlers.get(fixture.session.id)?.('╭─── Claude Code v-test\n❯ ');
-      const restarted = await fixture.restartPromise.catch(() => undefined);
 
       expect(fixture.runtime.writes).toEqual([]);
-      expect(restarted?.memoryRestore?.status).not.toBe('loaded');
-      expect((await fixture.service.list()).every(
-        (session) => session.memoryRestore?.status !== 'loaded',
-      )).toBe(true);
+      await vi.waitFor(async () => {
+        expect((await fixture.service.list()).every(
+          (session) => session.memoryRestore?.status !== 'loaded',
+        )).toBe(true);
+      });
     } finally {
       await fixture.service.dispose();
       await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
@@ -328,6 +332,15 @@ describe('sessionService', () => {
       releaseDeferredSave?.();
       restarted = await restartPromise;
       await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(unhandledWhileMetadataPending).toEqual([]);
+      // 注入失败在后台落态：等待会话列表反映 failed，而不是阻塞 restart 返回。
+      await vi.waitFor(async () => {
+        const listed = await service.list();
+        expect(listed.find((item) => item.id === restarted?.id)?.memoryRestore).toMatchObject({
+          status: 'failed',
+          summary: '记忆恢复失败',
+        });
+      });
     } finally {
       releaseDeferredSave?.();
       await restartPromise?.catch(() => undefined);
@@ -340,9 +353,6 @@ describe('sessionService', () => {
       await service.dispose();
       await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     }
-
-    expect(unhandledWhileMetadataPending).toEqual([]);
-    expect(restarted?.memoryRestore).toMatchObject({ status: 'failed' });
   });
 
   it('launches compatible Codex with a per-session loopback secret and keeps the real model in metadata', async () => {
@@ -874,9 +884,10 @@ describe('sessionService', () => {
       expect(restartSpawn?.command).not.toContain('<agentdock-restored-memory>');
       expect(runtime.writes).toEqual([]);
 
-      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
       const restartedSession = await restartPromise;
-      expect(runtime.writes).toHaveLength(1);
+      expect(runtime.writes).toEqual([]);
+      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
+      await vi.waitFor(() => expect(runtime.writes).toHaveLength(1));
       expect(runtime.writes[0]).toMatchObject({ sessionId: 'session-1' });
       expect(runtime.writes[0].input).toContain('<agentdock-restored-memory>');
       expect(runtime.writes[0].input).toContain('previous terminal output');
@@ -895,7 +906,7 @@ describe('sessionService', () => {
         startedAt: '2026-07-01T00:00:00.000Z',
         memoryRestore: {
           status: 'loaded',
-          summary: '记忆已恢复：已加载最近会话背景，等待你的下一步指令。',
+          summary: '记忆已恢复',
           contextFile: path.join(tempDir, '.agentdock/context/restores/session-1.md'),
         },
       });
@@ -965,7 +976,7 @@ describe('sessionService', () => {
       expect(restarted.memoryRestore).toMatchObject({
         method: 'native',
         status: 'loaded',
-        summary: '原生恢复已验证：使用 Claude 会话 ID 恢复。',
+        summary: '记忆已恢复',
       });
       await expect(
         readFile(path.join(tempDir, '.agentdock/context/restores/session-native.md'), 'utf-8'),
@@ -1075,12 +1086,13 @@ describe('sessionService', () => {
       expect(restartSpawn?.command).not.toContain('--append-system-prompt');
       expect(restartSpawn?.command).not.toContain('recent output');
       expect(runtime.writes).toEqual([]);
-      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
       const restarted = await restartPromise;
-      expect(runtime.writes).toHaveLength(1);
+      expect(runtime.writes).toEqual([]);
+      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
+      await vi.waitFor(() => expect(runtime.writes).toHaveLength(1));
       expect(runtime.writes[0].input).toContain('recent output');
       expect(runtime.writes[0].input).not.toContain(fakeOpenAiKey);
-      expect(restarted.memoryRestore?.summary).toBe('记忆已恢复：已加载最近会话背景，等待你的下一步指令。');
+      expect(restarted.memoryRestore?.summary).toBe('记忆已恢复');
       await expect(readFile(restoreContextFile, 'utf-8'))
         .resolves.toContain('recent output');
       await expect(readFile(restoreContextFile, 'utf-8'))
@@ -1142,12 +1154,13 @@ describe('sessionService', () => {
       expect(restartSpawn?.command).toBe('claude --resume c4bf-b857');
       expect(restartSpawn?.command).not.toContain('用户确认：重启前的最近对话必须传给新 Agent。');
       expect(runtime.writes).toEqual([]);
-      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
       const restarted = await restartPromise;
-      expect(runtime.writes).toHaveLength(1);
+      expect(runtime.writes).toEqual([]);
+      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
+      await vi.waitFor(() => expect(runtime.writes).toHaveLength(1));
       expect(runtime.writes[0].input).toContain('用户确认：重启前的最近对话必须传给新 Agent。');
       expect(runtime.writes[0].input).not.toContain('\u001b');
-      expect(restarted.memoryRestore?.summary).toBe('记忆已恢复：已加载最近会话背景，等待你的下一步指令。');
+      expect(restarted.memoryRestore?.summary).toBe('记忆已恢复');
       const restoreContext = await readFile(restoreContextFile, 'utf-8');
       expect(restoreContext).toContain('用户确认：重启前的最近对话必须传给新 Agent。');
       expect(restoreContext).toContain('> 你好');
@@ -1206,13 +1219,14 @@ describe('sessionService', () => {
       expect(restartSpawn?.command).toBe('claude --resume c4bf-b857');
       expect(restartSpawn?.command).not.toContain('用户确认：恢复摘要只显示一句话');
       expect(runtime.writes).toEqual([]);
-      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
       const restarted = await restartPromise;
-      expect(runtime.writes).toHaveLength(1);
+      expect(runtime.writes).toEqual([]);
+      runtime.dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
+      await vi.waitFor(() => expect(runtime.writes).toHaveLength(1));
       expect(runtime.writes[0].input).toContain('用户确认：恢复摘要只显示一句话');
       expect(restarted.memoryRestore).toMatchObject({
         status: 'loaded',
-        summary: '记忆已恢复：已加载最近会话背景，等待你的下一步指令。',
+        summary: '记忆已恢复',
         contextFile: restoreContextFile,
       });
       await expect(readFile(restoreContextFile, 'utf-8'))
@@ -1270,9 +1284,10 @@ describe('sessionService', () => {
       expect(restartSpawn?.command).not.toContain('用户确认：Codex 恢复不能写入输入框。');
       expect(runtime.writes).toEqual([]);
 
-      runtime.dataHandlers.get(session.id)?.('╭─ >_ OpenAI Codex\n› ');
       await restartPromise;
-      expect(runtime.writes).toHaveLength(1);
+      expect(runtime.writes).toEqual([]);
+      runtime.dataHandlers.get(session.id)?.('╭─ >_ OpenAI Codex\n› ');
+      await vi.waitFor(() => expect(runtime.writes).toHaveLength(1));
       expect(runtime.writes[0].input).toContain('<agentdock-restored-memory>');
       expect(runtime.writes[0].input).toContain('用户确认：Codex 恢复不能写入输入框。');
       expect(runtime.writes[0].input).toMatch(/\r$/);

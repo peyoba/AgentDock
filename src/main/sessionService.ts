@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type {
   AgentSession,
@@ -13,6 +14,7 @@ import type {
   SessionHistoryArchiveRequest,
   SessionHistoryArchiveResult,
   SessionRecordRequest,
+  SessionRecordSnapshot,
   SessionSummaryRequest,
   SessionSummaryResult,
   TerminalBufferRequest,
@@ -22,7 +24,10 @@ import type {
   TerminalWriteRequest,
   Workspace,
 } from '../shared/agentdockTypes.js';
-import { isLocalShellCommand } from '../shared/sessionCommands.js';
+import {
+  isLocalShellCommand,
+  withGrokScrollbackFriendlyFlags,
+} from '../shared/sessionCommands.js';
 import type { KeychainAdapter } from './adapters/keychainAdapter.js';
 import { createUnavailableKeychainAdapter } from './adapters/keychainAdapter.js';
 import type { PtyAdapter, PtySession } from './adapters/ptyAdapter.js';
@@ -66,6 +71,10 @@ import {
 } from './launchEnvironment.js';
 import { prepareGrokHome } from './grokHomePrep.js';
 import type {
+  SessionRecordFinalSyncReason,
+  SessionRecordSyncService,
+} from './sessionRecordSyncService.js';
+import type {
   WorkspaceContextFiles,
   WorkspaceContextStore,
 } from './workspaceContextStore.js';
@@ -106,10 +115,23 @@ type CodexToolCompatibilityProxyFactory = (
   input: StartCodexToolCompatibilityProxyInput,
 ) => Promise<CodexToolCompatibilityProxyInstance>;
 
+export type RuntimeOwnerMutationLease = Readonly<{
+  sessionId: string;
+}>;
+
 export type RuntimeOwnerRegistry = {
-  claim(sessionId: string, owner: RuntimeOwner): boolean;
+  claim(
+    sessionId: string,
+    owner: RuntimeOwner,
+    mutationLease?: RuntimeOwnerMutationLease,
+  ): boolean;
   get(sessionId: string): RuntimeOwner | undefined;
   release(sessionId: string, ownerId: string): void;
+  acquireMutationLease(
+    sessionId: string,
+    ownerId: string,
+  ): RuntimeOwnerMutationLease | undefined;
+  releaseMutationLease(mutationLease: RuntimeOwnerMutationLease): void;
 };
 
 type CreateSessionServiceOptions = {
@@ -136,18 +158,20 @@ type CreateSessionServiceOptions = {
   summaryJob?: SummaryJobDelegate;
   startClaudeCompatProxy?: ClaudeCompatProxyFactory;
   startCodexToolCompatibilityProxy?: CodexToolCompatibilityProxyFactory;
+  recordSync?: SessionRecordSyncService;
 };
 
 type NormalizedSessionServiceOptions = Required<
   Omit<
     CreateSessionServiceOptions,
-    'workspaceExists' | 'workspaceContext' | 'historyStore' | 'summaryJob'
+    'workspaceExists' | 'workspaceContext' | 'historyStore' | 'summaryJob' | 'recordSync'
   >
 > & {
   workspaceExists?: (workspacePath: string) => boolean;
   workspaceContext?: WorkspaceContextStore;
   historyStore?: SessionHistoryStore;
   summaryJob?: SummaryJobDelegate;
+  recordSync: SessionRecordSyncService;
 };
 
 type TerminalOutputListener = (event: TerminalOutputEvent) => void;
@@ -177,11 +201,60 @@ const MAX_TERMINAL_BUFFER_LENGTH = 5_000_000;
 
 const defaultClock: Clock = { now: () => new Date() };
 
+function unavailableRecordSnapshot(sessionId: string): SessionRecordSnapshot {
+  return {
+    sessionId,
+    status: 'unavailable',
+    events: [],
+    eventCount: 0,
+    truncated: false,
+    hasMore: false,
+  };
+}
+
+const unavailableSessionRecordSync: SessionRecordSyncService = {
+  async bind() {},
+  async appendStatus() {},
+  schedule() {},
+  async syncNow(sessionId) { return unavailableRecordSnapshot(sessionId); },
+  async finalSync(sessionId) { return unavailableRecordSnapshot(sessionId); },
+  async getSnapshot(sessionId) { return unavailableRecordSnapshot(sessionId); },
+  async buildRestoreMaterial() { return undefined; },
+  async deleteSession() {},
+  async dispose() {},
+};
+
+function sessionRecordRunId(sessionId: string, startedAt: string): string {
+  const digest = createHash('sha256')
+    .update(`${sessionId}\0${startedAt}`, 'utf8')
+    .digest('hex');
+  return `run-${digest}`;
+}
+
+function memoryRestoreSummary(status: RestoreContextResult['status']): string {
+  if (status === 'loaded') return '记忆已恢复';
+  if (status === 'empty') return '未找到可恢复记忆';
+  return '记忆恢复失败';
+}
+
 export function createRuntimeOwnerRegistry(): RuntimeOwnerRegistry {
   const owners = new Map<string, RuntimeOwner>();
+  const mutationLeases = new Map<string, RuntimeOwnerMutationLease>();
 
   return {
-    claim(sessionId: string, owner: RuntimeOwner): boolean {
+    claim(
+      sessionId: string,
+      owner: RuntimeOwner,
+      mutationLease?: RuntimeOwnerMutationLease,
+    ): boolean {
+      const activeMutationLease = mutationLeases.get(sessionId);
+      if (
+        mutationLease
+          ? activeMutationLease !== mutationLease
+          : activeMutationLease !== undefined
+      ) {
+        return false;
+      }
       const existingOwner = owners.get(sessionId);
       if (existingOwner && existingOwner.ownerId !== owner.ownerId) {
         return false;
@@ -199,6 +272,28 @@ export function createRuntimeOwnerRegistry(): RuntimeOwnerRegistry {
     release(sessionId: string, ownerId: string): void {
       if (owners.get(sessionId)?.ownerId === ownerId) {
         owners.delete(sessionId);
+      }
+    },
+
+    acquireMutationLease(
+      sessionId: string,
+      ownerId: string,
+    ): RuntimeOwnerMutationLease | undefined {
+      if (mutationLeases.has(sessionId)) {
+        return undefined;
+      }
+      const activeOwner = owners.get(sessionId);
+      if (activeOwner && activeOwner.ownerId !== ownerId) {
+        return undefined;
+      }
+      const mutationLease = Object.freeze({ sessionId });
+      mutationLeases.set(sessionId, mutationLease);
+      return mutationLease;
+    },
+
+    releaseMutationLease(mutationLease: RuntimeOwnerMutationLease): void {
+      if (mutationLeases.get(mutationLease.sessionId) === mutationLease) {
+        mutationLeases.delete(mutationLease.sessionId);
       }
     },
   };
@@ -458,6 +553,7 @@ function normalizeOptions(
       summaryJob: undefined,
       startClaudeCompatProxy: startDefaultClaudeCompatProxy,
       startCodexToolCompatibilityProxy: startDefaultCodexToolCompatibilityProxy,
+      recordSync: unavailableSessionRecordSync,
     };
   }
 
@@ -493,6 +589,7 @@ function normalizeOptions(
     startClaudeCompatProxy: options.startClaudeCompatProxy ?? startDefaultClaudeCompatProxy,
     startCodexToolCompatibilityProxy:
       options.startCodexToolCompatibilityProxy ?? startDefaultCodexToolCompatibilityProxy,
+    recordSync: options.recordSync ?? unavailableSessionRecordSync,
   };
 }
 
@@ -532,7 +629,7 @@ function safeResumeCommand(command: string | undefined, tool: 'claude' | 'codex'
 function nativeResumeCommandForSession(
   session: AgentSession,
   profile: ApiProfile,
-): { command: string; summary: string } | undefined {
+): { command: string } | undefined {
   const nativeResume = session.nativeResume;
   if (
     !nativeResume ||
@@ -544,15 +641,7 @@ function nativeResumeCommandForSession(
 
   const explicitCommand = safeResumeCommand(nativeResume.resumeCommand, nativeResume.tool);
   if (explicitCommand) {
-    return {
-      command: explicitCommand,
-      summary:
-        nativeResume.tool === 'claude'
-          ? '原生恢复已验证：使用 Claude 会话 ID 恢复。'
-          : nativeResume.tool === 'codex'
-            ? '原生恢复已验证：使用 Codex thread id 恢复。'
-            : '原生恢复已验证：使用 Grok session id 恢复。',
-    };
+    return { command: explicitCommand };
   }
 
   const sessionId = nativeResume.sessionId?.trim();
@@ -561,23 +650,14 @@ function nativeResumeCommandForSession(
   }
 
   if (nativeResume.tool === 'claude') {
-    return {
-      command: `claude --resume ${sessionId}`,
-      summary: '原生恢复已验证：使用 Claude 会话 ID 恢复。',
-    };
+    return { command: `claude --resume ${sessionId}` };
   }
 
   if (nativeResume.tool === 'grok') {
-    return {
-      command: `grok --no-alt-screen --resume ${sessionId}`,
-      summary: '原生恢复已验证：使用 Grok session id 恢复。',
-    };
+    return { command: `grok --no-alt-screen --minimal --resume ${sessionId}` };
   }
 
-  return {
-    command: `codex resume ${sessionId}`,
-    summary: '原生恢复已验证：使用 Codex thread id 恢复。',
-  };
+  return { command: `codex resume ${sessionId}` };
 }
 
 function assertSessionCommandHasNoSensitiveValues(command: string): void {
@@ -627,6 +707,7 @@ export function createSessionService(
     summaryJob,
     startClaudeCompatProxy,
     startCodexToolCompatibilityProxy,
+    recordSync,
   } = normalizeOptions(optionsOrClock);
   const sessions: AgentSession[] = [];
   const ptySessions = new Map<string, PtySession>();
@@ -643,6 +724,10 @@ export function createSessionService(
   const pendingWorkspaceOutput = new Map<string, string>();
   const workspaceOutputFlushes = new Map<string, Promise<void>>();
   const sessionLifecycleFinalizations = new Map<string, Promise<void>>();
+  const activeSessionRunTokens = new Map<string, object>();
+  const cancelledRestoreSessionIds = new Set<string>();
+  const lastBoundSessionRecordRunIds = new Map<string, string>();
+  const activeBoundSessionRecordRunIds = new Map<string, string>();
   const initialPromptInjectors = new Map<
     string,
     ReturnType<typeof createInitialPromptInjector>
@@ -654,8 +739,202 @@ export function createSessionService(
   const sessionChangedListeners = new Set<SessionChangedListener>();
   let historyLoadPromise: Promise<void> | undefined;
 
+  const recordBindingForLaunch = ({
+    session,
+    profile,
+    workspace,
+    command,
+    env,
+    startedAt,
+  }: {
+    session: AgentSession;
+    profile: ApiProfile;
+    workspace: Workspace;
+    command: string;
+    env: Record<string, string>;
+    startedAt: string;
+  }): Parameters<SessionRecordSyncService['bind']>[0] | undefined => {
+    if (isLocalShellCommand(command)) return undefined;
+    const recordHome = profile.toolType === 'claude'
+      ? path.join(homeDir, '.claude')
+      : profile.toolType === 'codex'
+        ? env.CODEX_HOME
+        : profile.toolType === 'grok'
+          ? env.GROK_HOME
+          : undefined;
+    if (!recordHome || (
+      profile.toolType !== 'claude'
+      && profile.toolType !== 'codex'
+      && profile.toolType !== 'grok'
+    )) {
+      return undefined;
+    }
+    const runId = sessionRecordRunId(session.id, startedAt);
+    return {
+      sessionId: session.id,
+      runId,
+      source: profile.toolType,
+      workspacePath: workspace.path,
+      recordHome,
+      startedAt,
+    };
+  };
+
+  const bindSessionRecord = async (
+    binding: Parameters<SessionRecordSyncService['bind']>[0],
+  ): Promise<boolean> => {
+    try {
+      await recordSync.bind(binding);
+      return true;
+    } catch {
+      console.error('[session-record] 会话记录绑定失败');
+      return false;
+    }
+  };
+
+  const appendSessionRecordStatus = async (
+    input: Parameters<SessionRecordSyncService['appendStatus']>[0],
+  ): Promise<boolean> => {
+    try {
+      await recordSync.appendStatus(input);
+      return true;
+    } catch {
+      console.error('[session-record] 会话状态记录失败');
+      return false;
+    }
+  };
+
+  const syncLaunchedSessionRecord = (
+    binding: Parameters<SessionRecordSyncService['bind']>[0],
+  ): void => {
+    void appendSessionRecordStatus({
+      sessionId: binding.sessionId,
+      runId: binding.runId,
+      code: 'started',
+      occurredAt: binding.startedAt,
+    }).then((appended) => {
+      if (
+        !appended
+        || activeBoundSessionRecordRunIds.get(binding.sessionId) !== binding.runId
+        || !ptySessions.has(binding.sessionId)
+      ) {
+        return undefined;
+      }
+      return recordSync.syncNow(binding.sessionId, 'launch').catch(() => {
+        console.error('[session-record] 会话记录启动同步失败');
+        return undefined;
+      });
+    });
+  };
+
+  const appendRestoredSessionRecordStatus = async (sessionId: string): Promise<void> => {
+    const runId = activeBoundSessionRecordRunIds.get(sessionId);
+    if (!runId) return;
+    await appendSessionRecordStatus({
+      sessionId,
+      runId,
+      code: 'restored',
+      text: undefined,
+      occurredAt: clock.now().toISOString(),
+    });
+  };
+
+  const scheduleSessionRecordSync = (sessionId: string): void => {
+    try {
+      recordSync.schedule(sessionId, 'pty-output');
+    } catch {
+      console.error('[session-record] 会话记录同步调度失败');
+    }
+  };
+
+  const finalSyncBoundSessionRecord = async (
+    sessionId: string,
+    reason: SessionRecordFinalSyncReason,
+  ): Promise<void> => {
+    try {
+      await recordSync.finalSync(sessionId, reason);
+    } catch {
+      console.error('[session-record] 会话记录最终同步失败');
+    }
+  };
+
+  const finalSyncActiveSessionRecord = async (
+    sessionId: string,
+    reason: Exclude<SessionRecordFinalSyncReason, 'restart'>,
+  ): Promise<void> => {
+    const runId = activeBoundSessionRecordRunIds.get(sessionId);
+    if (!runId) return;
+    try {
+      await finalSyncBoundSessionRecord(sessionId, reason);
+    } finally {
+      if (activeBoundSessionRecordRunIds.get(sessionId) === runId) {
+        activeBoundSessionRecordRunIds.delete(sessionId);
+      }
+    }
+  };
+
+  const finalSyncPreviousSessionRecord = async (sessionId: string): Promise<void> => {
+    const runId = lastBoundSessionRecordRunIds.get(sessionId);
+    if (!runId) return;
+    try {
+      await finalSyncBoundSessionRecord(sessionId, 'restart');
+    } finally {
+      if (lastBoundSessionRecordRunIds.get(sessionId) === runId) {
+        lastBoundSessionRecordRunIds.delete(sessionId);
+      }
+      if (activeBoundSessionRecordRunIds.get(sessionId) === runId) {
+        activeBoundSessionRecordRunIds.delete(sessionId);
+      }
+    }
+  };
+
   const findSession = (sessionId: string): AgentSession | undefined =>
     sessions.find((session) => session.id === sessionId);
+
+  const markPendingRestoreCancelled = (sessionId: string): void => {
+    const session = findSession(sessionId);
+    if (
+      !session
+      || !initialPromptInjectors.has(sessionId)
+    ) {
+      return;
+    }
+    cancelledRestoreSessionIds.add(sessionId);
+    if (session.memoryRestore?.status === 'loaded') {
+      session.memoryRestore = {
+        method: 'none',
+        status: 'failed',
+        summary: '记忆恢复失败',
+        contextFile: session.memoryRestore.contextFile,
+      };
+    }
+  };
+
+  const withSessionMutationLease = async <Value>(
+    sessionId: string,
+    mutation: (mutationLease: RuntimeOwnerMutationLease) => Promise<Value>,
+    { allowPendingDeletion = false }: { allowPendingDeletion?: boolean } = {},
+  ): Promise<Value> => {
+    await sessionLifecycleFinalizations.get(sessionId)?.catch(() => undefined);
+    const mutationLease = runtimeOwnerRegistry.acquireMutationLease(
+      sessionId,
+      runtimeOwnerId,
+    );
+    if (!mutationLease) {
+      throw new Error('该会话正在另一窗口运行');
+    }
+    try {
+      if (
+        !allowPendingDeletion
+        && await historyStore?.hasPendingDeletion?.(sessionId)
+      ) {
+        throw new Error('该会话正在等待删除完成');
+      }
+      return await mutation(mutationLease);
+    } finally {
+      runtimeOwnerRegistry.releaseMutationLease(mutationLease);
+    }
+  };
 
   const closeClaudeCompatProxy = async (sessionId: string): Promise<void> => {
     const proxy = claudeCompatProxies.get(sessionId);
@@ -699,13 +978,34 @@ export function createSessionService(
 
   const loadHistory = (): Promise<void> => {
     // 缓存同一个 Promise，避免并发调用在首次加载完成前拿到空的 sessions 列表。
+    // 失败时重置缓存：一次磁盘异常不应让本窗口的会话面板永久不可用。
     historyLoadPromise ??= (async () => {
       if (!restoreHistory) {
         return;
       }
 
+      let pendingDeletionIds: string[] = [];
+      try {
+        pendingDeletionIds = await historyStore?.listPendingDeletionIds?.() ?? [];
+      } catch {
+        console.error('[session-lifecycle] 待删除会话清单读取失败，跳过启动恢复');
+      }
+      for (const sessionId of pendingDeletionIds) {
+        try {
+          await recordSync.deleteSession(sessionId);
+          await historyStore?.deleteRecord(sessionId);
+          await historyStore?.completeDeletion?.(sessionId);
+        } catch {
+          console.error('[session-lifecycle] 待完成的会话删除恢复失败');
+        }
+      }
+
       const persistedSessions = await historyStore?.listSessions() ?? [];
       for (const persistedSession of persistedSessions) {
+        // 上一次失败的加载可能已推入部分会话；重试时跳过已存在的行。
+        if (sessions.some((existing) => existing.id === persistedSession.id)) {
+          continue;
+        }
         const session = { ...persistedSession };
         const redactedCommand = redactCommandSecrets(session.command);
         if (redactedCommand !== session.command) {
@@ -727,7 +1027,11 @@ export function createSessionService(
         terminalBuffers.set(session.id, await historyStore?.readBuffer(session.id) ?? '');
       }
     })();
-    return historyLoadPromise;
+    const current = historyLoadPromise;
+    current.catch(() => {
+      if (historyLoadPromise === current) historyLoadPromise = undefined;
+    });
+    return current;
   };
 
   const requirePtySession = (sessionId: string): PtySession => {
@@ -966,6 +1270,8 @@ export function createSessionService(
     sessionCommand,
     resumeCommand,
     resetTerminalBuffer = false,
+    onInitialPromptSettled,
+    mutationLease,
   }: {
     session: AgentSession;
     profile: ApiProfile;
@@ -977,9 +1283,20 @@ export function createSessionService(
     sessionCommand?: string;
     resumeCommand?: string;
     resetTerminalBuffer?: boolean;
+    onInitialPromptSettled?: (error?: string) => void | Promise<void>;
+    mutationLease?: RuntimeOwnerMutationLease;
   }): Promise<{ session: AgentSession; initialPromptError?: string }> => {
     assertSessionCommandHasNoSensitiveValues(command);
     ensureWorkspaceAvailable(workspace);
+    if (profile.toolType === 'grok' && !isLocalShellCommand(command)) {
+      command = withGrokScrollbackFriendlyFlags(command);
+      if (sessionCommand) {
+        sessionCommand = withGrokScrollbackFriendlyFlags(sessionCommand);
+      }
+      if (resumeCommand) {
+        resumeCommand = withGrokScrollbackFriendlyFlags(resumeCommand);
+      }
+    }
     if (ptySessions.has(session.id)) {
       throw new Error('会话仍在运行，无法重启');
     }
@@ -987,9 +1304,12 @@ export function createSessionService(
     await closeCodexCompatibilityProxy(session.id);
     const startedAt = clock.now().toISOString();
     const owner: RuntimeOwner = { ownerId: runtimeOwnerId, startedAt };
-    if (!runtimeOwnerRegistry.claim(session.id, owner)) {
+    if (!runtimeOwnerRegistry.claim(session.id, owner, mutationLease)) {
       throw new Error('该会话正在另一窗口运行');
     }
+    const runToken = Object.freeze({ sessionId: session.id, startedAt });
+    activeSessionRunTokens.set(session.id, runToken);
+    cancelledRestoreSessionIds.delete(session.id);
 
     const effectiveClaudeLaunchMode =
       profile.toolType === 'claude' && !isLocalShellCommand(command)
@@ -1175,6 +1495,19 @@ export function createSessionService(
         }
       }
 
+      const recordBinding = recordBindingForLaunch({
+        session,
+        profile,
+        workspace,
+        command,
+        env,
+        startedAt,
+      });
+      activeBoundSessionRecordRunIds.delete(session.id);
+      const recordBound = recordBinding
+        ? await bindSessionRecord(recordBinding)
+        : false;
+
       if (resetTerminalBuffer) {
         terminalBuffers.set(session.id, '');
       }
@@ -1187,11 +1520,21 @@ export function createSessionService(
       });
 
       ptySessions.set(session.id, ptySession);
+      if (recordBinding && recordBound) {
+        lastBoundSessionRecordRunIds.set(session.id, recordBinding.runId);
+        activeBoundSessionRecordRunIds.set(session.id, recordBinding.runId);
+      }
       let initialPromptInjector: ReturnType<typeof createInitialPromptInjector> | undefined;
       let initialPromptOutcome: Promise<{ error?: string }> | undefined;
       let pendingInitialOutput = '';
       let exitedBeforeInitialPromptInjector = false;
       const unsubscribeData = ptySession.onData((data) => {
+        if (
+          recordBinding
+          && activeBoundSessionRecordRunIds.get(session.id) === recordBinding.runId
+        ) {
+          scheduleSessionRecordSync(session.id);
+        }
         if (initialPromptInjector) {
           initialPromptInjector.acceptOutput(data);
         } else {
@@ -1209,6 +1552,7 @@ export function createSessionService(
         );
       });
       const unsubscribeExit = ptySession.onExit?.((event) => {
+        markPendingRestoreCancelled(session.id);
         if (initialPromptInjector) {
           initialPromptInjector.exit();
         } else {
@@ -1218,11 +1562,14 @@ export function createSessionService(
         if (ptySessions.get(session.id) !== ptySession) {
           return;
         }
+        if (activeSessionRunTokens.get(session.id) !== runToken) {
+          return;
+        }
         ptyUnsubscribers.get(session.id)?.();
         ptyUnsubscribers.delete(session.id);
         ptySessions.delete(session.id);
+        activeSessionRunTokens.delete(session.id);
         session.status = 'exited';
-        runtimeOwnerRegistry.release(session.id, runtimeOwnerId);
         delete session.runtimeOwner;
         session.exitCode = event.exitCode;
         session.exitSignal = event.signal;
@@ -1246,13 +1593,24 @@ export function createSessionService(
           workspace,
           persistenceSanitizer.push(exitNotice),
         );
-        const finalization = Promise.all([
-          endPersistenceStream(session.id, workspace),
-          closeClaudeCompatProxy(session.id),
-          closeCodexCompatibilityProxy(session.id),
-        ]).then(async () => {
-          await saveSessionMetadata(session);
-        }).finally(() => {
+        const exitedSession = cloneSession(session);
+        const persistExitedSession = async (): Promise<void> => {
+          await Promise.all([
+            endPersistenceStream(session.id, workspace),
+            closeClaudeCompatProxy(session.id),
+            closeCodexCompatibilityProxy(session.id),
+          ]);
+          await saveSessionMetadata(exitedSession);
+        };
+        const finalization = (
+          recordSync === unavailableSessionRecordSync
+            ? persistExitedSession()
+            : (async () => {
+                await finalSyncActiveSessionRecord(session.id, 'exit');
+                await persistExitedSession();
+              })()
+        ).finally(() => {
+          runtimeOwnerRegistry.release(session.id, runtimeOwnerId);
           if (sessionLifecycleFinalizations.get(session.id) === finalization) {
             sessionLifecycleFinalizations.delete(session.id);
           }
@@ -1266,6 +1624,9 @@ export function createSessionService(
         unsubscribeData();
         unsubscribeExit?.();
       });
+      if (recordBinding && recordBound) {
+        syncLaunchedSessionRecord(recordBinding);
+      }
       if (
         initialPrompt?.trim() &&
         (profile.toolType === 'claude' || profile.toolType === 'codex' || profile.toolType === 'grok')
@@ -1295,24 +1656,45 @@ export function createSessionService(
         session.runtimeOwner = owner;
       }
       await saveSessionMetadata(session);
-      let initialPromptError: string | undefined;
+      // 先通知 UI 会话已可交互，不要被恢复提示注入的就绪等待卡住“启动中”。
+      publishSessionChanged(session);
       if (initialPromptInjector && initialPromptOutcome) {
-        try {
-          const outcome = await initialPromptOutcome;
-          initialPromptError = outcome.error;
-        } finally {
-          if (initialPromptInjectors.get(session.id) === initialPromptInjector) {
-            initialPromptInjectors.delete(session.id);
-          }
-        }
+        void initialPromptOutcome
+          .then(async (outcome) => {
+            if (initialPromptInjectors.get(session.id) === initialPromptInjector) {
+              initialPromptInjectors.delete(session.id);
+            }
+            if (activeSessionRunTokens.get(session.id) !== runToken) {
+              return;
+            }
+            if (onInitialPromptSettled) {
+              await onInitialPromptSettled(outcome.error);
+            }
+          })
+          .catch(async () => {
+            if (initialPromptInjectors.get(session.id) === initialPromptInjector) {
+              initialPromptInjectors.delete(session.id);
+            }
+            if (activeSessionRunTokens.get(session.id) !== runToken) {
+              return;
+            }
+            if (onInitialPromptSettled) {
+              await onInitialPromptSettled('Initial prompt injection failed');
+            }
+          });
       }
-      return { session: cloneSession(session), initialPromptError };
+      return { session: cloneSession(session) };
     } catch (error) {
       initialPromptInjectors.get(session.id)?.cancel();
       initialPromptInjectors.delete(session.id);
       persistenceSanitizers.get(session.id)?.end();
       persistenceSanitizers.delete(session.id);
       terminalDataTransformers.delete(session.id);
+      if (activeSessionRunTokens.get(session.id) === runToken) {
+        activeSessionRunTokens.delete(session.id);
+      }
+      activeBoundSessionRecordRunIds.delete(session.id);
+      lastBoundSessionRecordRunIds.delete(session.id);
       runtimeOwnerRegistry.release(session.id, runtimeOwnerId);
       await Promise.all([
         closeClaudeCompatProxy(session.id),
@@ -1331,7 +1713,7 @@ export function createSessionService(
   // 基于数组长度生成 ID 会在删除历史记录后复用已有编号，导致新旧会话互相覆盖；
   // 这里改为“不小于现存最大编号”的单调递增计数器。
   let sessionIdCounter = 0;
-  const nextSessionId = (): string => {
+  const nextSessionId = async (): Promise<string> => {
     const escapedPrefix = sessionIdPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const idPattern = new RegExp(`^session-${escapedPrefix}(\\d+)$`);
     for (const existingSession of sessions) {
@@ -1340,8 +1722,15 @@ export function createSessionService(
         sessionIdCounter = Math.max(sessionIdCounter, Number(match[1]));
       }
     }
-    sessionIdCounter += 1;
-    return `session-${sessionIdPrefix}${sessionIdCounter}`;
+    while (true) {
+      sessionIdCounter += 1;
+      const candidate = `session-${sessionIdPrefix}${sessionIdCounter}`;
+      // 删除日志可能在本次进程启动时无法完成。候选 ID 若仍带有删除意图，
+      // historyStore 会拒绝所有写入；跳过它，避免新 PTY 运行却无法持久化。
+      if (!await historyStore?.hasPendingDeletion?.(candidate)) {
+        return candidate;
+      }
+    }
   };
 
   async function restoreContextForRestart({
@@ -1360,8 +1749,10 @@ export function createSessionService(
     }
 
     try {
-      const transcriptTail =
-        terminalBuffers.get(session.id) ?? await historyStore?.readBuffer(session.id) ?? '';
+      const clearRecordText = await recordSync.buildRestoreMaterial(session.id);
+      const transcriptTail = clearRecordText === undefined
+        ? terminalBuffers.get(session.id) ?? await historyStore?.readBuffer(session.id) ?? ''
+        : '';
       const latestSummary = await sessionSummaryStore.readLatestSummary({
         workspacePath: workspace.path,
         sessionId: session.id,
@@ -1372,6 +1763,7 @@ export function createSessionService(
         workspacePath: workspace.path,
         session,
         summaryMarkdown,
+        clearRecordText,
         transcriptTail,
       });
     } catch (error) {
@@ -1380,7 +1772,7 @@ export function createSessionService(
       return {
         status: 'failed',
         summary: '记忆恢复失败',
-        error: error instanceof Error ? error.message : '未知错误',
+        error: redactSecrets(error instanceof Error ? error.message : '未知错误'),
       };
     }
   }
@@ -1397,7 +1789,7 @@ export function createSessionService(
       assertSessionCommandHasNoSensitiveValues(command);
       ensureWorkspaceAvailable(workspace);
       const session: AgentSession = {
-        id: nextSessionId(),
+        id: await nextSessionId(),
         title: `${profile.name} · ${workspace.name}`,
         profileId: profile.id,
         workspaceId: workspace.id,
@@ -1432,89 +1824,144 @@ export function createSessionService(
       if (!session) {
         throw new Error('未找到指定的终端会话');
       }
+      return withSessionMutationLease(sessionId, async (mutationLease) => {
+        const nextCommand = command ?? (
+          strategy === 'resume' ? session.resumeCommand : undefined
+        ) ?? session.command;
+        assertSessionCommandHasNoSensitiveValues(nextCommand);
+        await finalSyncPreviousSessionRecord(session.id);
+        const restartCodexLaunchMode =
+          profile.toolType === 'codex' && !isLocalShellCommand(nextCommand)
+            ? session.codexLaunchMode ?? 'native-responses'
+            : codexLaunchMode;
+        if (strategy === 'fresh') {
+          const started = await startSessionPty({
+            session,
+            profile,
+            workspace,
+            command: nextCommand,
+            claudeLaunchMode,
+            codexLaunchMode: restartCodexLaunchMode,
+            resetTerminalBuffer: true,
+            mutationLease,
+          });
+          return started.session;
+        }
 
-      const nextCommand = command ?? (
-        strategy === 'resume' ? session.resumeCommand : undefined
-      ) ?? session.command;
-      assertSessionCommandHasNoSensitiveValues(nextCommand);
-      const restartCodexLaunchMode =
-        profile.toolType === 'codex' && !isLocalShellCommand(nextCommand)
-          ? session.codexLaunchMode ?? 'native-responses'
-          : codexLaunchMode;
-      if (strategy === 'fresh') {
-        const started = await startSessionPty({
+        const nativeResume = nativeResumeCommandForSession(session, profile);
+        if (nativeResume) {
+          const baseCommand = session.command;
+          await startSessionPty({
+            session,
+            profile,
+            workspace,
+            command: nativeResume.command,
+            claudeLaunchMode,
+            codexLaunchMode: restartCodexLaunchMode,
+            sessionCommand: baseCommand,
+            resumeCommand: nativeResume.command,
+            resetTerminalBuffer: true,
+            mutationLease,
+          });
+          session.memoryRestore = {
+            method: 'native',
+            status: 'loaded',
+            summary: '记忆已恢复',
+          };
+          await appendRestoredSessionRecordStatus(session.id);
+          await saveSessionMetadata(session);
+          publishSessionChanged(session);
+          return cloneSession(session);
+        }
+
+        const memoryRestore = await restoreContextForRestart({
+          session: cloneSession(session),
+          profile,
+          workspace,
+          command: nextCommand,
+        });
+        const initialPrompt = memoryRestore?.status === 'loaded' && memoryRestore.instruction
+          ? restoreInstructionToInitialPrompt(memoryRestore.instruction)
+          : undefined;
+        const restoreInjectionPending = Boolean(
+          memoryRestore?.status === 'loaded' && initialPrompt,
+        );
+
+        // startSessionPty 会清空 memoryRestore；因此必须在 PTY 进入 running 之后再写回。
+        await startSessionPty({
           session,
           profile,
           workspace,
           command: nextCommand,
           claudeLaunchMode,
           codexLaunchMode: restartCodexLaunchMode,
+          initialPrompt,
+          sessionCommand: session.command,
+          resumeCommand: nextCommand !== session.command ? nextCommand : undefined,
           resetTerminalBuffer: true,
+          mutationLease,
+          onInitialPromptSettled: async (error) => {
+            if (!findSession(session.id) || !restoreInjectionPending) {
+              return;
+            }
+            if (error) {
+              session.memoryRestore = {
+                method: 'none',
+                status: 'failed',
+                summary: '记忆恢复失败',
+                contextFile: memoryRestore?.contextFile,
+                error,
+              };
+            } else if (!session.memoryRestore || session.memoryRestore.status !== 'loaded') {
+              session.memoryRestore = {
+                method: 'agentdock',
+                status: 'loaded',
+                summary: '记忆已恢复',
+                contextFile: memoryRestore?.contextFile,
+              };
+            }
+            if (!error) {
+              await appendRestoredSessionRecordStatus(session.id);
+            }
+            await saveSessionMetadata(session);
+            publishSessionChanged(session);
+          },
         });
-        return started.session;
-      }
-
-      const nativeResume = nativeResumeCommandForSession(session, profile);
-      if (nativeResume) {
-        const baseCommand = session.command;
-        await startSessionPty({
-          session,
-          profile,
-          workspace,
-          command: nativeResume.command,
-          claudeLaunchMode,
-          codexLaunchMode: restartCodexLaunchMode,
-          sessionCommand: baseCommand,
-          resumeCommand: nativeResume.command,
-          resetTerminalBuffer: true,
-        });
-        session.memoryRestore = {
-          method: 'native',
-          status: 'loaded',
-          summary: nativeResume.summary,
-        };
-        await saveSessionMetadata(session);
-        publishSessionChanged(session);
+        if (!findSession(session.id)) {
+          return cloneSession(session);
+        }
+        if (restoreInjectionPending) {
+          // 注入在后台进行；这里先返回“已加载恢复材料”，失败由 onInitialPromptSettled 回写。
+          if (cancelledRestoreSessionIds.delete(session.id)) {
+            session.memoryRestore = {
+              method: 'none',
+              status: 'failed',
+              summary: '记忆恢复失败',
+              contextFile: memoryRestore?.contextFile,
+            };
+          } else if (session.memoryRestore?.status !== 'failed') {
+            session.memoryRestore = {
+              method: 'agentdock',
+              status: 'loaded',
+              summary: '记忆已恢复',
+              contextFile: memoryRestore?.contextFile,
+            };
+          }
+        } else if (memoryRestore) {
+          session.memoryRestore = {
+            method: 'none',
+            status: memoryRestore.status,
+            summary: memoryRestoreSummary(memoryRestore.status),
+            contextFile: memoryRestore.contextFile,
+            error: memoryRestore.error,
+          };
+        }
+        if (session.memoryRestore) {
+          await saveSessionMetadata(session);
+          publishSessionChanged(session);
+        }
         return cloneSession(session);
-      }
-
-      const memoryRestore = await restoreContextForRestart({
-        session: cloneSession(session),
-        profile,
-        workspace,
-        command: nextCommand,
       });
-      const initialPrompt = memoryRestore?.status === 'loaded' && memoryRestore.instruction
-        ? restoreInstructionToInitialPrompt(memoryRestore.instruction)
-        : undefined;
-      const started = await startSessionPty({
-        session,
-        profile,
-        workspace,
-        command: nextCommand,
-        claudeLaunchMode,
-        codexLaunchMode: restartCodexLaunchMode,
-        initialPrompt,
-        sessionCommand: session.command,
-        resumeCommand: nextCommand !== session.command ? nextCommand : undefined,
-        resetTerminalBuffer: true,
-      });
-      if (!findSession(session.id)) {
-        return cloneSession(session);
-      }
-      if (memoryRestore) {
-        const restoreFailed = memoryRestore.status === 'loaded' && started.initialPromptError;
-        session.memoryRestore = {
-          method: memoryRestore.status === 'loaded' && !restoreFailed ? 'agentdock' : 'none',
-          status: restoreFailed ? 'failed' : memoryRestore.status,
-          summary: restoreFailed ? '记忆恢复失败' : memoryRestore.summary,
-          contextFile: memoryRestore.contextFile,
-          error: restoreFailed ? started.initialPromptError : memoryRestore.error,
-        };
-        await saveSessionMetadata(session);
-        publishSessionChanged(session);
-      }
-      return cloneSession(session);
     },
 
     async list(): Promise<AgentSession[]> {
@@ -1536,36 +1983,40 @@ export function createSessionService(
       if (!session) {
         throw new Error('未找到指定的终端会话');
       }
-
-      // Stop only affects the active PTY process. The long-lived Session Record
-      // and transcript stay available for later resume or deletion.
-      const ptySession = ptySessions.get(sessionId);
-      if (ptySession) {
-        initialPromptInjectors.get(sessionId)?.cancel();
-        initialPromptInjectors.delete(sessionId);
-        ptyUnsubscribers.get(sessionId)?.();
-        ptyUnsubscribers.delete(sessionId);
-        ptySessions.delete(sessionId);
-        ptySession.kill();
-      }
-      await Promise.all([
-        closeClaudeCompatProxy(sessionId),
-        closeCodexCompatibilityProxy(sessionId),
-      ]);
-      const workspace = workspacesBySessionId.get(sessionId);
-      if (workspace) {
-        flushTerminalDataTransformer(sessionId, workspace);
-        await endPersistenceStream(sessionId, workspace);
-      }
-      await waitForHistoryOutputFlush(sessionId);
-      pendingHistoryOutput.delete(sessionId);
-      pendingWorkspaceOutput.delete(sessionId);
-      session.status = 'stopped';
-      runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
-      delete session.runtimeOwner;
-      await saveSessionMetadata(session);
-      publishSessionChanged(session);
-      return cloneSession(session);
+      return withSessionMutationLease(sessionId, async () => {
+        // Stop only affects the active PTY process. The long-lived Session Record
+        // and transcript stay available for later resume or deletion.
+        const ptySession = ptySessions.get(sessionId);
+        if (ptySession) {
+          markPendingRestoreCancelled(sessionId);
+          initialPromptInjectors.get(sessionId)?.cancel();
+          initialPromptInjectors.delete(sessionId);
+          ptyUnsubscribers.get(sessionId)?.();
+          ptyUnsubscribers.delete(sessionId);
+          ptySessions.delete(sessionId);
+          activeSessionRunTokens.delete(sessionId);
+          ptySession.kill();
+        }
+        await finalSyncActiveSessionRecord(sessionId, 'stop');
+        await Promise.all([
+          closeClaudeCompatProxy(sessionId),
+          closeCodexCompatibilityProxy(sessionId),
+        ]);
+        const workspace = workspacesBySessionId.get(sessionId);
+        if (workspace) {
+          flushTerminalDataTransformer(sessionId, workspace);
+          await endPersistenceStream(sessionId, workspace);
+        }
+        await waitForHistoryOutputFlush(sessionId);
+        pendingHistoryOutput.delete(sessionId);
+        pendingWorkspaceOutput.delete(sessionId);
+        session.status = 'stopped';
+        runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
+        delete session.runtimeOwner;
+        await saveSessionMetadata(session);
+        publishSessionChanged(session);
+        return cloneSession(session);
+      });
     },
 
     async closeSessionView({ sessionId, viewId }: CloseSessionViewRequest): Promise<AgentSession> {
@@ -1587,51 +2038,105 @@ export function createSessionService(
       if (!session) {
         throw new Error('未找到指定的终端会话');
       }
-
-      session.archived = true;
-      await closeCodexCompatibilityProxy(sessionId);
-      await historyStore?.archiveSession(sessionId);
-      publishSessionChanged(session);
-      return cloneSession(session);
+      return withSessionMutationLease(sessionId, async () => {
+        session.archived = true;
+        await closeCodexCompatibilityProxy(sessionId);
+        await historyStore?.archiveSession(sessionId);
+        publishSessionChanged(session);
+        return cloneSession(session);
+      });
     },
 
     async deleteSessionRecord({ sessionId }: SessionRecordRequest): Promise<void> {
       await loadHistory();
-      const sessionIndex = sessions.findIndex((session) => session.id === sessionId);
+      let sessionIndex = sessions.findIndex((session) => session.id === sessionId);
       if (sessionIndex === -1) {
         throw new Error('未找到指定的终端会话');
       }
+      return withSessionMutationLease(sessionId, async () => {
+        const pendingFinalization = sessionLifecycleFinalizations.get(sessionId);
+        if (pendingFinalization) {
+          await pendingFinalization.catch(() => undefined);
+        }
+        sessionIndex = sessions.findIndex((session) => session.id === sessionId);
+        const session = sessions[sessionIndex];
+        if (sessionIndex === -1 || !session) {
+          throw new Error('未找到指定的终端会话');
+        }
 
-      const ptySession = ptySessions.get(sessionId);
-      if (ptySession) {
-        initialPromptInjectors.get(sessionId)?.cancel();
-        initialPromptInjectors.delete(sessionId);
-        ptyUnsubscribers.get(sessionId)?.();
-        ptyUnsubscribers.delete(sessionId);
-        ptySessions.delete(sessionId);
-        ptySession.kill();
-      }
-      await Promise.all([
-        closeClaudeCompatProxy(sessionId),
-        closeCodexCompatibilityProxy(sessionId),
-      ]);
-      const workspace = workspacesBySessionId.get(sessionId);
-      if (workspace) {
-        flushTerminalDataTransformer(sessionId, workspace);
-        await endPersistenceStream(sessionId, workspace);
-      }
-      await waitForHistoryOutputFlush(sessionId);
-      runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
-      sessions.splice(sessionIndex, 1);
-      terminalBuffers.delete(sessionId);
-      pendingHistoryOutput.delete(sessionId);
-      historyOutputFlushes.delete(sessionId);
-      pendingWorkspaceOutput.delete(sessionId);
-      workspaceOutputFlushes.delete(sessionId);
-      persistenceSanitizers.delete(sessionId);
-      terminalDataTransformers.delete(sessionId);
-      workspacesBySessionId.delete(sessionId);
-      await historyStore?.deleteRecord(sessionId);
+        const ptySession = ptySessions.get(sessionId);
+        if (ptySession) {
+          markPendingRestoreCancelled(sessionId);
+          initialPromptInjectors.get(sessionId)?.cancel();
+          initialPromptInjectors.delete(sessionId);
+          ptyUnsubscribers.get(sessionId)?.();
+          ptyUnsubscribers.delete(sessionId);
+          ptySessions.delete(sessionId);
+          activeSessionRunTokens.delete(sessionId);
+          ptySession.kill();
+        }
+        await finalSyncActiveSessionRecord(sessionId, 'stop');
+        await Promise.all([
+          closeClaudeCompatProxy(sessionId),
+          closeCodexCompatibilityProxy(sessionId),
+        ]);
+        const workspace = workspacesBySessionId.get(sessionId);
+        if (workspace) {
+          flushTerminalDataTransformer(sessionId, workspace);
+          await endPersistenceStream(sessionId, workspace);
+        }
+        await waitForHistoryOutputFlush(sessionId);
+        session.status = 'stopped';
+        runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
+        delete session.runtimeOwner;
+        const stoppedSessionSnapshot = {
+          ...session,
+          runtimeOwner: undefined,
+        };
+        const persistRetryableStoppedSession = async (): Promise<void> => {
+          if (historyStore?.saveSession) {
+            await historyStore.saveSession(stoppedSessionSnapshot, { allowDeletionPending: true });
+            return;
+          }
+          await saveSessionMetadata(stoppedSessionSnapshot);
+        };
+        // Restoring metadata is only legitimate while the record row may still
+        // exist; after deleteRecord succeeded a restore would resurrect a
+        // half-deleted session whose transcript and clear record are gone.
+        let recordRowDeleted = false;
+        try {
+          await persistRetryableStoppedSession();
+          await historyStore?.markDeletionPending?.(sessionId);
+          await recordSync.deleteSession(sessionId);
+          await historyStore?.deleteRecord(sessionId);
+          recordRowDeleted = true;
+          await historyStore?.completeDeletion?.(sessionId);
+        } catch {
+          if (!recordRowDeleted) {
+            try {
+              await persistRetryableStoppedSession();
+            } catch {
+              console.error('[session-lifecycle] 删除失败状态持久化失败');
+            }
+            publishSessionChanged(session);
+            throw new Error('清晰会话记录删除失败');
+          }
+          // The row is gone and only the tombstone cleanup failed; startup
+          // recovery finishes it.  Treat the deletion itself as successful.
+          console.error('[session-lifecycle] 删除完成确认失败，交由启动恢复清理');
+        }
+        sessions.splice(sessionIndex, 1);
+        terminalBuffers.delete(sessionId);
+        pendingHistoryOutput.delete(sessionId);
+        historyOutputFlushes.delete(sessionId);
+        pendingWorkspaceOutput.delete(sessionId);
+        workspaceOutputFlushes.delete(sessionId);
+        persistenceSanitizers.delete(sessionId);
+        terminalDataTransformers.delete(sessionId);
+        workspacesBySessionId.delete(sessionId);
+        activeBoundSessionRecordRunIds.delete(sessionId);
+        lastBoundSessionRecordRunIds.delete(sessionId);
+      }, { allowPendingDeletion: true });
     },
 
     async readTerminalBuffer({ sessionId }: TerminalBufferRequest): Promise<string> {
@@ -1652,23 +2157,25 @@ export function createSessionService(
       if (!session) {
         throw new Error('未找到指定的终端会话');
       }
-      if (!historyStore) {
-        throw new Error('会话历史存储不可用');
-      }
+      return withSessionMutationLease(sessionId, async () => {
+        if (!historyStore) {
+          throw new Error('会话历史存储不可用');
+        }
 
-      const workspace = workspacesBySessionId.get(sessionId);
-      if (workspace) {
-        await flushPersistenceStream(sessionId, workspace);
-      } else {
-        await waitForHistoryOutputFlush(sessionId);
-      }
-      const archive = await historyStore.archiveBuffer(sessionId);
-      session.historyLimitReached = false;
-      session.historyArchivePath = archive.filePath;
-      terminalBuffers.set(sessionId, '');
-      pendingHistoryOutput.delete(sessionId);
-      publishSessionChanged(session);
-      return archive;
+        const workspace = workspacesBySessionId.get(sessionId);
+        if (workspace) {
+          await flushPersistenceStream(sessionId, workspace);
+        } else {
+          await waitForHistoryOutputFlush(sessionId);
+        }
+        const archive = await historyStore.archiveBuffer(sessionId);
+        session.historyLimitReached = false;
+        session.historyArchivePath = archive.filePath;
+        terminalBuffers.set(sessionId, '');
+        pendingHistoryOutput.delete(sessionId);
+        publishSessionChanged(session);
+        return archive;
+      });
     },
 
     async getContextPressure({
@@ -1732,30 +2239,48 @@ export function createSessionService(
     },
 
     async dispose(): Promise<void> {
-      for (const [sessionId, ptySession] of ptySessions.entries()) {
-        initialPromptInjectors.get(sessionId)?.cancel();
-        initialPromptInjectors.delete(sessionId);
-        ptyUnsubscribers.get(sessionId)?.();
-        ptyUnsubscribers.delete(sessionId);
-        ptySessions.delete(sessionId);
-        ptySession.kill();
-        const workspace = workspacesBySessionId.get(sessionId);
-        if (workspace) {
-          flushTerminalDataTransformer(sessionId, workspace);
-          await endPersistenceStream(sessionId, workspace);
-        }
-        const session = findSession(sessionId);
-        if (session) {
-          session.status = historyStore ? 'interrupted' : 'stopped';
+      const activePtySessions = [...ptySessions.entries()];
+      await Promise.all(activePtySessions.map(async ([sessionId, ptySession]) => {
+        // 整个 per-session 清理都在 try/finally 内：任何一步抛错（final sync、
+        // 持久化流收尾等）都不能跳过 runtimeOwnerRegistry.release，否则该窗口
+        // 在共享 registry 上留下 ghost owner，其他窗口永久报「正在另一窗口运行」。
+        try {
+          markPendingRestoreCancelled(sessionId);
+          initialPromptInjectors.get(sessionId)?.cancel();
+          initialPromptInjectors.delete(sessionId);
+          ptyUnsubscribers.get(sessionId)?.();
+          ptyUnsubscribers.delete(sessionId);
+          ptySessions.delete(sessionId);
+          activeSessionRunTokens.delete(sessionId);
+          ptySession.kill();
+          await finalSyncActiveSessionRecord(sessionId, 'dispose');
+          const workspace = workspacesBySessionId.get(sessionId);
+          if (workspace) {
+            flushTerminalDataTransformer(sessionId, workspace);
+            await endPersistenceStream(sessionId, workspace);
+          }
+          const session = findSession(sessionId);
+          if (session) {
+            session.status = historyStore ? 'interrupted' : 'stopped';
+            await Promise.all([
+              closeClaudeCompatProxy(sessionId),
+              closeCodexCompatibilityProxy(sessionId),
+            ]);
+            delete session.runtimeOwner;
+            await saveSessionMetadata(session);
+          } else {
+            await Promise.all([
+              closeClaudeCompatProxy(sessionId),
+              closeCodexCompatibilityProxy(sessionId),
+            ]);
+          }
+        } catch {
+          // 单个会话的收尾失败不阻断其余会话与 dispose 尾部清理。
+          console.error('[session-lifecycle] 会话 dispose 收尾失败，继续清理');
+        } finally {
           runtimeOwnerRegistry.release(sessionId, runtimeOwnerId);
-          await Promise.all([
-            closeClaudeCompatProxy(sessionId),
-            closeCodexCompatibilityProxy(sessionId),
-          ]);
-          delete session.runtimeOwner;
-          await saveSessionMetadata(session);
         }
-      }
+      }));
 
       await Promise.allSettled([
         ...historyOutputFlushes.values(),
@@ -1777,7 +2302,12 @@ export function createSessionService(
       }
       codexCompatibilityProxies.clear();
       for (const sessionId of [...codexCompatibilityRuntimeHomes.keys()]) {
-        await removeCodexCompatibilityRuntimeHome(sessionId);
+        // 运行目录清理失败（例如安全校验拒绝删除）不应中断 dispose 尾部收尾。
+        try {
+          await removeCodexCompatibilityRuntimeHome(sessionId);
+        } catch {
+          console.error('[session-lifecycle] Codex 运行目录清理失败，跳过');
+        }
       }
       terminalBuffers.clear();
       pendingHistoryOutput.clear();
@@ -1788,6 +2318,10 @@ export function createSessionService(
       metadataSavePromises.clear();
       persistenceSanitizers.clear();
       terminalDataTransformers.clear();
+      activeSessionRunTokens.clear();
+      cancelledRestoreSessionIds.clear();
+      activeBoundSessionRecordRunIds.clear();
+      lastBoundSessionRecordRunIds.clear();
       terminalOutputListeners.clear();
       sessionChangedListeners.clear();
       await workspaceContext?.flush?.();

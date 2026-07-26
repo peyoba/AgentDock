@@ -42,6 +42,7 @@ import type {
   CloseSessionViewRequest,
   ClaudeLaunchMode,
   CodexLaunchMode,
+  GrokAuthMode,
   LaunchRequest,
   ProfileModelsFetchRequest,
   ProfileSecretReadRequest,
@@ -184,6 +185,15 @@ function sanitizeProfile(profile: ApiProfile): ApiProfile {
     keychainService: normalizedProfile.keychainService,
     keychainAccount: normalizedProfile.keychainAccount,
     codexHome: normalizedProfile.codexHome || undefined,
+    // Grok 字段必须保留：否则保存/列表时会丢掉 OAuth，UI 又默认回 api-key。
+    grokHome:
+      normalizedProfile.toolType === 'grok'
+        ? optionalTrimmedString(normalizedProfile.grokHome)
+        : undefined,
+    grokAuthMode:
+      normalizedProfile.toolType === 'grok'
+        ? validGrokAuthMode(normalizedProfile.grokAuthMode) ?? 'api-key'
+        : undefined,
     codexDefaultLaunchMode:
       normalizedProfile.toolType === 'codex'
         ? validCodexLaunchMode(normalizedProfile.codexDefaultLaunchMode)
@@ -250,6 +260,10 @@ function validCodexLaunchMode(value: unknown): CodexLaunchMode | undefined {
   return value === 'native-responses' || value === 'newapi-tool-compatible'
     ? value
     : undefined;
+}
+
+function validGrokAuthMode(value: unknown): GrokAuthMode | undefined {
+  return value === 'api-key' || value === 'oauth' ? value : undefined;
 }
 
 function normalizedLaunchModes(

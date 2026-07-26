@@ -462,4 +462,42 @@ describe('metadata stores', () => {
       expect.arrayContaining([expect.stringMatching(/^sessions\.corrupt-.*\.json$/)]),
     );
   });
+
+  it('blocks late metadata saves across a durable session deletion', async () => {
+    const store = createSessionHistoryStore(tempDir);
+    const session: AgentSession = {
+      id: 'session-delete-1',
+      title: 'Claude A · AgentDock',
+      profileId: 'profile-a',
+      workspaceId: 'workspace-a',
+      command: 'claude',
+      status: 'stopped',
+      startedAt: '2026-07-01T00:00:00.000Z',
+    };
+    await store.saveSession(session);
+    await store.markDeletionPending(session.id);
+
+    await store.saveSession({
+      ...session,
+      status: 'exited',
+      exitedAt: '2026-07-01T00:01:00.000Z',
+    });
+    await expect(store.listPendingDeletionIds()).resolves.toEqual([session.id]);
+    await expect(store.listSessions()).resolves.toEqual([
+      expect.objectContaining({ id: session.id, status: 'stopped' }),
+    ]);
+
+    await store.deleteRecord(session.id);
+    await store.completeDeletion(session.id);
+    await store.saveSession({
+      ...session,
+      status: 'exited',
+      exitedAt: '2026-07-01T00:02:00.000Z',
+    });
+
+    await expect(store.listPendingDeletionIds()).resolves.toEqual([]);
+    await expect(store.listSessions()).resolves.toEqual([]);
+    const reloaded = createSessionHistoryStore(tempDir);
+    await expect(reloaded.listSessions()).resolves.toEqual([]);
+  });
 });

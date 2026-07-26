@@ -210,12 +210,14 @@ describe('sessionService security boundary', () => {
       expect(spawnCommands.at(-1)).not.toContain('Current task relies on short memory restore.');
       expect(writes).toEqual([]);
 
-      dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
       const restarted = await restartPromise;
+      expect(writes).toEqual([]);
+      dataHandlers.get(session.id)?.('╭─── Claude Code v-test\n❯ ');
+      await vi.waitFor(() => expect(writes).toHaveLength(1));
       const returnedPayload = JSON.stringify({ restarted, sessions: await service.list() });
       expect(restarted.memoryRestore).toMatchObject({
         status: 'loaded',
-        summary: '记忆已恢复：已加载最近会话背景，等待你的下一步指令。',
+        summary: '记忆已恢复',
         contextFile: restoreContextFile,
       });
       expect(writes).toHaveLength(1);

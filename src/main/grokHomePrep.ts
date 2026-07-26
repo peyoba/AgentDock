@@ -74,6 +74,9 @@ export async function prepareGrokHome({
   nextConfig = upsertTomlSection(nextConfig, 'terminal', {
     alt_screen: tomlString('never'),
   });
+  nextConfig = upsertTomlSection(nextConfig, 'ui', {
+    screen_mode: tomlString('minimal'),
+  });
   await fs.writeFile(configPath, nextConfig.endsWith('\n') ? nextConfig : `${nextConfig}\n`, 'utf8');
 
   let notice: string | undefined;

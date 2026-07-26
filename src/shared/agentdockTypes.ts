@@ -183,8 +183,102 @@ export type CloseSessionViewRequest = {
   viewId: string;
 };
 
+export type SessionRecordEventKind =
+  | 'user_message'
+  | 'assistant_message'
+  | 'tool_call'
+  | 'tool_result'
+  | 'status';
+
+export type SessionRecordSource = 'claude' | 'codex' | 'grok' | 'agentdock';
+export type SessionRecordTrust = 'native' | 'derived-status';
+export type SessionRecordTimeSource = 'native' | 'read';
+export type SessionRecordSyncStatus =
+  | 'pending'
+  | 'syncing'
+  | 'ready'
+  | 'partial'
+  | 'stale'
+  | 'failed'
+  | 'unavailable';
+
+type SessionRecordEventBase = {
+  eventId: string;
+  sessionId: string;
+  runId: string;
+  sequence?: number;
+  occurredAt: string;
+  timeSource: SessionRecordTimeSource;
+  source: SessionRecordSource;
+  trust: SessionRecordTrust;
+  truncated: boolean;
+};
+
+export type SessionRecordEventDto =
+  | (SessionRecordEventBase & {
+      kind: 'user_message';
+      trust: 'native';
+      payload: { text: string };
+    })
+  | (SessionRecordEventBase & {
+      kind: 'assistant_message';
+      trust: 'native';
+      payload: { text: string };
+    })
+  | (SessionRecordEventBase & {
+      kind: 'tool_call';
+      trust: 'native';
+      payload: { toolName: string; argumentsSummary?: string };
+    })
+  | (SessionRecordEventBase & {
+      kind: 'tool_result';
+      trust: 'native';
+      payload: { outcome: 'success' | 'failure' | 'partial'; text?: string };
+    })
+  | (SessionRecordEventBase & {
+      kind: 'status';
+      source: 'agentdock';
+      trust: 'derived-status';
+      payload: {
+        code: 'started' | 'restored' | 'completed' | 'failed' | 'waiting';
+        text?: string;
+      };
+    });
+
+export type SessionRecordSnapshot = {
+  sessionId: string;
+  status: SessionRecordSyncStatus;
+  source?: Exclude<SessionRecordSource, 'agentdock'>;
+  events: SessionRecordEventDto[];
+  eventCount: number;
+  lastSyncedAt?: string;
+  message?: string;
+  truncated: boolean;
+  hasMore: boolean;
+};
+
+export type SessionRecordListRequest = {
+  sessionId: string;
+  beforeEventId?: string;
+  limit?: number;
+};
+
 export type SessionRecordRequest = {
   sessionId: string;
+};
+
+export type SessionRecordActionResult = {
+  status: 'completed' | 'canceled' | 'unavailable';
+  eventCount: number;
+  stale: boolean;
+  fileName?: string;
+};
+
+export type SessionDiagnosticsResult = {
+  sessionId: string;
+  text: string;
+  truncated: boolean;
+  label: '原始 PTY（诊断，不是正式记录）';
 };
 
 export type TerminalBufferRequest = {

@@ -8,6 +8,10 @@ import {
 } from '../privateFileSystem.js';
 import { createJsonStore } from './jsonStore.js';
 import {
+  createSessionDeletionJournal,
+  type SessionDeletionJournal,
+} from './sessionDeletionJournal.js';
+import {
   createSessionTranscriptStore,
   SESSION_TRANSCRIPT_TAIL_BYTES,
   type SessionTranscriptStore,
@@ -17,6 +21,10 @@ export const SESSION_HISTORY_BUFFER_LIMIT_BYTES = 5_000_000;
 export const SESSION_HISTORY_COUNT_LIMIT = 50;
 export const SESSION_TRANSCRIPT_TOTAL_LIMIT_BYTES = 1_000_000_000;
 const METADATA_PERSIST_DELTA_BYTES = 262_144;
+
+export type SessionHistorySaveOptions = {
+  allowDeletionPending?: boolean;
+};
 
 type SessionHistoryEntry = {
   id: string;
@@ -29,10 +37,14 @@ type LegacySessionHistoryEntry = SessionHistoryEntry & {
 
 export type SessionHistoryStore = {
   listSessions(): Promise<AgentSession[]>;
-  saveSession(session: AgentSession): Promise<void>;
+  saveSession(session: AgentSession, options?: SessionHistorySaveOptions): Promise<void>;
   closeView(sessionId: string, viewId: string): Promise<void>;
   archiveSession(sessionId: string): Promise<void>;
   deleteRecord(sessionId: string): Promise<void>;
+  markDeletionPending?(sessionId: string): Promise<void>;
+  completeDeletion?(sessionId: string): Promise<void>;
+  hasPendingDeletion?(sessionId: string): Promise<boolean>;
+  listPendingDeletionIds?(): Promise<string[]>;
   appendOutput(sessionId: string, data: string): Promise<{ limitReached: boolean }>;
   readBuffer(sessionId: string): Promise<string>;
   deleteSession(sessionId: string): Promise<void>;
@@ -44,6 +56,7 @@ type CreateSessionHistoryStoreOptions = {
   maxSessions?: number;
   maxTranscriptBytes?: number;
   transcriptStore?: SessionTranscriptStore;
+  deletionJournal?: SessionDeletionJournal;
 };
 
 function sortRecentFirst(entries: SessionHistoryEntry[]): SessionHistoryEntry[] {
@@ -151,6 +164,7 @@ export function createSessionHistoryStore(
     maxSessions = SESSION_HISTORY_COUNT_LIMIT,
     maxTranscriptBytes = SESSION_TRANSCRIPT_TOTAL_LIMIT_BYTES,
     transcriptStore = createSessionTranscriptStore(rootDir, { maxFileBytes: maxBufferBytes }),
+    deletionJournal = createSessionDeletionJournal(rootDir),
   }: CreateSessionHistoryStoreOptions = {},
 ): SessionHistoryStore {
   const sessionsFilePath = path.join(rootDir, 'sessions.json');
@@ -159,6 +173,8 @@ export function createSessionHistoryStore(
   let operationQueue: Promise<void> = Promise.resolve();
   let cachedEntries: SessionHistoryEntry[] | undefined;
   const persistedTranscriptSizes = new Map<string, number>();
+  const completedDeletionIds = new Set<string>();
+  const locallyMarkedDeletionIds = new Set<string>();
 
   async function enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const run = operationQueue.then(operation, operation);
@@ -277,7 +293,16 @@ export function createSessionHistoryStore(
     }
   }
 
-  async function saveSession(session: AgentSession): Promise<void> {
+  async function saveSession(
+    session: AgentSession,
+    { allowDeletionPending = false }: SessionHistorySaveOptions = {},
+  ): Promise<void> {
+    if (
+      !allowDeletionPending
+      && (completedDeletionIds.has(session.id) || await deletionJournal.has(session.id))
+    ) {
+      return;
+    }
     const entries = await listEntries();
     const existingEntry = entries.find((entry) => entry.id === session.id);
     const nextEntry: SessionHistoryEntry = {
@@ -297,6 +322,9 @@ export function createSessionHistoryStore(
     sessionId: string,
     update: (entry: SessionHistoryEntry) => SessionHistoryEntry,
   ): Promise<SessionHistoryEntry | undefined> {
+    if (completedDeletionIds.has(sessionId) || await deletionJournal.has(sessionId)) {
+      return undefined;
+    }
     const entries = await listEntries();
     const existingEntry = entries.find((entry) => entry.id === sessionId);
     if (!existingEntry) {
@@ -321,11 +349,19 @@ export function createSessionHistoryStore(
 
   return {
     async listSessions(): Promise<AgentSession[]> {
-      return enqueue(async () => (await listEntries()).map((entry) => ({ ...entry.session })));
+      return enqueue(async () => {
+        const pendingDeletionIds = new Set(await deletionJournal.list());
+        return (await listEntries())
+          .filter((entry) => (
+            (!pendingDeletionIds.has(entry.id) || locallyMarkedDeletionIds.has(entry.id))
+            && !completedDeletionIds.has(entry.id)
+          ))
+          .map((entry) => ({ ...entry.session }));
+      });
     },
 
-    saveSession(session: AgentSession): Promise<void> {
-      return enqueue(() => saveSession(session));
+    saveSession(session: AgentSession, options?: SessionHistorySaveOptions): Promise<void> {
+      return enqueue(() => saveSession(session, options));
     },
 
     closeView(sessionId: string, viewId: string): Promise<void> {
@@ -354,6 +390,9 @@ export function createSessionHistoryStore(
 
     async appendOutput(sessionId: string, data: string): Promise<{ limitReached: boolean }> {
       return enqueue(async () => {
+        if (completedDeletionIds.has(sessionId) || await deletionJournal.has(sessionId)) {
+          return { limitReached: false };
+        }
         const entries = await listEntries();
         const currentEntry = entries.find((entry) => entry.id === sessionId);
         if (!currentEntry) {
@@ -377,11 +416,42 @@ export function createSessionHistoryStore(
     },
 
     async readBuffer(sessionId: string): Promise<string> {
-      return enqueue(async () => (await transcriptStore.readTail(sessionId)).content);
+      return enqueue(async () => {
+        if (completedDeletionIds.has(sessionId) || await deletionJournal.has(sessionId)) {
+          return '';
+        }
+        return (await transcriptStore.readTail(sessionId)).content;
+      });
     },
 
     async deleteRecord(sessionId: string): Promise<void> {
       return deleteRecordById(sessionId);
+    },
+
+    markDeletionPending(sessionId: string): Promise<void> {
+      return enqueue(async () => {
+        completedDeletionIds.delete(sessionId);
+        locallyMarkedDeletionIds.add(sessionId);
+        await deletionJournal.mark(sessionId);
+      });
+    },
+
+    completeDeletion(sessionId: string): Promise<void> {
+      return enqueue(async () => {
+        await deletionJournal.clear(sessionId);
+        locallyMarkedDeletionIds.delete(sessionId);
+        completedDeletionIds.add(sessionId);
+      });
+    },
+
+    hasPendingDeletion(sessionId: string): Promise<boolean> {
+      return enqueue(async () => (
+        completedDeletionIds.has(sessionId) || await deletionJournal.has(sessionId)
+      ));
+    },
+
+    listPendingDeletionIds(): Promise<string[]> {
+      return enqueue(() => deletionJournal.list());
     },
 
     deleteSession(sessionId: string): Promise<void> {

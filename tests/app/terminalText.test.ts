@@ -60,4 +60,26 @@ describe('readableSessionHistory', () => {
 
     expect(readableSessionHistory(terminalHistory)).toBe(terminalHistory);
   });
+
+  it('removes Grok TUI chrome so conversation history stays readable', () => {
+    const terminalHistory = [
+      '╭────────────────────────────────────────╮',
+      '│ Ctrl+o:always-approve  │  Space:prompt │',
+      '│ Ctrl+x:shortcutsCtrl+x:shortcuts       │',
+      '╰────────────────────────────────────────╯',
+      '────────────────────────',
+      '› 帮我看一下串口连接。',
+      '可以，先确认 /dev/cu.usbserial-10 是否存在。',
+      '┌──────┬────────┐',
+      'thinking  │  Space:prompt',
+    ].join('\n');
+
+    const readableHistory = readableSessionHistory(terminalHistory);
+
+    expect(readableHistory).toContain('› 帮我看一下串口连接。');
+    expect(readableHistory).toContain('可以，先确认 /dev/cu.usbserial-10 是否存在。');
+    expect(readableHistory).not.toContain('Ctrl+x:shortcuts');
+    expect(readableHistory).not.toContain('Space:prompt');
+    expect(readableHistory).not.toContain('always-approve');
+  });
 });

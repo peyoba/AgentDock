@@ -63,3 +63,10 @@
 |------|------|------|----------|
 | 2026-07-19 | 更新检查改用 `releases.atom`，纳入 pre-release | `/releases/latest` 会忽略 pre-release，导致 v0.1.2 无法被发现 | updateCheckService、发布策略 |
 | 2026-07-19 | 发布 v0.1.3 正式/可发现版本承载更新检查修复 | 旧客户端只有发现比当前更新的版本才会去下载 | Release、README |
+
+## 2026-07-26 清晰会话记录 Task 6.5 修复批次
+
+| 日期 | 决策 | 原因 | 影响范围 |
+|------|------|------|----------|
+| 2026-07-26 | 会话记录跨 Session 总保留策略（records-root 全局剪枝 + 孤儿目录回收）延期到 Task 9 之后单独立项 | Task 6.5 已把目录创建移到写路径（纯读不再产生孤儿目录），新增目录只在真实写入同步状态/事件时出现，增长速率与会话数线性且单会话已有 64MB/50k 事件上限；全局剪枝需要与会话删除/启动恢复交互设计，不适合在修复批次内仓促实现 | sessionRecordEventFiles、删除生命周期、SPEC §9.1 |
+| 2026-07-26 | 中段损坏的 events.jsonl 保持只读证据，不做自动修复重写；仅放开 index-only 状态写入（status/message/lastSyncedAt），cursor/binding 推进仍拒绝 | 自动重写会销毁损坏证据且有二次损坏风险；index-only 写入满足 SPEC §8.3 的失败/退避状态持久化需求；显式修复（另存 corrupt 文件 + 重写有效前缀）留待带 UI 的恢复流程设计 | sessionRecordEventStore、同步失败路径 |

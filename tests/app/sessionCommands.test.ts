@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_GROK_COMMAND,
   LOCAL_SHELL_COMMAND,
   commandExecutableName,
   isLocalShellCommand,
   isSupportedSessionCommand,
+  withGrokScrollbackFriendlyFlags,
 } from '../../src/shared/sessionCommands';
 
 describe('sessionCommands', () => {
@@ -31,5 +33,22 @@ describe('sessionCommands', () => {
     expect(isSupportedSessionCommand('grok --no-alt-screen')).toBe(true);
     expect(isSupportedSessionCommand('grok.exe --no-alt-screen')).toBe(true);
     expect(commandExecutableName('/Users/me/.local/bin/grok --resume abc')).toBe('grok');
+  });
+
+  it('upgrades grok commands to scrollback-friendly minimal mode', () => {
+    expect(DEFAULT_GROK_COMMAND).toBe('grok --no-alt-screen --minimal');
+    expect(withGrokScrollbackFriendlyFlags('grok --no-alt-screen')).toBe(
+      'grok --no-alt-screen --minimal',
+    );
+    expect(withGrokScrollbackFriendlyFlags('grok --no-alt-screen --minimal')).toBe(
+      'grok --no-alt-screen --minimal',
+    );
+    expect(withGrokScrollbackFriendlyFlags('grok --no-alt-screen --resume sess-1')).toBe(
+      'grok --no-alt-screen --resume sess-1 --minimal',
+    );
+    expect(withGrokScrollbackFriendlyFlags('grok --fullscreen')).toBe('grok --fullscreen');
+    expect(withGrokScrollbackFriendlyFlags('claude --dangerously-skip-permissions')).toBe(
+      'claude --dangerously-skip-permissions',
+    );
   });
 });

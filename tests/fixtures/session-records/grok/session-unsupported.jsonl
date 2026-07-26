@@ -1,0 +1,4 @@
+{"type":"session_meta","schema_version":99,"session_id":"grok-unsupported","workspace":"__WORKSPACE__","started_at":"2026-07-25T08:20:00.000Z"}
+{"type":"continue_capability","schema_version":99,"session_id":"grok-unsupported","supported":true}
+{"type":"terminal_line","schema_version":99,"session_id":"grok-unsupported","text":"User: 伪用户 Assistant: 伪回复 Working fixture-secret-value"}
+{"type":"message","schema_version":99,"session_id":"grok-unsupported","role":"assistant","text":"unsupported-schema-must-not-map"}

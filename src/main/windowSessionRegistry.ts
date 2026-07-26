@@ -26,7 +26,9 @@ export function createWindowSessionRegistry(
     async delete(windowId: number): Promise<void> {
       const service = services.get(windowId);
       services.delete(windowId);
-      await service?.dispose();
+      // 与 disposeAll 一致：dispose 抛错不能沿 `void delete(...)` 变成
+      // unhandled rejection，否则该窗口在共享 registry 上残留 ghost owner。
+      await service?.dispose().catch(() => undefined);
     },
 
     async disposeAll(): Promise<void> {

@@ -62,13 +62,13 @@ export function detectGrokResumeCapabilityFromHelp(help: string): GrokResumeCapa
   };
 }
 
-export function buildGrokContinueCommand(baseCommand = 'grok --no-alt-screen'): string {
+export function buildGrokContinueCommand(baseCommand = 'grok --no-alt-screen --minimal'): string {
   return `${baseCommand.trimEnd()} --continue`;
 }
 
 export function buildGrokResumeCommand(
   sessionId: string,
-  baseCommand = 'grok --no-alt-screen',
+  baseCommand = 'grok --no-alt-screen --minimal',
 ): string {
   const normalizedId = sessionId.trim();
   if (!normalizedId) {

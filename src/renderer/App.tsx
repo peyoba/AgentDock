@@ -13,6 +13,7 @@ import { defaultApiProfiles } from '../shared/defaultApiProfiles';
 import { sessionStatusLabel } from '../shared/sessionStatusLabels';
 import { readableSessionHistory, terminalOutputToPlainText } from '../shared/terminalText';
 import {
+  DEFAULT_GROK_COMMAND,
   LOCAL_SHELL_COMMAND,
   commandExecutableName,
   isLocalShellCommand,
@@ -75,7 +76,7 @@ const fallbackSessions: AgentSession[] = [
 ];
 
 const fallbackBuildInfo: AppBuildInfo = {
-  version: '0.1.3',
+  version: '0.1.5',
   buildId: 'preview',
   buildTime: '2026-07-08T00:00:00.000Z',
   commit: 'unknown',
@@ -105,7 +106,7 @@ function defaultCommandFor(profile?: ApiProfile): string {
   }
 
   if (profile?.toolType === 'grok') {
-    return 'grok --no-alt-screen';
+    return DEFAULT_GROK_COMMAND;
   }
 
   return profile?.toolType ?? 'claude --dangerously-skip-permissions';

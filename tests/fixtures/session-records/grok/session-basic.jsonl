@@ -1,0 +1,5 @@
+{"type":"session_meta","schema_version":1,"session_id":"grok-session-1","workspace":"__WORKSPACE__","started_at":"2026-07-25T08:00:00.000Z"}
+{"type":"message","schema_version":1,"session_id":"grok-session-1","id":"grok-user-1","sequence":1,"timestamp":"2026-07-25T08:00:01.000Z","role":"user","text":"检查 Grok 会话 OPENAI_API_KEY=fixture-secret-value"}
+{"type":"message","schema_version":1,"session_id":"grok-session-1","sequence":2,"timestamp":"2026-07-25T08:00:02.000Z","role":"assistant","text":"开始检查 Grok 会话。"}
+{"type":"tool_call","schema_version":1,"session_id":"grok-session-1","id":"grok-tool-1","sequence":3,"timestamp":"2026-07-25T08:00:03.000Z","tool_name":"exec_command","arguments":{"cmd":"npm test","token":"fixture-secret-value"}}
+{"type":"tool_result","schema_version":1,"session_id":"grok-session-1","id":"grok-result-1","sequence":4,"timestamp":"2026-07-25T08:00:04.000Z","outcome":"success","text":"tests passed fixture-secret-value"}
