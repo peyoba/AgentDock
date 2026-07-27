@@ -2,7 +2,7 @@
 
 **项目**: AgentDock 代理坞
 **生成时间**: 2026-07-03 19:15
-**当前版本**: Phase 2 完成
+**当前版本**: v0.1.5（Phase 2 完成，clear-session-record 已并入 main）
 **项目状态**: MVP 产品化阶段，准备后续迭代
 
 ---
@@ -204,6 +204,8 @@ npm run package:mac     # 打包 macOS app
 
 | 日期 | 类型 | 内容 |
 |------|------|------|
+| 2026-07-26 | 功能 | clear session record 功能合入 main（87e09a8）：私有会话事件流 + 原生 CLI 记录读取（claude/codex/grok）；修复 partial/unavailable 语义回归（区分"扫描被截断"应 partial vs"安全拒绝/目录不存在"应 unavailable，新增 `findTruncationWarning` 白名单判定） |
+| 2026-07-26 | 构建 | 版本统一到 0.1.5（package.json 被 stash 误带跳号，lock/preload/App 曾停在 0.1.3）；打包测试改为动态读版本、不再硬编码；清除两个 git stash 泄漏的历史 commit（软重置+重新提交，树 hash 逐字节对账零丢失） |
 | 2026-07-09 | 修复 | 全面代码审查修复两批（09a0db2、1fd17d8）：历史写入性能放大+transcript 滚动截断、session ID 复用、compat proxy 流式转发/关闭阻塞、JSON 原子写+损坏兜底、历史 transcript 密钥脱敏、退出可靠落盘、ApiConfigPanel 修复、IPC 纵深防御、workspace 上下文容量控制、renderer 批量修复 |
 | 2026-07-06 | 修复 | 复制粘贴补全：Edit 菜单加全选（Cmd+A）、输入框/选中文本右键编辑菜单、终端右键"有选中复制、无选中粘贴" |
 | 2026-07-05 | 修复 | vault 密钥材料 v2（去除 hostname/目录依赖 + legacy 自愈），9 条已存记录已迁移；标签悬停 0.3s 自定义 tooltip；打包排除本地工具文件；出厂配置去除本机代理 |
