@@ -120,7 +120,10 @@ export function createInitialPromptInjector({
           ? startupOutput.includes('>_ OpenAI Codex')
           : tool === 'grok'
             ? /Grok/i.test(startupOutput) || startupOutput.includes('grok')
-            : startupOutput.includes('Claude Code')
+            // Newer Claude banners lay out "Claude" and "Code" with cursor
+            // positioning rather than a literal space, so the stripped text can
+            // read "ClaudeCode"; tolerate optional whitespace between the words.
+            : /Claude\s*Code/.test(startupOutput)
       );
 
       if (tool === 'codex' && hasCodexUpdateHeading(rawStartupOutput)) {

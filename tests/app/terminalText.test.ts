@@ -1,10 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { readableSessionHistory } from '../../src/shared/terminalText';
+import { readableSessionHistory, terminalOutputToPlainText } from '../../src/shared/terminalText';
+
+describe('terminalOutputToPlainText', () => {
+  it('preserves rows that newer CLI TUIs terminate with a doubled carriage return', () => {
+    // Claude Code v2.1.201 emits `\r\r\n` row terminators and lays out the banner
+    // words with cursor positioning rather than literal spaces. The trailing CR
+    // must not be treated as a redraw that clears the row's content.
+    const rawTerminalOutput = [
+      '[1mClaude[19GCode[24G[22m[38;5;241mv2.1.201[39m\r\r\n',
+      '[38;5;246m────────[39m\r\r\n',
+      '❯ [7m [27m\r\r\n',
+    ].join('');
+
+    const plainText = terminalOutputToPlainText(rawTerminalOutput);
+
+    expect(/Claude\s*Code/.test(plainText)).toBe(true);
+    expect(plainText).toContain('❯');
+  });
+});
 
 describe('readableSessionHistory', () => {
   it('removes CLI startup and AgentDock restore noise while preserving the conversation', () => {
     const terminalHistory = [
-      '\u001b[33m⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.\u001b[0m',
+      '[33m⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.[0m',
       '┌────────────────────────────────────────────────────────────┐',
       '>_ OpenAI Codex (v0.144.1)',
       'model:       doubao-seed-evolving-latest-version   /model to change',

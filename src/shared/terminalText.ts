@@ -26,7 +26,10 @@ const boxDrawingCharPattern = /[┌┐└┘─│├┤┬┴┼╭╮╰╯━
 
 function collapseCarriageReturnRedraws(data: string): string {
   return data
-    .replace(/\r\n/g, '\n')
+    // Newer CLI TUIs terminate rows with `\r\r\n`; collapse any run of carriage
+    // returns immediately before a newline so the trailing CR is not mistaken
+    // for a line redraw that would clear the row's content below.
+    .replace(/\r+\n/g, '\n')
     .split('\n')
     .map((line) => {
       const frames = line.split('\r');
