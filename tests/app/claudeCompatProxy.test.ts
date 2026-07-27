@@ -243,6 +243,78 @@ describe('startClaudeCompatProxy', () => {
     }
   });
 
+  it('keeps a slow SSE stream alive past undici\'s idle timeout', async () => {
+    // Reproduces the "Claude stops mid-run" report: an upstream relay stays
+    // silent between SSE chunks longer than undici's body timeout. We shrink the
+    // *global* dispatcher timeout to make the gap trip quickly; the proxy's own
+    // no-timeout dispatcher must override it so the stream still completes.
+    const { Agent, getGlobalDispatcher, setGlobalDispatcher } = await import('undici');
+    const previousDispatcher = getGlobalDispatcher();
+    setGlobalDispatcher(new Agent({ headersTimeout: 1000, bodyTimeout: 1000 }));
+
+    let finishUpstream: (() => void) | undefined;
+    const upstream = await new Promise<{ url: string; close(): Promise<void> }>((resolve) => {
+      const server = http.createServer((_request, response) => {
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.write('event: first\n\n');
+        // Silent gap longer than the 1s global body timeout before the next chunk.
+        const timer = setTimeout(() => response.end('event: second\n\n'), 2500);
+        finishUpstream = () => {
+          clearTimeout(timer);
+          response.end('event: second\n\n');
+        };
+      });
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        if (!address || typeof address === 'string') {
+          throw new Error('invalid test server address');
+        }
+        resolve({
+          url: `http://127.0.0.1:${address.port}`,
+          close: () =>
+            new Promise((done) => {
+              server.close(() => done());
+              server.closeAllConnections();
+            }),
+        });
+      });
+    });
+    const proxy = await startClaudeCompatProxy({
+      upstreamBaseUrl: upstream.url,
+      profileId: 'profile-a',
+      sessionId: 'session-a',
+    });
+
+    // The test client relays the same silent gap, so give its own fetch a
+    // no-timeout dispatcher. This isolates the assertion to the proxy->upstream
+    // hop, which is the connection the fix governs.
+    const clientDispatcher = new Agent({ headersTimeout: 0, bodyTimeout: 0 });
+    try {
+      const response = await fetch(`${proxy.baseUrl}/v1/messages`, {
+        method: 'GET',
+        dispatcher: clientDispatcher,
+      } as RequestInit);
+      const reader = response.body!.getReader();
+      const first = await reader.read();
+      expect(Buffer.from(first.value!).toString('utf8')).toContain('event: first');
+
+      let rest = '';
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        rest += Buffer.from(chunk.value!).toString('utf8');
+      }
+      // Without the no-timeout dispatcher the proxy->upstream read would reject
+      // with UND_ERR_BODY_TIMEOUT before the second event ever arrived.
+      expect(rest).toContain('event: second');
+    } finally {
+      await clientDispatcher.close().catch(() => undefined);
+      setGlobalDispatcher(previousDispatcher);
+      await proxy.close();
+      await upstream.close();
+    }
+  }, 10000);
+
   it('close() resolves even while a streaming request is still open', async () => {
     const upstream = await new Promise<{ url: string; close(): Promise<void> }>((resolve) => {
       const server = http.createServer((_request, response) => {

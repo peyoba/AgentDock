@@ -22,7 +22,8 @@
     "@xterm/xterm": "^5.5.0",
     "node-pty": "^1.0.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "undici": "^7.28.0"
   },
   "devDependencies": {
     "@electron/packager": "^20.0.1",

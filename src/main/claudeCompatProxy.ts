@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import http from 'node:http';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { streamingProxyDispatcher } from './streamingProxyDispatcher.js';
 
 const INTERLEAVED_THINKING_BETA = 'interleaved-thinking-2025-05-14';
 const UNSUPPORTED_BETAS = new Set([
@@ -314,12 +315,16 @@ export async function startClaudeCompatProxy({
       }
 
       const upstreamUrl = resolveUpstreamUrl(upstreamBaseUrl, requestUrl);
+      const dispatcher = await streamingProxyDispatcher();
       const upstreamResponse = await fetch(upstreamUrl, {
         method: request.method,
         headers: fetchHeaders(headers),
         body: request.method === 'GET' || request.method === 'HEAD' ? undefined : bodyText,
         signal: upstreamAbort.signal,
-      });
+        // Disable undici's 5-minute idle timeouts so long, silent SSE turns are
+        // not aborted mid-run. See streamingProxyDispatcher for the full rationale.
+        ...(dispatcher ? { dispatcher } : {}),
+      } as RequestInit);
 
       response.writeHead(upstreamResponse.status, responseHeaders(upstreamResponse.headers));
       if (upstreamResponse.body) {

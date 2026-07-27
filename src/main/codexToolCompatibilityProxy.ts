@@ -9,6 +9,7 @@ import {
   createCodexInternalModelAlias,
   rewriteCodexCompatibilityRequest,
 } from './codexToolCompatibilityRequest.js';
+import { streamingProxyDispatcher } from './streamingProxyDispatcher.js';
 
 export type CodexToolCompatibilityProxyLogEvent = {
   profileId: string;
@@ -177,12 +178,16 @@ export async function startCodexToolCompatibilityProxy({
     try {
       const bodyText = await readBoundedBody(request);
       const rewrittenBody = rewriteCodexCompatibilityRequest({ bodyText, internalModel, upstreamModel });
+      const dispatcher = await streamingProxyDispatcher();
       const upstreamResponse = await fetch(upstreamResponsesUrl(upstreamBase, requestUrl), {
         method: 'POST',
         headers: upstreamRequestHeaders(request, upstreamApiKey),
         body: JSON.stringify(rewrittenBody),
         signal: upstreamAbort.signal,
-      });
+        // Disable undici's 5-minute idle timeouts so long, silent SSE turns are
+        // not aborted mid-run. See streamingProxyDispatcher for the full rationale.
+        ...(dispatcher ? { dispatcher } : {}),
+      } as RequestInit);
 
       if (!upstreamResponse.ok) {
         upstreamAbort.abort();
