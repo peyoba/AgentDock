@@ -1,5 +1,5 @@
 import type { AgentSession } from '../shared/agentdockTypes.js';
-import { terminalOutputToPlainText } from '../shared/terminalText.js';
+import { readableSessionHistory } from '../shared/terminalText.js';
 import { redactSummarySecrets } from './sessionSummaryStore.js';
 
 export type ContextRestorePromptInput = {
@@ -14,10 +14,12 @@ export function buildContextRestorePrompt({
   transcriptTail,
 }: ContextRestorePromptInput): string {
   const safeSummary = summaryMarkdown?.trim()
-    ? redactSummarySecrets(terminalOutputToPlainText(summaryMarkdown.trim()).trim())
+    ? redactSummarySecrets(readableSessionHistory(summaryMarkdown.trim()).trim())
     : 'No AgentDock summary is available. Use the recent transcript tail below as fallback context.';
+  // See restoreContextStore.normalizeReadableText: raw PTY tails are mostly
+  // redraw noise, so collapse them before they reach the prompt.
   const safeTranscriptTail = redactSummarySecrets(
-    terminalOutputToPlainText(transcriptTail).trim(),
+    readableSessionHistory(transcriptTail).trim(),
   );
 
   return [

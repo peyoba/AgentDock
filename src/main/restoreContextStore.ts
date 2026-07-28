@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { AgentSession, MemoryRestoreState } from '../shared/agentdockTypes.js';
-import { terminalOutputToPlainText } from '../shared/terminalText.js';
+import { readableSessionHistory } from '../shared/terminalText.js';
 import {
   ensurePrivateDirectory,
   writePrivateFileAtomically,
@@ -33,8 +33,11 @@ function safeRestoreFileName(sessionId: string): string {
   return `${sessionId.replace(/[^A-Za-z0-9._-]/g, '_')}.md`;
 }
 
+// Raw PTY buffers are dominated by TUI redraw frames: blank rows, box-drawing
+// borders and repeated status bars. Collapsing them here (before boundedTail)
+// keeps the character budget spent on real conversation instead of whitespace.
 function normalizeReadableText(value: string | undefined): string {
-  return redactSecrets(terminalOutputToPlainText(value ?? '').trim())
+  return redactSecrets(readableSessionHistory(value ?? '').trim())
     .split('\n')
     .filter((line) => !hasSecretAssignment(line))
     .join('\n')

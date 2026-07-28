@@ -15,10 +15,15 @@ import { fetchProfileModels } from './modelFetchService.js';
 import { startCodexToolCompatibilityProxy } from './codexToolCompatibilityProxy.js';
 import type { SessionService } from './sessionService.js';
 import { createRuntimeOwnerRegistry, createSessionService } from './sessionService.js';
+import { createSessionRecordSyncService } from './sessionRecordSyncService.js';
+import { createClaudeRecordSource } from './recordSources/claudeRecordSource.js';
+import { createCodexRecordSource } from './recordSources/codexRecordSource.js';
+import { createGrokRecordSource } from './recordSources/grokRecordSource.js';
 import { installSingleInstanceGuard } from './singleInstanceGuard.js';
 import { createSessionSummaryStore } from './sessionSummaryStore.js';
 import { createProfileStore } from './stores/profileStore.js';
 import { createSessionFileIndexStore } from './stores/sessionFileIndexStore.js';
+import { createSessionRecordEventStore } from './stores/sessionRecordEventStore.js';
 import { createSessionHistoryStore } from './stores/sessionHistoryStore.js';
 import { createWorkspaceStore } from './stores/workspaceStore.js';
 import { createSummaryJobService } from './summaryJobService.js';
@@ -94,6 +99,22 @@ function createSecretAdapter(dataPath: string): KeychainAdapter {
 const secretAdapter = createSecretAdapter(userDataPath);
 const workspaceContextStore = createWorkspaceContextStore();
 const sessionSummaryStore = createSessionSummaryStore();
+// recordHome 解析依赖 homeDir（claude 恒为 ~/.claude，codex/grok 自定义可用 ~ 前缀）。
+// 顶层固定一个 homeDir，既传给每窗口 service，又用来构造 adapter 的 approvedRoots，
+// 保证「允许目录」与运行时实际 recordHome 同源，避免边界校验误拒。
+const recordHomeBase = process.env.HOME ?? process.env.USERPROFILE ?? app.getPath('home');
+// 全局唯一：多窗口共享同一 JSONL store 与同步服务，避免重复写入。sessionId 已按窗口前缀
+// 隔离，共享 store 无冲突。approvedRoots 覆盖 claude 的 ~/.claude 与 codex/grok 在
+// userData / home 下的默认或 ~ 自定义目录；完全越界的绝对路径按安全边界拒绝。
+const sessionRecordEventStore = createSessionRecordEventStore(userDataPath);
+const sessionRecordSyncService = createSessionRecordSyncService({
+  store: sessionRecordEventStore,
+  adapters: [
+    createClaudeRecordSource({ approvedRoots: [path.join(recordHomeBase, '.claude')] }),
+    createCodexRecordSource({ approvedRoots: [userDataPath, recordHomeBase] }),
+    createGrokRecordSource({ approvedRoots: [userDataPath, recordHomeBase] }),
+  ],
+});
 const windowRestoreHistory = new Map<number, boolean>();
 const sessionRegistry = createWindowSessionRegistry((windowId) => {
   let service: SessionService;
@@ -101,9 +122,11 @@ const sessionRegistry = createWindowSessionRegistry((windowId) => {
     keychain: secretAdapter,
     pty: createNodePtyAdapter(),
     appDataPath: userDataPath,
+    homeDir: recordHomeBase,
     workspaceExists: fs.existsSync,
     workspaceContext: workspaceContextStore,
     historyStore: sessionHistoryStore,
+    recordSync: sessionRecordSyncService,
     restoreHistory: windowRestoreHistory.get(windowId) ?? true,
     // 每窗口唯一前缀，避免多窗口在同一 workspace 下 transcript 文件互相覆盖
     sessionIdPrefix: `w${windowId}-`,
@@ -790,6 +813,9 @@ app.on('before-quit', (event) => {
   void sessionRegistry
     .disposeAll()
     .catch(() => undefined)
+    // 窗口 service 全部收尾后再 dispose 全局 sync service：先落盘每个会话的最终同步，
+    // 再释放共享 JSONL 资源。关闭单个窗口不触碰它（见 windowSessionRegistry.delete）。
+    .then(() => sessionRecordSyncService.dispose().catch(() => undefined))
     .then(() => {
       app.quit();
     });
